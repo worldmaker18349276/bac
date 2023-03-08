@@ -2,6 +2,8 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-unused-matches #-}
 
 module BAC where
 
@@ -9,17 +11,16 @@ import Control.Monad (guard)
 import qualified Control.Monad as Monad
 import Data.Bifunctor (Bifunctor (first, second), bimap)
 import Data.Foldable (for_)
-import Data.Function ((&))
 import Data.List (delete, elemIndices, findIndex, groupBy, nub, nubBy, sort, sortOn, transpose)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, mapMaybe, fromJust, isJust, listToMaybe)
+import Data.Maybe (fromMaybe, mapMaybe, fromJust, listToMaybe)
 import Data.Traversable (for)
 import Data.Tuple (swap)
 import DisjointSet (bipartiteEqclass)
 import Memoize (unsafeMemoizeWithKey)
 import qualified DAG
-import Control.Monad.Trans (lift)
+import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (runMaybeT, MaybeT))
 import Control.Monad.Identity (Identity (runIdentity))
 
@@ -842,7 +843,7 @@ expandMergingSymbols :: Node e n -> [[Symbol]] -> Maybe [[Symbol]]
 expandMergingSymbols bac =
   traverse (traverse (`walk` root bac))
   .> fmap (
-    zip [0..]
+    zip ([0..] :: [Integer])
     .> concatMap sequence
     .> fmap (fmap (dict .> Map.toList))
     .> concatMap sequence
