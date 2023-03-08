@@ -10,7 +10,7 @@ module BAC where
 import Control.Monad (guard)
 import qualified Control.Monad as Monad
 import Data.Bifunctor (Bifunctor (first, second), bimap)
-import Data.Foldable (for_)
+import Data.Foldable (for_, foldlM)
 import Data.List (delete, elemIndices, findIndex, groupBy, nub, nubBy, sort, sortOn, transpose)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
@@ -913,15 +913,14 @@ knot value children eqclass = do
         )
         |> \edges -> Node {edges = edges, nvalue = value}
 
-  let maybe_list !!? i = maybe_list >>= (take i .> listToMaybe)
-  let pathToPointer indices =
-        foldl
-        (fmap ((table !) .> snd .> fmap snd) .> (!!?))
-        (head indices |> (children |> fmap snd |> Just |> (!!?)))
-        (tail indices)
+  let pathToPointer indices = do
+        guard $ not (null indices)
+        let list !!? i = list |> drop i |> listToMaybe
+        p0 <- fmap snd children !!? head indices
+        let walk p index = fmap snd (snd (table ! p)) !!? index
+        foldlM walk p0 (tail indices)
 
   lift $ MaybeT $ pure $ for_ eqclass $ \rels -> do
-    guard $ rels |> all (null .> not)
     ptrs <- rels |> traverse pathToPointer
     guard $ ptrs |> nub |> length |> (<= 1)
 
