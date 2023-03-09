@@ -58,16 +58,20 @@ library
     import:           warnings
 
     -- Modules exported by the library.
-    exposed-modules:  BAC
+    exposed-modules:  BAC, Braider
 
     -- Modules included in this library but not exported.
-    -- other-modules:
+    other-modules:  DisjointSet, DAG, Memoize
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.14.3.0, containers ^>=0.6.7, transformers ^>=0.6.1, mtl ^>=2.3.1
+    build-depends:
+        base ^>=4.14.3.0,
+        containers ^>=0.6.7,
+        transformers ^>=0.6.1,
+        mtl ^>=2.3.1
 
     -- Directories containing source files.
     hs-source-dirs:   src
@@ -100,4 +104,5 @@ test-suite bachs-test
     -- Test dependencies.
     build-depends:
         base ^>=4.14.3.0,
-        bachs
+        bachs,
+        HUnit
