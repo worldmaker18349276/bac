@@ -58,7 +58,7 @@ library
     import:           warnings
 
     -- Modules exported by the library.
-    exposed-modules:  BAC, Braider, Show
+    exposed-modules:  BAC, Braider, YAML
 
     -- Modules included in this library but not exported.
     other-modules:  DisjointSet, DAG, Memoize

@@ -1,4 +1,4 @@
-module Show (showSymbol, showDict, showNode, showNodeBy, showNode') where
+module YAML (encodeSymbol, encodeDict, encodeNode, encodeNodeBy, encodeNode') where
 
 import BAC
 import Data.List (intercalate)
@@ -10,13 +10,13 @@ import Prelude hiding (lookup)
 import Data.Maybe (isNothing)
 import Control.Monad (when)
 
-showSymbol :: Symbol -> String
-showSymbol (Symbol nums) = nums |> fmap show |> intercalate "." |> ("#" ++)
+encodeSymbol :: Symbol -> String
+encodeSymbol (Symbol nums) = nums |> fmap show |> intercalate "." |> ("#" ++)
 
-showDict :: Dict -> String
-showDict =
+encodeDict :: Dict -> String
+encodeDict =
   toList
-  .> fmap (both showSymbol)
+  .> fmap (both encodeSymbol)
   .> fmap (\(k, v) -> k ++ "=" ++ v)
   .> intercalate "; "
   .> ("'" ++)
@@ -31,8 +31,8 @@ countStruct curr =
     modify $ unionWith (<>) (fromList [(sym, 1)])
     when is_new $ countStruct arr
 
-showNodeBy :: (e -> Maybe String) -> Node e -> String
-showNodeBy showE bac =
+encodeNodeBy :: (e -> Maybe String) -> Node e -> String
+encodeNodeBy showE bac =
   root bac
   |> format showE 0
   |> (`execState` FormatterState ptrs [] "")
@@ -48,11 +48,11 @@ showNodeBy showE bac =
     |> (`zip` [0..])
     |> fromList
 
-showNode :: Show e => Node e -> String
-showNode = showNodeBy (show .> Just)
+encodeNode :: Show e => Node e -> String
+encodeNode = encodeNodeBy (show .> Just)
 
-showNode' :: Node e -> String
-showNode' = showNodeBy (const Nothing)
+encodeNode' :: Node e -> String
+encodeNode' = encodeNodeBy (const Nothing)
 
 data FormatterState = FormatterState
   {
@@ -75,11 +75,11 @@ format showE level curr =
         indent level
         write $ "- value: " ++ estr ++ "\n"
         indent level
-        write $ "  dict: " ++ showDict (dict edge) ++ "\n"
+        write $ "  dict: " ++ encodeDict (dict edge) ++ "\n"
         indent level
       Nothing -> do
         indent level
-        write $ "- dict: " ++ showDict (dict edge) ++ "\n"
+        write $ "- dict: " ++ encodeDict (dict edge) ++ "\n"
         indent level
 
     let arr = curr `join` edge

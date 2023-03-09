@@ -2,7 +2,7 @@ module Main (main) where
 
 import BAC
 import Braider
-import Show
+import YAML
 
 import Test.HUnit ((@?=), Test (TestList, TestLabel, TestCase), runTestTT, Counts)
 import Data.Maybe (fromMaybe)
@@ -18,7 +18,7 @@ test_cone = TestCase $ do
         knot' [p, v] // [[1,0], [1,1]] // [[0,0], [1,0,0]]
 
   putStrLn "#[cone]"
-  putStrLn $ cone |> fmap showNode' |> fromMaybe "Nothing"
+  putStrLn $ cone |> fmap encodeNode' |> fromMaybe "Nothing"
   fmap validate cone @?= Just True
 
 test_torus :: Test
@@ -38,7 +38,7 @@ test_torus = TestCase $ do
           -- // [[0,0,0], [0,1,0], [0,2,0], [0,3,0], [0,0,1], [0,1,1], [0,2,1], [0,3,1]]
 
   putStrLn "#[torus]"
-  putStrLn $ torus |> fmap showNode' |> fromMaybe "Nothing"
+  putStrLn $ torus |> fmap encodeNode' |> fromMaybe "Nothing"
   fmap validate torus @?= Just True
 
 tests :: Test
