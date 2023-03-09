@@ -86,5 +86,75 @@ braidM
 braidM braiding =
   DAG.buildM braiding |> runMaybeT |> fmap (fmap DAG.value)
 
+-- $setup
+-- >>> import YAML
+-- >>> import Data.Maybe (fromMaybe)
+
+{- | Make a BAC by monad builder.
+
+Examples:
+
+>>> :{
+let cone = braid $ do
+      y <- knot' []
+      b <- knot' []
+      p <- knot' [y]
+      c <- knot' [y, b]
+      v <- knot' [c, c] // [[0,0], [1,0]] // [[0,1], [1,1]]
+      knot' [p, v] // [[1,0], [1,1]] // [[0,0], [1,0,0]]
+in  putStrLn $ cone |> fmap encodeNode' |> fromMaybe "Nothing"
+:}
+- dict: '#=#1.0; #1.0=#1.1.0'
+  node:
+    - dict: '#=#1.0'
+      node: &0 []
+- dict: '#=#2.0; #1.0=#2.1.0; #1.1.0=#1.1.0; #1.2.0=#2.1.2.0; #2.0=#2.1.0'
+  node:
+    - dict: '#=#1.0; #1.0=#1.1.0; #2.0=#1.2.0'
+      node: &1
+        - dict: '#=#1.0'
+          node: *0
+        - dict: '#=#2.0'
+          node: []
+    - dict: '#=#2.0; #1.0=#1.1.0; #2.0=#1.2.0'
+      node: *1
+<BLANKLINE>
+
+>>> :{
+let torus = braid $ do
+      t <- knot' []
+      c <- knot' [t, t]
+      c' <- knot' [t, t]
+      p <- knot' [c, c', c, c']
+        // [[0,1], [1,0]]
+        // [[1,1], [2,1]]
+        // [[2,0], [3,1]]
+        // [[3,0], [0,0]]
+      knot' [p]
+        // [[0,0], [0,2]]
+        // [[0,1], [0,3]]
+in  putStrLn $ torus |> fmap encodeNode' |> fromMaybe "Nothing"
+:}
+- dict: '#=#1.0; #1.0=#1.1.0; #1.1.0=#1.1.1.0; #1.2.0=#1.1.1.0; #2.0=#1.2.0; {- LINEBREAK
+        -}#2.2.0=#1.1.1.0; #3.0=#1.1.0; #3.1.0=#1.1.1.0; #4.0=#1.2.0'
+  node:
+    - dict: '#=#1.0; #1.0=#1.1.0; #2.0=#1.2.0'
+      node: &0
+        - dict: '#=#1.0'
+          node: &1 []
+        - dict: '#=#2.0'
+          node: *1
+    - dict: '#=#2.0; #1.0=#1.2.0; #2.0=#2.2.0'
+      node: &2
+        - dict: '#=#1.0'
+          node: *1
+        - dict: '#=#2.0'
+          node: *1
+    - dict: '#=#3.0; #1.0=#3.1.0; #2.0=#2.2.0'
+      node: *0
+    - dict: '#=#4.0; #1.0=#1.1.0; #2.0=#3.1.0'
+      node: *2
+<BLANKLINE>
+-}
 braid :: (forall p. DAG.Pointer p => BraiderT e p Identity p) -> Maybe (Node e)
 braid braiding = runIdentity (braidM braiding)
