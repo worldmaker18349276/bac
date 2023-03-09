@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Braider where
@@ -39,6 +40,9 @@ knot value ptrs = do
   let children = ptrs |> zip (edges node) |> fmap (fmap snd)
 
   DAG.node node children
+
+knot' :: (DAG.Pointer p, Monad m) => [p] -> BraiderT () () p m p
+knot' ptrs = knot () (fmap ((),) ptrs)
 
 infixl 4 //
 (//) :: (DAG.Pointer p, Monad m) => BraiderT e n p m p -> [[Int]] -> BraiderT e n p m p
