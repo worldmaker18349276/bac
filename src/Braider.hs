@@ -27,11 +27,11 @@ knot value ptrs = do
   let node =
         ptrs
         |> fmap (second ((table !) .> fst))
-        |> zip [0..]
+        |> zip [1..]
         |> fmap (\(num, (eval, subnode)) ->
           subnode
           |> symbols
-          |> fmap (\a -> (a, relabel (num :) a))
+          |> fmap (\a -> (a, relabel ((if a == base then [num, 0] else [num]) ++) a))
           |> Map.fromList
           |> \dict -> Arrow {dict = dict, node = subnode, evalue = eval}
         )
