@@ -25,9 +25,15 @@ import Memoize (unsafeMemoizeWithKey)
 -- 
 -- >>> import YAML
 
--- basic types
+-- * Basic
 
--- | Tree representation of a bounded acyclic category.
+-- ** BAC
+--
+-- $doc
+-- Tree representation of a bounded acyclic category.
+-- ...
+
+-- | The node of the tree representation of a bounded acyclic category.
 --   The type variable 'e' refers to the data carried by the edges.
 newtype Node e = Node {edges :: [Edge e]} deriving (Eq, Ord, Show)
 
@@ -40,6 +46,11 @@ data Arrow v e = Arrow {dict :: Dict, node :: Node e, value :: v} deriving (Eq, 
 
 -- | Dictionary of an arrow, representing mapping between objects.
 type Dict = Map Symbol Symbol
+
+-- ** Symbols
+--
+-- $doc
+-- Symbol of a node ...
 
 -- | Symbol of a node, representing an object of the corresponding category.
 --   It is implemented as a list of integers.
@@ -101,6 +112,8 @@ splitSymbol s = fmap (\num -> relabel (++ [num]) s)
 --   isValidSymbols syms -> isValidSymbols (syms ++ [makeNewSymbol syms])
 --   (isValidSymbols syms && sym /= base && sym `elem` syms)
 --     -> isValidSymbols (delete sym syms ++ splitSymbol sym nums)
+
+-- * Others
 
 cat :: Dict -> Dict -> Dict
 cat = fmap . (!)
