@@ -243,15 +243,12 @@ foldUnder' sym f_inner f_boundary = fold f'
     Inner    -> InnerRes'    $ f_inner    arr results
 
 map :: ((Arrow () e, Edge e) -> o) -> (Node e -> Node o)
-map g = fold go
-  where
-  go arr results = Node {edges = edges'}
-    where
-    edges' =
-      edges (node arr)
-      |> fmap (\edge -> edge {value = g (arr, edge)})
-      |> (`zip` results)
-      |> fmap (uncurry withNode)
+map g = fold $ \arr results ->
+  edges (node arr)
+  |> fmap (\edge -> edge {value = g (arr, edge)})
+  |> (`zip` results)
+  |> fmap (uncurry withNode)
+  |> Node
 
 mapUnder
   :: Symbol
@@ -291,43 +288,19 @@ findUnder sym f = foldUnder sym go .> toMaybe .> fmap Map.elems
       BoundaryArg arr -> (arr, Boundary, [])
       InnerArg arr results -> (arr, Inner, results |> mapMaybe toMaybe)
 
-filterEdges :: Symbol -> (Int -> Edge e -> Bool) -> Node e -> Maybe (Node e)
-filterEdges src pred bac = do
+rewireEdges :: Symbol -> [(e, Symbol)] -> Node e -> Maybe (Node e)
+rewireEdges src tgts bac = do
   src_arr <- walk src (root bac)
   let src_edges = edges (node src_arr)
-  let src_edges' = [0..] `zip` src_edges |> filter (uncurry pred) |> fmap snd
+  src_edges' <-
+    tgts
+    |> traverse (traverse (`walk` root (node src_arr)))
+    |> fmap (fmap (\(value, arr) -> arr {value = value}))
   let nd_syms = fmap symbolize .> filter (isNondecomposable (node src_arr)) .> sort .> nub
   guard $ nd_syms src_edges == nd_syms src_edges'
 
   toMaybe $ forUnder src bac $ \case
     BoundaryArg curr -> node curr `withEdges` src_edges'
-    InnerArg curr results -> node curr `withEdges` do
-      (res, edge) <- results `zip` edges (node curr)
-      case res of
-        OuterRes -> [edge]
-        InnerRes res -> [edge `withNode` res]
-        BoundaryRes res -> [edge `withNode` res]
-
-addEdge :: (Symbol, Symbol) -> e -> Node e -> Maybe (Node e)
-addEdge (src, tgt) val bac = do
-  guard $ tgt /= base
-  (_, tgt_arr) <- walk2 (src, tgt) (root bac)
-  let relinked_edge = tgt_arr {value = val}
-  toMaybe $ forUnder src bac $ \case
-    BoundaryArg curr -> node curr `withEdges` (edges (node curr) ++ [relinked_edge])
-    InnerArg curr results -> node curr `withEdges` do
-      (res, edge) <- results `zip` edges (node curr)
-      case res of
-        OuterRes -> [edge]
-        InnerRes res -> [edge `withNode` res]
-        BoundaryRes res -> [edge `withNode` res]
-
-reorderEdges :: Ord k => Symbol -> (Int -> Edge e -> k) -> Node e -> Maybe (Node e)
-reorderEdges src key bac =
-  toMaybe $ forUnder src bac $ \case
-    BoundaryArg curr -> node curr `withEdges` sorted_edges
-      where
-      sorted_edges = edges (node curr) |> zip [0..] |> sortOn (uncurry key) |> fmap snd
     InnerArg curr results -> node curr `withEdges` do
       (res, edge) <- results `zip` edges (node curr)
       case res of
