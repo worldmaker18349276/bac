@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module DisjointSet (bipartiteEqclass) where
+module Utils.DisjointSet (bipartiteEqclass) where
 
 import Data.Foldable (foldr')
 import Data.List (nub)

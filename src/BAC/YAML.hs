@@ -1,7 +1,7 @@
-module YAML (encodeSymbol, encodeDict, encodeNode, encodeNodeBy, encodeNode') where
+module BAC.YAML (encodeSymbol, encodeDict, encodeNode, encodeNodeBy, encodeNode') where
 
-import BAC
-import Utils
+import BAC.Class
+import Utils.Utils
 
 import Data.List (intercalate)
 import Control.Monad.State (State, execState, modify, MonadState (get, put))

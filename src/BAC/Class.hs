@@ -4,7 +4,7 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# OPTIONS_GHC -Wno-unused-matches #-}
 
-module BAC where
+module BAC.Class where
 
 import Control.Monad (guard)
 import qualified Control.Monad as Monad
@@ -16,14 +16,15 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe, fromJust)
 import Data.Traversable (for)
 import Data.Tuple (swap)
-import Utils
-import DisjointSet (bipartiteEqclass)
-import Memoize (unsafeMemoizeWithKey)
+
+import Utils.Utils
+import Utils.DisjointSet (bipartiteEqclass)
+import Utils.Memoize (unsafeMemoizeWithKey)
 
 -- $setup
 -- The examples run with the following settings:
 -- 
--- >>> import YAML
+-- >>> import BAC.YAML
 
 -- * Basic
 

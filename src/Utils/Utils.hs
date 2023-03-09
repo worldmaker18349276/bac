@@ -1,4 +1,4 @@
-module Utils where
+module Utils.Utils where
 
 import Data.List (groupBy, nubBy)
 

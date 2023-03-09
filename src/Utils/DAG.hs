@@ -2,7 +2,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module DAG (DAG, index, value, children, BuilderT, Builder, Pointer (toInt), getTable,
+module Utils.DAG (DAG, index, value, children, BuilderT, Builder, Pointer (toInt), getTable,
   buildM, build, node) where
 
 import Control.Monad.Identity (Identity (runIdentity))

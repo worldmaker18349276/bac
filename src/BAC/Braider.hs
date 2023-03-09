@@ -2,10 +2,11 @@
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module Braider where
+module BAC.Braider where
 
-import BAC
-import Utils
+import BAC.Class
+import Utils.Utils
+import qualified Utils.DAG as DAG
 
 import Control.Monad (guard)
 import Data.Bifunctor (Bifunctor (second))
@@ -14,7 +15,6 @@ import Data.List (nub)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, listToMaybe)
-import qualified DAG
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (runMaybeT, MaybeT))
 import Control.Monad.Identity (Identity (runIdentity))
@@ -22,7 +22,7 @@ import Control.Monad.Identity (Identity (runIdentity))
 -- $setup
 -- The examples run with the following settings:
 -- 
--- >>> import YAML
+-- >>> import BAC.YAML
 -- >>> import Data.Maybe (fromMaybe)
 
 type BraiderT e p m v = DAG.BuilderT (Edge e) (Node e) p (MaybeT m) v

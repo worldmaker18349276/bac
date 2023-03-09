@@ -1,4 +1,4 @@
-module Memoize (memoizeWithKey, unsafeMemoizeWithKey) where
+module Utils.Memoize (memoizeWithKey, unsafeMemoizeWithKey) where
 
 -- ref: https://stackoverflow.com/a/2238707
 

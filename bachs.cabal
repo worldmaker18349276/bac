@@ -58,10 +58,10 @@ library
     import:           warnings
 
     -- Modules exported by the library.
-    exposed-modules:  BAC, Braider, YAML
+    exposed-modules:  BAC.Class, BAC.Braider, BAC.YAML
 
     -- Modules included in this library but not exported.
-    other-modules:  DisjointSet, DAG, Memoize, Utils
+    other-modules:  Utils.DisjointSet, Utils.DAG, Utils.Memoize, Utils.Utils
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
