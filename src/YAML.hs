@@ -1,6 +1,8 @@
 module YAML (encodeSymbol, encodeDict, encodeNode, encodeNodeBy, encodeNode') where
 
 import BAC
+import Utils
+
 import Data.List (intercalate)
 import Control.Monad.State (State, execState, modify, MonadState (get, put))
 import Data.Map (Map, toList, lookup, fromList, unionWith)

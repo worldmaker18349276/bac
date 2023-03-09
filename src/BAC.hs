@@ -10,33 +10,15 @@ import Control.Monad (guard)
 import qualified Control.Monad as Monad
 import Data.Bifunctor (Bifunctor (first, second), bimap)
 import Data.Foldable (for_)
-import Data.List (delete, elemIndices, findIndex, groupBy, nub, nubBy, sort, sortOn, transpose)
+import Data.List (delete, elemIndices, findIndex, nub, nubBy, sort, sortOn, transpose)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe, fromJust)
 import Data.Traversable (for)
 import Data.Tuple (swap)
+import Utils
 import DisjointSet (bipartiteEqclass)
 import Memoize (unsafeMemoizeWithKey)
-
--- flow
-
-infixl 1 |>
-(|>) :: a -> (a -> b) -> b
-a |> b = b a
-
-infixl 9 .>
-(.>) :: (a -> b) -> (b -> c) -> (a -> c)
-a .> b = b . a
-
-both :: (a -> b) -> (a, a) -> (b, b)
-both f (a, a') = (f a, f a')
-
-nubOn :: Eq b => (a -> b) -> [a] -> [a]
-nubOn f = nubBy (\a a' -> f a == f a')
-
-groupOn :: Eq b => (a -> b) -> [a] -> [[a]]
-groupOn f = groupBy (\a a' -> f a == f a')
 
 -- basic types
 

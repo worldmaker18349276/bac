@@ -5,6 +5,7 @@
 module Braider where
 
 import BAC
+import Utils
 
 import Control.Monad (guard)
 import Data.Bifunctor (Bifunctor (second))
