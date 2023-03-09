@@ -40,12 +40,11 @@ groupOn f = groupBy (\a a' -> f a == f a')
 
 -- basic types
 
-data Arrow v e n = Arrow {dict :: Dict, node :: Node e n, evalue :: v}
-  deriving (Eq, Ord, Show)
+data Arrow v e = Arrow {dict :: Dict, node :: Node e, value :: v} deriving (Eq, Ord, Show)
 
-type Edge e n = Arrow e e n
+type Edge e = Arrow e e
 
-data Node e n = Node {edges :: [Edge e n], nvalue :: n} deriving (Eq, Ord, Show)
+newtype Node e = Node {edges :: [Edge e]} deriving (Eq, Ord, Show)
 
 type Dict = Map Symbol Symbol
 
@@ -54,7 +53,7 @@ newtype Symbol = Symbol [Integer] deriving (Eq, Ord, Show)
 base :: Symbol
 base = Symbol []
 
-symbols :: Node e n -> [Symbol]
+symbols :: Node e -> [Symbol]
 symbols = edges .> concatMap (dict .> Map.elems) .> sort .> nub .> (base :)
 
 isValidSymbols :: [Symbol] -> Bool
@@ -93,74 +92,74 @@ mergeSymbols = Map.toList .> concatMap sequence .> fmap (\(num, sym) -> relabel 
 cat :: Dict -> Dict -> Dict
 cat = fmap . (!)
 
-withDict :: Arrow v e n -> Dict -> Arrow v e n
+withDict :: Arrow v e -> Dict -> Arrow v e
 withDict edge dict = edge {dict = dict}
 
-withNode :: Arrow v e n -> Node o m -> Arrow v o m
+withNode :: Arrow v e -> Node o -> Arrow v o
 withNode edge node = edge {node = node}
 
-withEdges :: Node e n -> [Edge o n] -> Node o n
+withEdges :: Node e -> [Edge o] -> Node o
 withEdges bac edges = bac {edges = edges}
 
-asArrow :: Arrow v e n -> Arrow () e n
-asArrow edge = edge {evalue = ()}
+asArrow :: Arrow v e -> Arrow () e
+asArrow edge = edge {value = ()}
 
 -- explore methods
 
 data Location = Inner | Boundary | Outer deriving (Eq, Ord, Show)
 
-root :: Node e n -> Arrow () e n
-root bac = Arrow {dict = id_dict, node = bac, evalue = ()}
+root :: Node e -> Arrow () e
+root bac = Arrow {dict = id_dict, node = bac, value = ()}
   where
   id_dict = bac |> symbols |> fmap (\a -> (a, a)) |> Map.fromList
 
-join :: Arrow v e n -> Arrow w e n -> Arrow () e n
+join :: Arrow v e -> Arrow w e -> Arrow () e
 join arr1 arr2 = asArrow $ arr2 `withDict` (dict arr1 `cat` dict arr2)
 
-next :: Arrow v e n -> [Arrow () e n]
+next :: Arrow v e -> [Arrow () e]
 next arr = edges (node arr) |> fmap (join arr)
 
-locate :: Symbol -> Arrow v e n -> Location
+locate :: Symbol -> Arrow v e -> Location
 locate sym arr
   | symbolize arr == sym = Boundary
   | sym `elem` dict arr  = Inner
   | otherwise            = Outer
 
-walk :: Symbol -> Arrow v e n -> Maybe (Arrow () e n)
+walk :: Symbol -> Arrow v e -> Maybe (Arrow () e)
 walk sym arr = case locate sym arr of
   Outer    -> Nothing
   Boundary -> Just (asArrow arr)
   Inner    -> Just $ arr |> next |> mapMaybe (walk sym) |> head
 
-walk2 :: (Symbol, Symbol) -> Arrow v e n -> Maybe (Arrow () e n, Arrow () e n)
+walk2 :: (Symbol, Symbol) -> Arrow v e -> Maybe (Arrow () e, Arrow () e)
 walk2 (src, tgt) arr = do
   src_arr <- walk src arr
   tgt_subarr <- walk tgt (root (node src_arr))
   Just (src_arr, tgt_subarr)
 
-symbolize :: Arrow v e n -> Symbol
+symbolize :: Arrow v e -> Symbol
 symbolize = dict .> (! base)
 
-symbolize2 :: (Arrow v e n, Arrow w e n) -> (Symbol, Symbol)
+symbolize2 :: (Arrow v e, Arrow w e) -> (Symbol, Symbol)
 symbolize2 = symbolize `bimap` symbolize
 
-walkAll :: Symbol -> Arrow v e n -> [Arrow () e n]
+walkAll :: Symbol -> Arrow v e -> [Arrow () e]
 walkAll sym arr = case locate sym arr of
   Outer    -> []
   Boundary -> [asArrow arr]
   Inner    -> arr |> next |> concatMap (walkAll sym)
 
-isNondecomposable :: Node e n -> Symbol -> Bool
+isNondecomposable :: Node e -> Symbol -> Bool
 isNondecomposable bac sym =
   locate sym (root bac) == Inner
   && all (locate sym .> (/= Inner)) (edges bac)
 
-children :: Symbol -> Node e n -> Maybe [(Arrow () e n, Edge e n)]
+children :: Symbol -> Node e -> Maybe [(Arrow () e, Edge e)]
 children tgt bac = do
   tgt_arr <- walk tgt (root bac)
   Just $ edges (node tgt_arr) |> fmap (tgt_arr,) |> sortOn symbolize2
 
-parents :: Symbol -> Node e n -> Maybe [(Arrow () e n, Edge e n)]
+parents :: Symbol -> Node e -> Maybe [(Arrow () e, Edge e)]
 parents tgt bac = do
   arrs <- findUnder tgt is_parent bac
   Just $
@@ -173,13 +172,13 @@ parents tgt bac = do
   where
   is_parent _ = next .> any (locate tgt .> (== Boundary))
 
-sameStruct :: Arrow v e n -> Arrow w o m -> Bool
+sameStruct :: Arrow v e -> Arrow w o -> Bool
 sameStruct arr1 arr2 =
   dict arr1 == dict arr2
   && length (edges (node arr1)) == length (edges (node arr2))
   && (edges (node arr1) `zip` edges (node arr2) |> all (uncurry sameStruct))
 
-validate :: Node e n -> Bool
+validate :: Node e -> Bool
 validate bac =
   validateSymbols
   && validateChildren
@@ -205,7 +204,7 @@ validate bac =
 
 -- fold methods
 
-fold :: (Arrow () e n -> [r] -> r) -> (Node e n -> r)
+fold :: (Arrow () e -> [r] -> r) -> (Node e -> r)
 fold f = root .> fold'
   where
   fold' = memoize $ \arr -> f arr (arr |> next |> fmap fold')
@@ -213,8 +212,8 @@ fold f = root .> fold'
 
 data FoldUnderResult r = InnerRes r | BoundaryRes r | OuterRes
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
-data FoldUnderArgument e n r =
-  InnerArg (Arrow () e n) [FoldUnderResult r] | BoundaryArg (Arrow () e n)
+data FoldUnderArgument e r =
+  InnerArg (Arrow () e) [FoldUnderResult r] | BoundaryArg (Arrow () e)
   deriving (Functor, Foldable, Traversable)
 
 toMaybe :: FoldUnderResult r -> Maybe r
@@ -222,7 +221,7 @@ toMaybe (InnerRes r) = Just r
 toMaybe (BoundaryRes r) = Just r
 toMaybe OuterRes = Nothing
 
-foldUnder :: Symbol -> (FoldUnderArgument e n r -> r) -> (Node e n -> FoldUnderResult r)
+foldUnder :: Symbol -> (FoldUnderArgument e r -> r) -> (Node e -> FoldUnderResult r)
 foldUnder sym f = fold f'
   where
   f' arr results = case locate sym arr of
@@ -230,16 +229,16 @@ foldUnder sym f = fold f'
     Boundary -> BoundaryRes $ f $ BoundaryArg arr
     Inner    -> InnerRes    $ f $ InnerArg    arr results
 
-forUnder :: Symbol -> Node e n -> (FoldUnderArgument e n r -> r) -> FoldUnderResult r
+forUnder :: Symbol -> Node e -> (FoldUnderArgument e r -> r) -> FoldUnderResult r
 forUnder sym = flip (foldUnder sym)
 
 data FoldUnderResult' r s = InnerRes' r | BoundaryRes' s | OuterRes'
 
 foldUnder'
   :: Symbol
-  -> (Arrow () e n -> [FoldUnderResult' r s] -> r)
-  -> (Arrow () e n                           -> s)
-  -> (Node e n -> FoldUnderResult' r s)
+  -> (Arrow () e -> [FoldUnderResult' r s] -> r)
+  -> (Arrow () e                           -> s)
+  -> (Node e -> FoldUnderResult' r s)
 foldUnder' sym f_inner f_boundary = fold f'
   where
   f' arr results = case locate sym arr of
@@ -247,36 +246,35 @@ foldUnder' sym f_inner f_boundary = fold f'
     Boundary -> BoundaryRes' $ f_boundary arr
     Inner    -> InnerRes'    $ f_inner    arr results
 
-map :: (Arrow () e n -> m) -> ((Arrow () e n, Edge e n) -> o) -> (Node e n -> Node o m)
-map f g = fold go
+map :: ((Arrow () e, Edge e) -> o) -> (Node e -> Node o)
+map g = fold go
   where
-  go arr results = Node {edges = edges', nvalue = f arr}
+  go arr results = Node {edges = edges'}
     where
     edges' =
       edges (node arr)
-      |> fmap (\edge -> edge {evalue = g (arr, edge)})
+      |> fmap (\edge -> edge {value = g (arr, edge)})
       |> (`zip` results)
       |> fmap (uncurry withNode)
 
 mapUnder
   :: Symbol
-  -> (Location -> Arrow () e n -> n)
-  -> (Location -> (Arrow () e n, Edge e n) -> e)
-  -> (Node e n -> Maybe (Node e n))
-mapUnder sym f g = foldUnder sym go .> toMaybe
+  -> (Location -> (Arrow () e, Edge e) -> e)
+  -> (Node e -> Maybe (Node e))
+mapUnder sym g = foldUnder sym go .> toMaybe
   where
   go = \case
-    BoundaryArg curr -> Node {edges = edges (node curr), nvalue = f Boundary curr}
-    InnerArg curr results -> Node {edges = edges', nvalue = f Inner curr}
+    BoundaryArg curr -> Node {edges = edges (node curr)}
+    InnerArg curr results -> Node {edges = edges'}
       where
       edges' = do
         (edge, res) <- edges (node curr) `zip` results
         case res of
-          BoundaryRes res -> [edge {evalue = g Boundary (curr, edge)} `withNode` res]
-          InnerRes res -> [edge {evalue = g Inner (curr, edge)} `withNode` res]
+          BoundaryRes res -> [edge {value = g Boundary (curr, edge)} `withNode` res]
+          InnerRes res -> [edge {value = g Inner (curr, edge)} `withNode` res]
           OuterRes -> [edge]
 
-find :: (Arrow () e n -> Bool) -> (Node e n -> [Arrow () e n])
+find :: (Arrow () e -> Bool) -> (Node e -> [Arrow () e])
 find f = fold go .> Map.elems
   where
   go arr results =
@@ -285,7 +283,7 @@ find f = fold go .> Map.elems
     else Map.unions results
 
 findUnder
-  :: Symbol -> (Location -> Arrow () e n -> Bool) -> (Node e n -> Maybe [Arrow () e n])
+  :: Symbol -> (Location -> Arrow () e -> Bool) -> (Node e -> Maybe [Arrow () e])
 findUnder sym f = foldUnder sym go .> toMaybe .> fmap Map.elems
   where
   go arg =
@@ -297,7 +295,7 @@ findUnder sym f = foldUnder sym go .> toMaybe .> fmap Map.elems
       BoundaryArg arr -> (arr, Boundary, [])
       InnerArg arr results -> (arr, Inner, results |> mapMaybe toMaybe)
 
-filterEdges :: Symbol -> (Int -> Edge e n -> Bool) -> Node e n -> Maybe (Node e n)
+filterEdges :: Symbol -> (Int -> Edge e -> Bool) -> Node e -> Maybe (Node e)
 filterEdges src pred bac = do
   src_arr <- walk src (root bac)
   let src_edges = edges (node src_arr)
@@ -314,11 +312,11 @@ filterEdges src pred bac = do
         InnerRes res -> [edge `withNode` res]
         BoundaryRes res -> [edge `withNode` res]
 
-addEdge :: (Symbol, Symbol) -> e -> Node e n -> Maybe (Node e n)
-addEdge (src, tgt) eval bac = do
+addEdge :: (Symbol, Symbol) -> e -> Node e -> Maybe (Node e)
+addEdge (src, tgt) val bac = do
   guard $ tgt /= base
   (_, tgt_arr) <- walk2 (src, tgt) (root bac)
-  let relinked_edge = tgt_arr {evalue = eval}
+  let relinked_edge = tgt_arr {value = val}
   toMaybe $ forUnder src bac $ \case
     BoundaryArg curr -> node curr `withEdges` (edges (node curr) ++ [relinked_edge])
     InnerArg curr results -> node curr `withEdges` do
@@ -328,7 +326,7 @@ addEdge (src, tgt) eval bac = do
         InnerRes res -> [edge `withNode` res]
         BoundaryRes res -> [edge `withNode` res]
 
-reorderEdges :: Ord k => Symbol -> (Int -> Edge e n -> k) -> Node e n -> Maybe (Node e n)
+reorderEdges :: Ord k => Symbol -> (Int -> Edge e -> k) -> Node e -> Maybe (Node e)
 reorderEdges src key bac =
   toMaybe $ forUnder src bac $ \case
     BoundaryArg curr -> node curr `withEdges` sorted_edges
@@ -341,7 +339,7 @@ reorderEdges src key bac =
         InnerRes res -> [edge `withNode` res]
         BoundaryRes res -> [edge `withNode` res]
 
-relabelObject :: Symbol -> Dict -> Node e n -> Maybe (Node e n)
+relabelObject :: Symbol -> Dict -> Node e -> Maybe (Node e)
 relabelObject tgt mapping bac = do
   tgt_arr <- walk tgt (root bac)
   guard $ isValidSymbols (Map.elems mapping)
@@ -364,18 +362,18 @@ relabelObject tgt mapping bac = do
 
 -- algorithms
 
-empty :: n -> Node e n
-empty nval = Node {edges = [], nvalue = nval}
+empty :: Node e
+empty = Node {edges = []}
 
-singleton :: (n, e, n) -> Integer -> Node e n
-singleton (nval1, eval, nval2) num = Node {edges = [new_edge], nvalue = nval1}
+singleton :: e -> Integer -> Node e
+singleton val num = Node {edges = [new_edge]}
   where
   new_sym = Symbol [num]
   new_dict = Map.singleton base new_sym
-  new_node = Node {edges = [], nvalue = nval2}
-  new_edge = Arrow {dict = new_dict, node = new_node, evalue = eval}
+  new_node = Node {edges = []}
+  new_edge = Arrow {dict = new_dict, node = new_node, value = val}
 
-removeMorphism :: (Symbol, Symbol) -> Node e n -> Maybe (Node e n)
+removeMorphism :: (Symbol, Symbol) -> Node e -> Maybe (Node e)
 removeMorphism (src, tgt) bac = do
   src_arr <- walk src (root bac)
   for_ (edges (node src_arr)) $ \edge -> do
@@ -401,7 +399,7 @@ removeMorphism (src, tgt) bac = do
       guard $ symbols bac == symbols (node curr)
       Just bac
 
-removeObject :: Symbol -> Node e n -> Maybe (Node e n)
+removeObject :: Symbol -> Node e -> Maybe (Node e)
 removeObject tgt bac = do
   guard $ locate tgt (root bac) == Inner
   tgt_arr <- walk tgt (root bac)
@@ -423,8 +421,8 @@ prepareForAddingMorphism
   -> [(Symbol, Symbol)] -> [(Symbol, Symbol)]
   -> e
   -> Integer
-  -> Node e n -> Maybe (Edge e n, Map (Symbol, Symbol) (Symbol, Symbol))
-prepareForAddingMorphism src tgt src_alts tgt_alts eval num bac = do
+  -> Node e -> Maybe (Edge e, Map (Symbol, Symbol) (Symbol, Symbol))
+prepareForAddingMorphism src tgt src_alts tgt_alts val num bac = do
   src_arr <- walk src (root bac)
   tgt_arr <- walk tgt (root bac)
   guard $ locate src tgt_arr == Outer
@@ -464,7 +462,7 @@ prepareForAddingMorphism src tgt src_alts tgt_alts eval num bac = do
       _ -> Nothing)
     |> fmap ((base, new_sym) :)
     |> fmap Map.fromList
-  let new_edge = Arrow {dict = new_dict, node = node tgt_arr, evalue = eval}
+  let new_edge = Arrow {dict = new_dict, node = node tgt_arr, value = val}
 
   let new_wires =
         src_inedges
@@ -499,8 +497,8 @@ prepareForAddingMorphism src tgt src_alts tgt_alts eval num bac = do
 
 addMorphism
   :: Symbol
-  -> Edge e n -> Map (Symbol, Symbol) (Symbol, Symbol)
-  -> Node e n -> Maybe (Node e n)
+  -> Edge e -> Map (Symbol, Symbol) (Symbol, Symbol)
+  -> Node e -> Maybe (Node e)
 addMorphism src new_edge new_wires bac =
   toMaybe $ forUnder src bac $ \case
     BoundaryArg curr -> node curr `withEdges` new_edges
@@ -516,7 +514,7 @@ addMorphism src new_edge new_wires bac =
           new_wire = new_wires ! symbolize2 (curr, edge)
           new_dict = dict edge |> uncurry Map.insert new_wire
 
-partitionMorphism :: Symbol -> Node e n -> Maybe [[(Symbol, Symbol)]]
+partitionMorphism :: Symbol -> Node e -> Maybe [[(Symbol, Symbol)]]
 partitionMorphism tgt bac = do
   guard $ locate tgt (root bac) == Inner
   Just $
@@ -528,7 +526,7 @@ partitionMorphism tgt bac = do
     |> fmap sort
     |> sort
   where
-  find3Chains :: Edge e n -> [(Edge e n, Arrow () e n, Edge e n)]
+  find3Chains :: Edge e -> [(Edge e, Arrow () e, Edge e)]
   find3Chains arr =
     dict arr
     |> Map.filter (== tgt)
@@ -536,7 +534,7 @@ partitionMorphism tgt bac = do
     |> mapMaybe (\sym -> parents sym (node arr))
     |> concat
     |> fmap (\(b,c) -> (arr,b,c))
-  symbolize3 :: (Edge e n, Arrow () e n, Edge e n) -> ((Symbol, Symbol), (Symbol, Symbol))
+  symbolize3 :: (Edge e, Arrow () e, Edge e) -> ((Symbol, Symbol), (Symbol, Symbol))
   symbolize3 (arr1, arr2, arr3) = ((sym1, sym23), (sym12, sym3))
     where
     sym1  = dict arr1                                 ! base
@@ -544,7 +542,7 @@ partitionMorphism tgt bac = do
     sym12 = dict arr1 `cat` dict arr2                 ! base
     sym3  =                                 dict arr3 ! base
 
-splitMorphism :: (Symbol, Symbol) -> [Integer] -> Node e n -> Maybe (Node e n)
+splitMorphism :: (Symbol, Symbol) -> [Integer] -> Node e -> Maybe (Node e)
 splitMorphism (src, tgt) splittable_nums bac = do
   src_arr <- walk src (root bac)
   splittable_groups <- partitionMorphism tgt (node src_arr)
@@ -578,7 +576,7 @@ splitMorphism (src, tgt) splittable_nums bac = do
             | otherwise = [(s, r)]
           merged_dict = dict edge |> Map.toList |> concatMap merge |> Map.fromList
 
-partitionObject :: Node e n -> [[Symbol]]
+partitionObject :: Node e -> [[Symbol]]
 partitionObject bac = links |> bipartiteEqclass |> fmap (snd .> sort) |> sort
   where
   links = do
@@ -587,7 +585,7 @@ partitionObject bac = links |> bipartiteEqclass |> fmap (snd .> sort) |> sort
     sym <- dict arr |> Map.elems
     [(sym0, sym)]
 
-splitObject :: Symbol -> [Integer] -> Node e n -> Maybe (Node e n)
+splitObject :: Symbol -> [Integer] -> Node e -> Maybe (Node e)
 splitObject tgt splittable_nums bac = do
   guard $ locate tgt (root bac) == Inner
   tgt_arr <- walk tgt (root bac)
@@ -638,7 +636,7 @@ splitObject tgt splittable_nums bac = do
     InnerRes' res -> Just res
     _ -> Nothing
 
-splitCategory :: [Integer] -> Node e n -> Maybe [Node e n]
+splitCategory :: [Integer] -> Node e -> Maybe [Node e]
 splitCategory splittable_nums bac = do
   let splittable_groups = partitionObject bac
   guard $ length splittable_groups == length splittable_nums
@@ -656,7 +654,7 @@ splitCategory splittable_nums bac = do
           edges bac |> filter (\edge -> symbolize edge `elem` group)
     [bac `withEdges` splitted_edges]
 
-mergeMorphisms :: Symbol -> [Symbol] -> Node e n -> Maybe (Node e n)
+mergeMorphisms :: Symbol -> [Symbol] -> Node e -> Maybe (Node e)
 mergeMorphisms src tgts bac = do
   src_arr <- walk src (root bac)
 
@@ -685,8 +683,8 @@ mergeMorphisms src tgts bac = do
           where
           dict' = dict edge |> Map.toList |> fmap (first merge) |> Map.fromList
 
-mergeObjects :: Map Integer Symbol -> n -> Node e n -> Maybe (Node e n)
-mergeObjects tgts nval bac = do
+mergeObjects :: Map Integer Symbol -> Node e -> Maybe (Node e)
+mergeObjects tgts bac = do
   tgt_pars <- for tgts $ \tgt -> do
     pars <- parents tgt bac
     Just $
@@ -702,7 +700,7 @@ mergeObjects tgts nval bac = do
     |> all (nub .> length .> (== 1))
 
   tgt_nodes <- tgts |> traverse (`walk` root bac) |> fmap (fmap node)
-  let merged_node = mergeCategories nval tgt_nodes
+  let merged_node = mergeCategories tgt_nodes
 
   let merged_dicts = Map.fromList $ do
         arr_edges <- tgt_pars
@@ -765,8 +763,8 @@ mergeObjects tgts nval bac = do
 
       Just (node curr `withEdges` collapsed_edges, collapse_lists)
 
-mergeCategories :: n -> Map Integer (Node e n) -> Node e n
-mergeCategories nval bacs = Node {edges = merged_edges, nvalue = nval}
+mergeCategories :: Map Integer (Node e) -> Node e
+mergeCategories bacs = Node {edges = merged_edges}
   where
   merged_edges = do
     (num, bac) <- Map.toList bacs
@@ -774,7 +772,7 @@ mergeCategories nval bacs = Node {edges = merged_edges, nvalue = nval}
     let dict' = dict edge |> fmap (relabel (num :))
     [edge `withDict` dict']
 
-trimObject :: Symbol -> Node e n -> Maybe (Node e n)
+trimObject :: Symbol -> Node e -> Maybe (Node e)
 trimObject tgt bac = do
   guard $ locate tgt (root bac) == Inner
 
@@ -795,9 +793,9 @@ trimObject tgt bac = do
 insertMorphism
   :: (Symbol, Maybe Symbol)
   -> (Integer, Integer)
-  -> (e, n, e)
-  -> Node e n -> Maybe (Node e n)
-insertMorphism (src, tgt) (num1, num2) (eval1, nval, eval2) bac = do
+  -> (e, e)
+  -> Node e -> Maybe (Node e)
+insertMorphism (src, tgt) (num1, num2) (val1, val2) bac = do
   src_arr <- src `walk` root bac
   let new_sym1 = Symbol [num1]
   guard $ node src_arr |> symbols |> (new_sym1 :) |> isValidSymbols
@@ -808,12 +806,12 @@ insertMorphism (src, tgt) (num1, num2) (eval1, nval, eval2) bac = do
       let new_sym2 = Symbol [num2]
       guard $ node tgt_arr |> symbols |> (new_sym2 :) |> isValidSymbols
       let new_outdict = node tgt_arr |> root |> dict |> Map.insert base new_sym2
-      let new_outedge = Arrow {dict = new_outdict, node = node tgt_arr, evalue = eval2}
-      let new_node = Node {edges = [new_outedge], nvalue = nval}
+      let new_outedge = Arrow {dict = new_outdict, node = node tgt_arr, value = val2}
+      let new_node = Node {edges = [new_outedge]}
       let new_indict = dict tgt_arr |> Map.insert new_sym2 tgt |> Map.insert base new_sym1
-      Just $ Arrow {dict = new_indict, node = new_node, evalue = eval1}
+      Just $ Arrow {dict = new_indict, node = new_node, value = val1}
     Nothing ->
-      Just $ Arrow {dict = Map.singleton base new_sym1, node = empty nval, evalue = eval1}
+      Just $ Arrow {dict = Map.singleton base new_sym1, node = empty, value = val1}
 
   toMaybe $ forUnder src bac $ \case
     BoundaryArg curr -> node curr `withEdges` (edges (node curr) ++ [new_inedge])
@@ -834,7 +832,7 @@ insertMorphism (src, tgt) (num1, num2) (eval1, nval, eval2) bac = do
       where
       splitSym s = if s /= base then splitSymbol s [num1, num1-1] else [new_sym1, base]
 
-expandMergingSymbols :: Node e n -> [[Symbol]] -> Maybe [[Symbol]]
+expandMergingSymbols :: Node e -> [[Symbol]] -> Maybe [[Symbol]]
 expandMergingSymbols bac =
   traverse (traverse (`walk` root bac))
   .> fmap (
@@ -849,7 +847,7 @@ expandMergingSymbols bac =
     .> sort
   )
 
-mergeMorphismsAggressively :: Symbol -> [[Symbol]] -> Node e n -> Maybe (Node e n)
+mergeMorphismsAggressively :: Symbol -> [[Symbol]] -> Node e -> Maybe (Node e)
 mergeMorphismsAggressively src tgts bac = do
   src_arr <- walk src (root bac)
 

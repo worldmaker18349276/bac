@@ -22,7 +22,7 @@ showDict =
   .> ("'" ++)
   .> (++ "'")
 
-countStruct :: Arrow () e n -> State (Map Symbol (Sum Int)) ()
+countStruct :: Arrow () e -> State (Map Symbol (Sum Int)) ()
 countStruct curr =
   for_ (next curr) $ \arr -> do
     let sym = symbolize arr
@@ -31,7 +31,7 @@ countStruct curr =
     modify $ unionWith (<>) (fromList [(sym, 1)])
     when is_new $ countStruct arr
 
-showStruct :: Node e n -> String
+showStruct :: Node e -> String
 showStruct bac =
   root bac |> showStruct' 0 |> (`execState` FormatterState ptrs [] "") |> output
   where
@@ -58,7 +58,7 @@ write str = modify (\state -> state {output = output state ++ str})
 indent :: Int -> State FormatterState ()
 indent level = write $ repeat " " |> take (level * 4) |> concat
 
-showStruct' :: Int -> Arrow () e n -> State FormatterState ()
+showStruct' :: Int -> Arrow () e -> State FormatterState ()
 showStruct' level curr =
   for_ (edges (node curr)) $ \edge -> do
     indent level

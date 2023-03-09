@@ -18,10 +18,10 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (runMaybeT, MaybeT))
 import Control.Monad.Identity (Identity (runIdentity))
 
-type BraiderT e n p m v = DAG.BuilderT (Edge e n) (Node e n) p (MaybeT m) v
+type BraiderT e p m v = DAG.BuilderT (Edge e) (Node e) p (MaybeT m) v
 
-knot :: (DAG.Pointer p, Monad m) => n -> [(e, p)] -> BraiderT e n p m p
-knot value ptrs = do
+knot :: (DAG.Pointer p, Monad m) => [(e, p)] -> BraiderT e p m p
+knot ptrs = do
   table <- DAG.getTable
 
   let node =
@@ -33,19 +33,19 @@ knot value ptrs = do
           |> symbols
           |> fmap (\a -> (a, relabel ((if a == base then [num, 0] else [num]) ++) a))
           |> Map.fromList
-          |> \dict -> Arrow {dict = dict, node = subnode, evalue = eval}
+          |> \dict -> Arrow {dict = dict, node = subnode, value = eval}
         )
-        |> \edges -> Node {edges = edges, nvalue = value}
+        |> \edges -> Node {edges = edges}
 
   let children = ptrs |> zip (edges node) |> fmap (fmap snd)
 
   DAG.node node children
 
-knot' :: (DAG.Pointer p, Monad m) => [p] -> BraiderT () () p m p
-knot' ptrs = knot () (fmap ((),) ptrs)
+knot' :: (DAG.Pointer p, Monad m) => [p] -> BraiderT () p m p
+knot' ptrs = knot (fmap ((),) ptrs)
 
 infixl 4 //
-(//) :: (DAG.Pointer p, Monad m) => BraiderT e n p m p -> [[Int]] -> BraiderT e n p m p
+(//) :: (DAG.Pointer p, Monad m) => BraiderT e p m p -> [[Int]] -> BraiderT e p m p
 braiding // eqclass = do
   p <- braiding
   table <- DAG.getTable
@@ -82,9 +82,9 @@ braiding // eqclass = do
   DAG.node merged_node merged_children
 
 braidM
-  :: Monad m => (forall p. DAG.Pointer p => BraiderT e n p m p) -> m (Maybe (Node e n))
+  :: Monad m => (forall p. DAG.Pointer p => BraiderT e p m p) -> m (Maybe (Node e))
 braidM braiding =
   DAG.buildM braiding |> runMaybeT |> fmap (fmap DAG.value)
 
-braid :: (forall p. DAG.Pointer p => BraiderT e n p Identity p) -> Maybe (Node e n)
+braid :: (forall p. DAG.Pointer p => BraiderT e p Identity p) -> Maybe (Node e)
 braid braiding = runIdentity (braidM braiding)
