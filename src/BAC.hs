@@ -80,14 +80,10 @@ makeNewSymbol =
 splitSymbol :: Symbol -> [Integer] -> [Symbol]
 splitSymbol s = fmap (\num -> relabel (++ [num]) s)
 
-mergeSymbols :: Map Integer [Symbol] -> [Symbol]
-mergeSymbols = Map.toList .> concatMap sequence .> fmap (\(num, sym) -> relabel (num :) sym)
-
 --   (isValidSymbols syms && sym /= base) -> isValidSymbols (delete sym syms)
 --   isValidSymbols syms -> isValidSymbols (syms ++ [makeNewSymbol syms])
 --   (isValidSymbols syms && sym /= base && sym `elem` syms)
 --     -> isValidSymbols (delete sym syms ++ splitSymbol sym nums)
---   all isValidSymbols syms -> isValidSymbols (base : mergeSymbols syms)
 
 cat :: Dict -> Dict -> Dict
 cat = fmap . (!)
