@@ -4,8 +4,9 @@
 
 module BAC.Braider where
 
-import BAC.Class
-import Utils.Utils
+import BAC.Base
+import BAC.Algorithm (expandMergingSymbols)
+import Utils.Utils ((|>), (.>))
 import qualified Utils.DAG as DAG
 
 import Control.Monad (guard)

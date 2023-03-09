@@ -1,7 +1,7 @@
 module BAC.YAML (encodeSymbol, encodeDict, encodeNode, encodeNodeBy, encodeNode') where
 
-import BAC.Class
-import Utils.Utils
+import BAC.Base
+import Utils.Utils ((|>), (.>), both)
 
 import Data.List (intercalate)
 import Control.Monad.State (State, execState, modify, MonadState (get, put))
