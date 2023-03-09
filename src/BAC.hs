@@ -20,24 +20,54 @@ import Utils
 import DisjointSet (bipartiteEqclass)
 import Memoize (unsafeMemoizeWithKey)
 
+-- $setup
+-- The examples run with the following settings:
+-- 
+-- >>> import YAML
+
 -- basic types
 
-data Arrow v e = Arrow {dict :: Dict, node :: Node e, value :: v} deriving (Eq, Ord, Show)
-
-type Edge e = Arrow e e
-
+-- | Tree representation of a bounded acyclic category.
+--   The type variable 'e' refers to the data carried by the edges.
 newtype Node e = Node {edges :: [Edge e]} deriving (Eq, Ord, Show)
 
+-- | The edge of the tree representation of a bounded acyclic category.
+--   The type variable 'e' refers to the data carried by the edges.
+type Edge e = Arrow e e
+
+-- | Arrow of a bounded acyclic category, representing a downward functor.
+data Arrow v e = Arrow {dict :: Dict, node :: Node e, value :: v} deriving (Eq, Ord, Show)
+
+-- | Dictionary of an arrow, representing mapping between objects.
 type Dict = Map Symbol Symbol
 
+-- | Symbol of a node, representing an object of the corresponding category.
+--   It is implemented as a list of integers.
 newtype Symbol = Symbol [Integer] deriving (Eq, Ord, Show)
 
+-- | The base symbol, representing an initial object.
 base :: Symbol
 base = Symbol []
 
+-- | Return all symbols of a node in ascending order.
 symbols :: Node e -> [Symbol]
 symbols = edges .> concatMap (dict .> Map.elems) .> sort .> nub .> (base :)
 
+-- | Check if given symbols are valid.
+--   Valid symbols in a node should be comparable in lexical order without ambiguity (it
+--   never runs to comparison of lengths), except the base symbol, which should be the
+--   smallest one.
+-- 
+--   Examples:
+-- 
+--   >>> isValidSymbols [Symbol []]
+--   True
+-- 
+--   >>> isValidSymbols [Symbol [], Symbol [0], Symbol [1,2], Symbol [1,4]]
+--   True
+-- 
+--   >>> isValidSymbols [Symbol [], Symbol [0], Symbol [0,2]]
+--   False
 isValidSymbols :: [Symbol] -> Bool
 isValidSymbols syms = head == [base] && all validate (tail `zip` drop 1 tail)
   where
@@ -47,9 +77,12 @@ isValidSymbols syms = head == [base] && all validate (tail `zip` drop 1 tail)
   validate (Symbol (a:r), Symbol (b:s)) = a /= b || validate (Symbol r, Symbol s)
   validate _ = False
 
+-- | Modify a symbol by function on list of integers.
 relabel :: ([Integer] -> [Integer]) -> (Symbol -> Symbol)
 relabel f (Symbol a) = Symbol (f a)
 
+-- | Make a valid symbol according to a list of valid symbols, so that it can be added to
+--   it.
 makeNewSymbol :: [Symbol] -> Symbol
 makeNewSymbol =
   concatMap (\(Symbol nums) -> nums |> take 1)
@@ -59,6 +92,8 @@ makeNewSymbol =
   .> (: [])
   .> Symbol
 
+-- | Split a symbol into multiples so they can be used to replace the symbol in a list of
+--   valid symbols.
 splitSymbol :: Symbol -> [Integer] -> [Symbol]
 splitSymbol s = fmap (\num -> relabel (++ [num]) s)
 
