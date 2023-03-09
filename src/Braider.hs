@@ -7,7 +7,7 @@ import BAC
 
 import Control.Monad (guard)
 import Data.Bifunctor (Bifunctor (second))
-import Data.Foldable (for_, foldlM)
+import Data.Foldable (foldlM)
 import Data.List (nub)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
@@ -19,12 +19,12 @@ import Control.Monad.Identity (Identity (runIdentity))
 
 type BraiderT e n p m v = DAG.BuilderT (Edge e n) (Node e n) p (MaybeT m) v
 
-knot :: (DAG.Pointer p, Monad m) => n -> [(e, p)] -> [[[Int]]] -> BraiderT e n p m p
-knot value children eqclass = do
+knot :: (DAG.Pointer p, Monad m) => n -> [(e, p)] -> BraiderT e n p m p
+knot value ptrs = do
   table <- DAG.getTable
 
   let node =
-        children
+        ptrs
         |> fmap (second ((table !) .> fst))
         |> zip [0..]
         |> fmap (\(num, (eval, subnode)) ->
@@ -36,26 +36,33 @@ knot value children eqclass = do
         )
         |> \edges -> Node {edges = edges, nvalue = value}
 
-  let pathToPointer indices = do
-        guard $ not (null indices)
-        let list !!? i = list |> drop i |> listToMaybe
-        p0 <- fmap snd children !!? head indices
-        let walk p index = fmap snd (snd (table ! p)) !!? index
-        foldlM walk p0 (tail indices)
+  let children = ptrs |> zip (edges node) |> fmap (fmap snd)
 
-  lift $ MaybeT $ pure $ for_ eqclass $ \rels -> do
-    ptrs <- rels |> traverse pathToPointer
+  DAG.node node children
+
+infixl 4 //
+(//) :: (DAG.Pointer p, Monad m) => BraiderT e n p m p -> [[Int]] -> BraiderT e n p m p
+braiding // eqclass = do
+  p <- braiding
+  table <- DAG.getTable
+  let (node, children) = table ! p
+
+  let pathToPointer =
+        foldlM
+        (\p index -> p |> (table !) |> snd |> fmap snd |> drop index |> listToMaybe)
+        p
+
+  lift $ MaybeT $ pure $ do
+    ptrs <- eqclass |> traverse pathToPointer
     guard $ ptrs |> nub |> length |> (<= 1)
+    guard $ ptrs /= [p]
 
-  let pathToArrow indices =
-        foldl
-        (next .> (!!))
-        (head indices |> (edges node !!) |> asArrow)
-        (tail indices)
+  let pathToArrow = foldl (\arr index -> arr |> next |> (!! index)) (root node)
 
   let eqclass' =
         eqclass
-        |> fmap (fmap (pathToArrow .> symbolize))
+        |> fmap (pathToArrow .> symbolize)
+        |> (: [])
         |> expandMergingSymbols node
         |> fromJust
 
