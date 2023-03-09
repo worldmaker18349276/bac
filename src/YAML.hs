@@ -13,7 +13,7 @@ import Data.Maybe (isNothing)
 import Control.Monad (when)
 
 encodeSymbol :: Symbol -> String
-encodeSymbol (Symbol nums) = nums |> fmap show |> intercalate "." |> ("#" ++)
+encodeSymbol (Symbol nums) = nums |> fmap show |> intercalate "." |> ("$" ++)
 
 encodeDict :: Dict -> String
 encodeDict =
