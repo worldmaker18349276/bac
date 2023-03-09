@@ -1,4 +1,4 @@
-module Show (showSymbol, showDict, showStruct) where
+module Show (showSymbol, showDict, showNode, showNodeBy, showNode') where
 
 import BAC
 import Data.List (intercalate)
@@ -31,9 +31,12 @@ countStruct curr =
     modify $ unionWith (<>) (fromList [(sym, 1)])
     when is_new $ countStruct arr
 
-showStruct :: Node e -> String
-showStruct bac =
-  root bac |> showStruct' 0 |> (`execState` FormatterState ptrs [] "") |> output
+showNodeBy :: (e -> Maybe String) -> Node e -> String
+showNodeBy showE bac =
+  root bac
+  |> format showE 0
+  |> (`execState` FormatterState ptrs [] "")
+  |> output
   where
   ptrs =
     root bac
@@ -44,6 +47,12 @@ showStruct bac =
     |> fmap fst
     |> (`zip` [0..])
     |> fromList
+
+showNode :: Show e => Node e -> String
+showNode = showNodeBy (show .> Just)
+
+showNode' :: Node e -> String
+showNode' = showNodeBy (const Nothing)
 
 data FormatterState = FormatterState
   {
@@ -58,12 +67,20 @@ write str = modify (\state -> state {output = output state ++ str})
 indent :: Int -> State FormatterState ()
 indent level = write $ repeat " " |> take (level * 4) |> concat
 
-showStruct' :: Int -> Arrow () e -> State FormatterState ()
-showStruct' level curr =
+format :: (e -> Maybe String) -> Int -> Arrow () e -> State FormatterState ()
+format showE level curr =
   for_ (edges (node curr)) $ \edge -> do
-    indent level
-    write $ "- dict: " ++ showDict (dict edge) ++ "\n"
-    indent level
+    case showE (value edge) of
+      Just estr -> do
+        indent level
+        write $ "- value: " ++ estr ++ "\n"
+        indent level
+        write $ "  dict: " ++ showDict (dict edge) ++ "\n"
+        indent level
+      Nothing -> do
+        indent level
+        write $ "- dict: " ++ showDict (dict edge) ++ "\n"
+        indent level
 
     let arr = curr `join` edge
     let sym = symbolize arr
@@ -84,4 +101,4 @@ showStruct' level curr =
       _ | null (edges (node arr)) -> write " []\n"
       _ -> do
         write "\n"
-        showStruct' (level + 1) arr
+        format showE (level + 1) arr

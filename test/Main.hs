@@ -18,7 +18,7 @@ test_cone = TestCase $ do
         knot' [p, v] // [[1,0], [1,1]] // [[0,0], [1,0,0]]
 
   putStrLn "#[cone]"
-  putStrLn $ cone |> fmap showStruct |> fromMaybe "Nothing"
+  putStrLn $ cone |> fmap showNode' |> fromMaybe "Nothing"
   fmap validate cone @?= Just True
 
 test_torus :: Test
@@ -38,7 +38,7 @@ test_torus = TestCase $ do
           -- // [[0,0,0], [0,1,0], [0,2,0], [0,3,0], [0,0,1], [0,1,1], [0,2,1], [0,3,1]]
 
   putStrLn "#[torus]"
-  putStrLn $ torus |> fmap showStruct |> fromMaybe "Nothing"
+  putStrLn $ torus |> fmap showNode' |> fromMaybe "Nothing"
   fmap validate torus @?= Just True
 
 tests :: Test
