@@ -18,8 +18,15 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (runMaybeT, MaybeT))
 import Control.Monad.Identity (Identity (runIdentity))
 
+-- $setup
+-- The examples run with the following settings:
+-- 
+-- >>> import YAML
+-- >>> import Data.Maybe (fromMaybe)
+
 type BraiderT e p m v = DAG.BuilderT (Edge e) (Node e) p (MaybeT m) v
 
+-- | Make a knot in the Braider.  See 'braid'.
 knot :: (DAG.Pointer p, Monad m) => [(e, p)] -> BraiderT e p m p
 knot ptrs = do
   table <- DAG.getTable
@@ -41,9 +48,11 @@ knot ptrs = do
 
   DAG.node node children
 
+-- | Make a knot without value in the Braider.  See 'braid'.
 knot' :: (DAG.Pointer p, Monad m) => [p] -> BraiderT () p m p
 knot' ptrs = knot (fmap ((),) ptrs)
 
+-- | Merge symbols in the Braider.  See 'braid'.
 infixl 4 //
 (//) :: (DAG.Pointer p, Monad m) => BraiderT e p m p -> [[Int]] -> BraiderT e p m p
 braiding // eqclass = do
@@ -81,16 +90,11 @@ braiding // eqclass = do
 
   DAG.node merged_node merged_children
 
-braidM
-  :: Monad m => (forall p. DAG.Pointer p => BraiderT e p m p) -> m (Maybe (Node e))
-braidM braiding =
-  DAG.buildM braiding |> runMaybeT |> fmap (fmap DAG.value)
+-- | Make a BAC by a monad-typed builder.  See 'braid'.
+braidM :: Monad m => (forall p. DAG.Pointer p => BraiderT e p m p) -> m (Maybe (Node e))
+braidM braiding = DAG.buildM braiding |> runMaybeT |> fmap (fmap DAG.value)
 
--- $setup
--- >>> import YAML
--- >>> import Data.Maybe (fromMaybe)
-
-{- | Make a BAC by monad builder.
+{- | Make a BAC by a monad-typed builder.
 
 Examples:
 

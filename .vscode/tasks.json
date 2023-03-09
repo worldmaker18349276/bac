@@ -4,12 +4,13 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "test",
+            "label": "build",
             "type": "shell",
-            "command": "cabal repl --with-ghc=doctest",
+            "command": "cabal build && cabal haddock && cabal repl --with-ghc=doctest",
             "presentation": {
                 "reveal": "silent"
-            }
+            },
+            "problemMatcher": []
         }
     ]
 }
