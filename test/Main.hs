@@ -2,8 +2,10 @@ module Main (main) where
 
 import BAC
 import Braider
+import Show
 
 import Test.HUnit ((@?=), Test (TestList, TestLabel, TestCase), runTestTT, Counts)
+import Data.Maybe (fromMaybe)
 
 test_cone :: Test
 test_cone = TestCase $ do
@@ -14,7 +16,9 @@ test_cone = TestCase $ do
         c <- knot' [y, b]
         v <- knot' [c, c] // [[0,0], [1,0]] // [[0,1], [1,1]]
         knot' [p, v] // [[1,0], [1,1]] // [[0,0], [1,0,0]]
-  print cone
+
+  putStrLn "[cone]"
+  putStrLn $ cone |> fmap showStruct |> fromMaybe "Nothing"
   fmap validate cone @?= Just True
 
 test_torus :: Test
@@ -32,7 +36,9 @@ test_torus = TestCase $ do
           // [[0,0], [0,2]]
           // [[0,1], [0,3]]
           -- // [[0,0,0], [0,1,0], [0,2,0], [0,3,0], [0,0,1], [0,1,1], [0,2,1], [0,3,1]]
-  print torus
+
+  putStrLn "[torus]"
+  putStrLn $ torus |> fmap showStruct |> fromMaybe "Nothing"
   fmap validate torus @?= Just True
 
 tests :: Test
