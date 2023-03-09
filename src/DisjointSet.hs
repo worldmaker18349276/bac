@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+
 module DisjointSet (bipartiteEqclass) where
 
 import Data.Foldable (foldr')

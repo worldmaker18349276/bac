@@ -1,5 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module DAG (DAG, index, value, children, BuilderT, Builder, Pointer (toInt), getTable,
   buildM, build, node) where
@@ -9,7 +10,7 @@ import Control.Monad.State (StateT, get, gets, put, runStateT)
 import Control.Monad.Trans (MonadTrans)
 import Data.Map (Map, insert, (!))
 
-data DAG e n = DAG (Map Int (n, [(e, Int)])) Int deriving (Eq, Ord)
+data DAG e n = DAG (Map Int (n, [(e, Int)])) Int deriving (Eq, Ord, Show)
 
 index :: DAG e n -> Int
 index (DAG _ p) = p
@@ -43,6 +44,33 @@ buildM building = do
   let BuildState table _ = final
   return $ DAG table p
 
+{- | Make a DAG by a monad-typed builder.
+
+Examples:
+
+>>> :{
+build $ do
+  a <- node "a" []
+  b <- node "b" [("1", a)]
+  c <- node "c" [("2", a), ("3", b)]
+  node "d" [("4", b), ("5", c)]
+:}
+DAG (fromList [(0,("a",[])),(1,("b",[("1",0)])),(2,("c",[("2",0),("3",1)])),(3,("d",[("4",1),("5",2)]))]) 3
+
+It is equivalent to:
+
+>>> :{
+let
+  a = (0 :: Int, ("a", []))
+  b = (1 :: Int, ("b", [("1", fst a)]))
+  c = (2 :: Int, ("c", [("2", fst a), ("3", fst b)]))
+  d = (3 :: Int, ("d", [("4", fst b), ("5", fst c)]))
+in
+  DAG (Data.Map.fromList [a, b, c, d]) (fst d)
+:}
+DAG (fromList [(0,("a",[])),(1,("b",[("1",0)])),(2,("c",[("2",0),("3",1)])),(3,("d",[("4",1),("5",2)]))]) 3
+
+-}
 build :: (forall p. Pointer p => Builder e n p p) -> DAG e n
 build building = runIdentity (buildM building)
 
@@ -53,12 +81,3 @@ node value children = BuilderT $ do
   let table' = insert p (value, children) table
   put $ BuildState table' counter'
   return p
-
-{-
-example :: DAG Int String
-example = build $ do
-  a <- node "a" []
-  b <- node "b" [(1, a)]
-  c <- node "c" [(2, a), (3, b)]
-  node "d" [(4, b), (5, c)]
--}
