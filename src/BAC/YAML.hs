@@ -16,10 +16,10 @@ encodeDict :: Dict -> String
 encodeDict =
   toList
   .> fmap (both show)
-  .> fmap (\(k, v) -> k ++ "=" ++ v)
+  .> fmap (\(k, v) -> k ++ "->" ++ v)
   .> intercalate "; "
-  .> ("'" ++)
-  .> (++ "'")
+  .> ("{" ++)
+  .> (++ "}")
 
 countStruct :: Arrow () e -> State (Map Symbol (Sum Int)) ()
 countStruct curr =

@@ -35,8 +35,8 @@ knot ptrs = do
 
   let nums =
         ptrs
-        |> fmap (snd .> (table !) .> fst .> symbols .> maximum)
-        |> scanl (\a b -> a + b + 1) 1
+        |> fmap (snd .> (table !) .> fst .> symbols .> maximum .> (+ 1))
+        |> scanl (+) 1
   let node =
         ptrs
         |> fmap (second ((table !) .> fst))
@@ -113,19 +113,19 @@ let cone = braid $ do
       knot' [p, v] // [[1,0], [1,1]] // [[0,0], [1,0,0]]
 in  putStrLn $ cone |> fmap encodeNode' |> fromMaybe "Nothing"
 :}
-- dict: '0=1; 1=2'
+- dict: {0->1; 1->2}
   node:
-    - dict: '0=1'
+    - dict: {0->1}
       node: &0 []
-- dict: '0=3; 1=4; 2=2; 3=6; 4=4'
+- dict: {0->3; 1->4; 2->2; 3->6; 4->4}
   node:
-    - dict: '0=1; 1=2; 2=3'
+    - dict: {0->1; 1->2; 2->3}
       node: &1
-        - dict: '0=1'
+        - dict: {0->1}
           node: *0
-        - dict: '0=2'
+        - dict: {0->2}
           node: []
-    - dict: '0=4; 1=2; 2=3'
+    - dict: {0->4; 1->2; 2->3}
       node: *1
 <BLANKLINE>
 
@@ -144,23 +144,23 @@ let torus = braid $ do
         // [[0,1], [0,3]]
 in  putStrLn $ torus |> fmap encodeNode' |> fromMaybe "Nothing"
 :}
-- dict: '0=1; 1=2; 2=3; 3=3; 4=5; 6=3; 7=2; 8=3; 10=5'
+- dict: {0->1; 1->2; 2->3; 3->3; 4->5; 6->3; 7->2; 8->3; 10->5}
   node:
-    - dict: '0=1; 1=2; 2=3'
+    - dict: {0->1; 1->2; 2->3}
       node: &0
-        - dict: '0=1'
+        - dict: {0->1}
           node: &1 []
-        - dict: '0=2'
+        - dict: {0->2}
           node: *1
-    - dict: '0=4; 1=3; 2=6'
+    - dict: {0->4; 1->3; 2->6}
       node: &2
-        - dict: '0=1'
+        - dict: {0->1}
           node: *1
-        - dict: '0=2'
+        - dict: {0->2}
           node: *1
-    - dict: '0=7; 1=8; 2=6'
+    - dict: {0->7; 1->8; 2->6}
       node: *0
-    - dict: '0=10; 1=2; 2=8'
+    - dict: {0->10; 1->2; 2->8}
       node: *2
 <BLANKLINE>
 -}
