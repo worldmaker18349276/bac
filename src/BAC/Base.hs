@@ -13,6 +13,7 @@ import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust)
 import Data.Tuple (swap)
+import Numeric.Natural (Natural)
 
 import Utils.Utils ((|>), (.>), groupOn)
 import Utils.Memoize (unsafeMemoizeWithKey)
@@ -45,7 +46,7 @@ data Arrow v e = Arrow {dict :: Dict, node :: Node e, value :: v} deriving (Eq, 
 type Dict = Map Symbol Symbol
 
 -- | Symbol of a node, representing an object of the corresponding category.
-type Symbol = Integer
+type Symbol = Natural
 
 -- | The base symbol, representing an initial object.
 base :: Symbol
