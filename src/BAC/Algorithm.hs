@@ -9,13 +9,13 @@ import Control.Monad (guard)
 import qualified Control.Monad as Monad
 import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable (for_)
-import Data.List (delete, elemIndices, findIndex, nub, nubBy, sort, sortOn, transpose)
+import Data.List (delete, elemIndices, findIndex, nub, sort, sortOn, transpose)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe, fromJust)
 import Data.Traversable (for)
 
-import Utils.Utils ((|>), (.>), both, nubOn, groupOn)
+import Utils.Utils ((|>), (.>), both, nubOn, groupOn, filterMaybe, distinct, allSame, allSameBy, label)
 import Utils.DisjointSet (bipartiteEqclass)
 import BAC.Base
 
@@ -61,7 +61,7 @@ removeObject :: Symbol -> Node e -> Maybe (Node e)
 removeObject tgt bac = do
   guard $ locate tgt (root bac) == Inner
   tgt_arr <- walk tgt (root bac)
-  guard $ edges (node  tgt_arr) |> null
+  guard $ edges (node tgt_arr) |> null
 
   toMaybe $ forUnder tgt bac $ \case
     BoundaryArg curr -> node curr
@@ -113,11 +113,8 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val bac = do
     |> concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
     |> sort
     |> nub
-    |> groupOn fst
-    |> traverse (\case
-      [wire] -> Just wire
-      _ -> Nothing)
-    |> fmap ((base, new_sym) :)
+    |> ((base, new_sym) :)
+    |> filterMaybe (fmap fst .> distinct)
     |> fmap Map.fromList
   let new_edge = Arrow {dict = new_dict, node = node tgt_arr, value = val}
 
@@ -142,13 +139,7 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val bac = do
                 where
                 new_wire = new_wires ! symbolize2 (curr, edge)
 
-      pairs
-        |> sort
-        |> nub
-        |> groupOn fst
-        |> traverse (\case
-          [pair] -> Just pair
-          _ -> Nothing)
+      pairs |> sort |> nub |> filterMaybe (fmap fst .> distinct)
 
   Just (new_edge, new_wires)
 
@@ -160,7 +151,7 @@ addMorphism src new_edge new_wires bac =
   toMaybe $ forUnder src bac $ \case
     BoundaryArg curr -> node curr `withEdges` new_edges
       where
-      new_edges = edges (node curr) |> (new_edge :)
+      new_edges = edges (node curr) |> (++ [new_edge])
     InnerArg curr results -> node curr `withEdges` do
       (res, edge) <- results `zip` edges (node curr)
       case res of
@@ -176,8 +167,8 @@ partitionMorphism tgt bac = do
   guard $ locate tgt (root bac) == Inner
   Just $
     edges bac
-    |> concatMap find3Chains -- list of 3-chains
-    |> fmap symbolize3 -- list of links between min and max objects
+    |> concatMap find3Chains
+    |> fmap symbolize3
     |> bipartiteEqclass
     |> fmap fst
     |> fmap sort
@@ -190,7 +181,7 @@ partitionMorphism tgt bac = do
     |> Map.keys
     |> mapMaybe (\sym -> parents sym (node arr))
     |> concat
-    |> fmap (\(b,c) -> (arr,b,c))
+    |> fmap (\(b, c) -> (arr, b, c))
   symbolize3 :: (Edge e, Arrow () e, Edge e) -> ((Symbol, Symbol), (Symbol, Symbol))
   symbolize3 (arr1, arr2, arr3) = ((sym1, sym23), (sym12, sym3))
     where
@@ -207,12 +198,7 @@ splitMorphism (src, tgt) splittable_keys bac = do
 
   let src_syms = node src_arr |> symbols
   let splitted_syms =
-        splittable_keys
-        |> sort
-        |> nub
-        |> (`zip` [maximum src_syms * i + tgt | i <- [0..]])
-        |> Map.fromList
-        |> (\new_syms -> splittable_keys |> fmap (new_syms !))
+        splittable_keys |> label 0 |> fmap (\i -> maximum src_syms * i + tgt)
 
   toMaybe $ forUnder src bac $ \case
     BoundaryArg curr -> node curr `withEdges` do
@@ -269,12 +255,7 @@ splitObject tgt splittable_keys bac = do
         |> fmap (`elemIndices` splittable_keys)
         |> fmap (concatMap (splittable_groups !!))
   let splitSym syms s =
-        splittable_keys
-        |> sort
-        |> nub
-        |> (`zip` [maximum syms * i + s | i <- [0..]])
-        |> Map.fromList
-        |> (\new_syms -> splittable_keys |> fmap (new_syms !))
+        splittable_keys |> label 0 |> fmap (\i -> maximum syms * i + s)
 
   let f_boundary curr = do
         group <- splitted_groups
@@ -333,13 +314,14 @@ mergeMorphisms src tgts bac = do
   src_arr <- walk src (root bac)
 
   tgt_arrs <- for tgts $ \tgt -> walk tgt (root (node src_arr))
-  guard $ tgt_arrs |> fmap (dict .> Map.delete base) |> nub |> length |> (== 1)
+  guard $ not (null tgt_arrs)
+  guard $ tgt_arrs |> fmap (dict .> Map.delete base) |> allSame
   guard $
     src /= base
-    || (tgt_arrs |> fmap (node .> edges .> fmap dict) |> nub |> length |> (== 1))
+    || (tgt_arrs |> fmap (node .> edges .> fmap dict) |> allSame)
   pars <- parents src bac
-  for_ pars $ \(_, edge) -> do
-    guard $ tgts |> fmap (dict edge !) |> nub |> length |> (== 1)
+  for_ pars $ \(_, edge) ->
+    guard $ tgts |> fmap (dict edge !) |> allSame
 
   let merge s = if s `elem` tgts then head tgts else s
 
@@ -366,8 +348,9 @@ mergeObjects tgts bac = do
       |> filter (\(arr, edge) -> isNondecomposable (node arr) (symbolize edge))
       |> nubOn symbolize2
 
-  guard $ tgt_pars |> fmap length |> nub |> length |> (== 1)
-  guard $ transpose tgt_pars |> all (fmap (fst .> symbolize) .> nub .> length .> (== 1))
+  guard $ not (null tgt_pars)
+  guard $ tgt_pars |> fmap length |> allSame
+  guard $ transpose tgt_pars |> all (fmap (fst .> symbolize) .> allSame)
 
   let tgt_nodes = tgts |> fmap (`walk` root bac) |> fmap (fromJust .> node)
   let merged_node = mergeCategories tgt_nodes
@@ -406,7 +389,7 @@ mergeObjects tgts bac = do
             |> fmap (fmap snd)
       let collapse_lists =
             (collapse_lists1 ++ collapse_lists2) |> fmap sort |> sort |> nub
-      guard $ (collapse_lists |> concat |> nub) == (collapse_lists |> concat)
+      guard $ collapse_lists |> concat |> distinct
 
       let collapsed_edges = do
             ((res_node, collapse_lists'), edge) <- results' `zip` edges (node curr)
@@ -518,8 +501,7 @@ mergeMorphismsAggressively src tgts bac = do
   src_arr <- walk src (root bac)
 
   tgt_arrs <- traverse (traverse (`walk` root (node src_arr))) tgts
-  guard $
-    tgt_arrs |> all (fmap node .> fmap root .> nubBy sameStruct .> length .> (<= 1))
+  guard $ tgt_arrs |> all (fmap node .> fmap root .> allSameBy sameStruct)
 
   let mergeSymbol tgts' s = tgts' |> filter (elem s) |> (++ [[s]]) |> head |> head
 
