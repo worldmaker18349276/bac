@@ -15,17 +15,17 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe, fromJust)
 import Data.Traversable (for)
 
-import Utils.Utils ((|>), (.>), both, nubOn, groupOn)
+import Utils.Utils ((|>), (.>), both, nubOn, groupOn, boolToMaybe)
 import Utils.DisjointSet (bipartiteEqclass)
 import BAC.Base
 
 empty :: Node e
 empty = Node {edges = []}
 
-singleton :: e -> Integer -> Node e
-singleton val num = Node {edges = [new_edge]}
+
+singleton :: e -> Symbol -> Maybe (Node e)
+singleton val new_sym = boolToMaybe (new_sym == base) $ Node {edges = [new_edge]}
   where
-  new_sym = Symbol [num]
   new_dict = Map.singleton base new_sym
   new_node = Node {edges = []}
   new_edge = Arrow {dict = new_dict, node = new_node, value = val}

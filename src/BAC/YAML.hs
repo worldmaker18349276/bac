@@ -1,4 +1,4 @@
-module BAC.YAML (encodeSymbol, encodeDict, encodeNode, encodeNodeBy, encodeNode') where
+module BAC.YAML (encodeDict, encodeNode, encodeNodeBy, encodeNode') where
 
 import BAC.Base
 import Utils.Utils ((|>), (.>), both)
@@ -12,13 +12,10 @@ import Prelude hiding (lookup)
 import Data.Maybe (isNothing)
 import Control.Monad (when)
 
-encodeSymbol :: Symbol -> String
-encodeSymbol (Symbol nums) = nums |> fmap show |> intercalate "." |> ("$" ++)
-
 encodeDict :: Dict -> String
 encodeDict =
   toList
-  .> fmap (both encodeSymbol)
+  .> fmap (both show)
   .> fmap (\(k, v) -> k ++ "=" ++ v)
   .> intercalate "; "
   .> ("'" ++)

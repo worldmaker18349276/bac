@@ -33,18 +33,21 @@ knot :: (DAG.Pointer p, Monad m) => [(e, p)] -> BraiderT e p m p
 knot ptrs = do
   table <- DAG.getTable
 
+  let nums =
+        ptrs
+        |> fmap (snd .> (table !) .> fst .> symbols .> maximum)
+        |> scanl (\a b -> a + b + 1) 1
   let node =
         ptrs
         |> fmap (second ((table !) .> fst))
-        |> zip [1..]
-        |> fmap (\(num, (eval, subnode)) ->
-          subnode
-          |> symbols
-          |> fmap (\a -> (a, relabel ((if a == base then [num, 0] else [num]) ++) a))
-          |> Map.fromList
-          |> \dict -> Arrow {dict = dict, node = subnode, value = eval}
+        |> zip nums
+        |> fmap (\(num, (val, subnode)) -> Arrow {
+            dict = subnode |> symbols |> fmap (\a -> (a, num + a)) |> Map.fromList,
+            node = subnode,
+            value = val
+          }
         )
-        |> \edges -> Node {edges = edges}
+        |> Node
 
   let children = ptrs |> zip (edges node) |> fmap (fmap snd)
 
@@ -110,19 +113,19 @@ let cone = braid $ do
       knot' [p, v] // [[1,0], [1,1]] // [[0,0], [1,0,0]]
 in  putStrLn $ cone |> fmap encodeNode' |> fromMaybe "Nothing"
 :}
-- dict: '$=$1.0; $1.0=$1.1.0'
+- dict: '0=1; 1=2'
   node:
-    - dict: '$=$1.0'
+    - dict: '0=1'
       node: &0 []
-- dict: '$=$2.0; $1.0=$2.1.0; $1.1.0=$1.1.0; $1.2.0=$2.1.2.0; $2.0=$2.1.0'
+- dict: '0=3; 1=4; 2=2; 3=6; 4=4'
   node:
-    - dict: '$=$1.0; $1.0=$1.1.0; $2.0=$1.2.0'
+    - dict: '0=1; 1=2; 2=3'
       node: &1
-        - dict: '$=$1.0'
+        - dict: '0=1'
           node: *0
-        - dict: '$=$2.0'
+        - dict: '0=2'
           node: []
-    - dict: '$=$2.0; $1.0=$1.1.0; $2.0=$1.2.0'
+    - dict: '0=4; 1=2; 2=3'
       node: *1
 <BLANKLINE>
 
@@ -141,24 +144,23 @@ let torus = braid $ do
         // [[0,1], [0,3]]
 in  putStrLn $ torus |> fmap encodeNode' |> fromMaybe "Nothing"
 :}
-- dict: '$=$1.0; $1.0=$1.1.0; $1.1.0=$1.1.1.0; $1.2.0=$1.1.1.0; $2.0=$1.2.0; {- LINEBREAK
-        -}$2.2.0=$1.1.1.0; $3.0=$1.1.0; $3.1.0=$1.1.1.0; $4.0=$1.2.0'
+- dict: '0=1; 1=2; 2=3; 3=3; 4=5; 6=3; 7=2; 8=3; 10=5'
   node:
-    - dict: '$=$1.0; $1.0=$1.1.0; $2.0=$1.2.0'
+    - dict: '0=1; 1=2; 2=3'
       node: &0
-        - dict: '$=$1.0'
+        - dict: '0=1'
           node: &1 []
-        - dict: '$=$2.0'
+        - dict: '0=2'
           node: *1
-    - dict: '$=$2.0; $1.0=$1.2.0; $2.0=$2.2.0'
+    - dict: '0=4; 1=3; 2=6'
       node: &2
-        - dict: '$=$1.0'
+        - dict: '0=1'
           node: *1
-        - dict: '$=$2.0'
+        - dict: '0=2'
           node: *1
-    - dict: '$=$3.0; $1.0=$3.1.0; $2.0=$2.2.0'
+    - dict: '0=7; 1=8; 2=6'
       node: *0
-    - dict: '$=$4.0; $1.0=$1.1.0; $2.0=$3.1.0'
+    - dict: '0=10; 1=2; 2=8'
       node: *2
 <BLANKLINE>
 -}

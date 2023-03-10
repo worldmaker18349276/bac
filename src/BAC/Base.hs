@@ -44,71 +44,16 @@ data Arrow v e = Arrow {dict :: Dict, node :: Node e, value :: v} deriving (Eq, 
 -- | Dictionary of an arrow, representing mapping between objects.
 type Dict = Map Symbol Symbol
 
--- ** Symbols
---
--- $doc
--- Symbol of a node ...
-
 -- | Symbol of a node, representing an object of the corresponding category.
---   It is implemented as a list of integers.
-newtype Symbol = Symbol [Integer] deriving (Eq, Ord, Show)
+type Symbol = Integer
 
 -- | The base symbol, representing an initial object.
 base :: Symbol
-base = Symbol []
+base = 0
 
 -- | Return all symbols of a node in ascending order.
 symbols :: Node e -> [Symbol]
 symbols = edges .> concatMap (dict .> Map.elems) .> sort .> nub .> (base :)
-
--- | Check if given symbols are valid.
---   Valid symbols in a node should be comparable in lexical order without ambiguity (it
---   never runs to comparison of lengths), except the base symbol, which should be the
---   smallest one.
--- 
---   Examples:
--- 
---   >>> isValidSymbols [Symbol []]
---   True
--- 
---   >>> isValidSymbols [Symbol [], Symbol [0], Symbol [1,2], Symbol [1,4]]
---   True
--- 
---   >>> isValidSymbols [Symbol [], Symbol [0], Symbol [0,2]]
---   False
-isValidSymbols :: [Symbol] -> Bool
-isValidSymbols syms = head == [base] && all validate (tail `zip` drop 1 tail)
-  where
-  sorted_syms = sort syms
-  head = take 1 sorted_syms
-  tail = drop 1 sorted_syms
-  validate (Symbol (a:r), Symbol (b:s)) = a /= b || validate (Symbol r, Symbol s)
-  validate _ = False
-
--- | Modify a symbol by function on list of integers.
-relabel :: ([Integer] -> [Integer]) -> (Symbol -> Symbol)
-relabel f (Symbol a) = Symbol (f a)
-
--- | Make a valid symbol according to a list of valid symbols, so that it can be added to
---   it.
-makeNewSymbol :: [Symbol] -> Symbol
-makeNewSymbol =
-  concatMap (\(Symbol nums) -> nums |> take 1)
-  .> fmap (+ 1)
-  .> (0 :)
-  .> maximum
-  .> (: [])
-  .> Symbol
-
--- | Split a symbol into multiples so they can be used to replace the symbol in a list of
---   valid symbols.
-splitSymbol :: Symbol -> [Integer] -> [Symbol]
-splitSymbol s = fmap (\num -> relabel (++ [num]) s)
-
---   (isValidSymbols syms && sym /= base) -> isValidSymbols (delete sym syms)
---   isValidSymbols syms -> isValidSymbols (syms ++ [makeNewSymbol syms])
---   (isValidSymbols syms && sym /= base && sym `elem` syms)
---     -> isValidSymbols (delete sym syms ++ splitSymbol sym nums)
 
 -- * Others
 
@@ -203,12 +148,10 @@ sameStruct arr1 arr2 =
 
 validate :: Node e -> Bool
 validate bac =
-  validateSymbols
-  && validateChildren
+  validateChildren
   && validateDicts
   && validateSup
   where
-  validateSymbols = symbols bac |> isValidSymbols
   validateChildren = edges bac |> fmap node |> all validate
   validateDicts =
     edges bac
@@ -302,8 +245,7 @@ find f = fold go .> Map.elems
     then Map.unions results |> Map.insert (symbolize arr) arr
     else Map.unions results
 
-findUnder
-  :: Symbol -> (Location -> Arrow () e -> Bool) -> (Node e -> Maybe [Arrow () e])
+findUnder :: Symbol -> (Location -> Arrow () e -> Bool) -> (Node e -> Maybe [Arrow () e])
 findUnder sym f = foldUnder sym go .> toMaybe .> fmap Map.elems
   where
   go arg =
@@ -338,7 +280,6 @@ rewireEdges src tgts bac = do
 relabelObject :: Symbol -> Dict -> Node e -> Maybe (Node e)
 relabelObject tgt mapping bac = do
   tgt_arr <- walk tgt (root bac)
-  guard $ isValidSymbols (Map.elems mapping)
   guard $ mapping ! base == base
   guard $ Map.keys mapping == symbols (node tgt_arr)
   toMaybe $ forUnder tgt bac $ \case

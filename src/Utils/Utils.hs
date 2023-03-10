@@ -19,3 +19,5 @@ nubOn f = nubBy (\a a' -> f a == f a')
 groupOn :: Eq b => (a -> b) -> [a] -> [[a]]
 groupOn f = groupBy (\a a' -> f a == f a')
 
+boolToMaybe :: Bool -> a -> Maybe a
+boolToMaybe b a = if b then Just a else Nothing
