@@ -4,7 +4,7 @@ module Utils.Memoize (memoizeWithKey, unsafeMemoizeWithKey) where
 
 import Control.Monad.ST (ST, stToIO)
 import Data.Map as Map (empty, insert, lookup)
-import Data.STRef (newSTRef, readSTRef, writeSTRef)
+import Data.STRef (newSTRef, readSTRef, modifySTRef)
 import System.IO.Unsafe (unsafePerformIO)
 
 memoizeWithKey :: Ord k => (a -> k) -> (a -> ST s b) -> ST s (a -> ST s b)
@@ -17,7 +17,7 @@ memoizeWithKey key f = do
       Just b -> return b
       Nothing -> do
         b <- f a
-        writeSTRef ref (Map.insert k b cache)
+        modifySTRef ref (Map.insert k b)
         return b
 
 unsafeMemoizeWithKey :: Ord k => (a -> k) -> (a -> b) -> a -> b
@@ -30,5 +30,5 @@ unsafeMemoizeWithKey key f = unsafePerformIO . stToIO $ do
       Just b -> return b
       Nothing -> do
         let b = f a
-        writeSTRef ref (Map.insert k b cache)
+        modifySTRef ref (Map.insert k b)
         return b
