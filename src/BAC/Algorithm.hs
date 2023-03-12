@@ -45,14 +45,12 @@ removeMorphism (src, tgt) bac = do
       Just bac
     InnerArg curr results -> do
       results' <- traverse sequence results
-      let bac = Node $ do
-            (res, edge) <- results' `zip` edges (node curr)
-            case res of
-              OuterRes -> [edge]
-              InnerRes res -> [edge `withNode` res]
-              BoundaryRes res -> [edge `withDict` filtered_dict `withNode` res]
-                where
-                filtered_dict = dict edge |> Map.delete tgt
+      let bac = forEdges curr results' $ \edge -> \case
+            OuterRes -> [edge]
+            InnerRes res -> [edge `withNode` res]
+            BoundaryRes res -> [edge `withDict` filtered_dict `withNode` res]
+              where
+              filtered_dict = dict edge |> Map.delete tgt
       guard $ symbols bac == symbols (node curr)
       Just bac
 
@@ -64,17 +62,15 @@ removeObject tgt bac = do
 
   forUnder tgt bac $ \case
     BoundaryArg curr -> node curr
-    InnerArg curr results -> Node $ do
-      (res, edge) <- results `zip` edges (node curr)
-      case res of
-        OuterRes -> [edge]
-        BoundaryRes _ -> []
-        InnerRes res -> [edge `withDict` filtered_dict `withNode` res]
-          where
-          filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
+    InnerArg curr results -> forEdges curr results $ \edge -> \case
+      OuterRes -> [edge]
+      BoundaryRes _ -> []
+      InnerRes res -> [edge `withDict` filtered_dict `withNode` res]
+        where
+        filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
 
-prepareForAddingMorphism
-  :: Symbol -> Symbol
+prepareForAddingMorphism ::
+  Symbol -> Symbol
   -> [(Symbol, Symbol)] -> [(Symbol, Symbol)]
   -> e
   -> Node e -> Maybe (Edge e, Map (Symbol, Symbol) (Symbol, Symbol))
@@ -142,8 +138,8 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val bac = do
 
   Just (new_edge, new_wires)
 
-addMorphism
-  :: Symbol
+addMorphism ::
+  Symbol
   -> Edge e -> Map (Symbol, Symbol) (Symbol, Symbol)
   -> Node e -> Maybe (Node e)
 addMorphism src new_edge new_wires bac =
@@ -151,15 +147,13 @@ addMorphism src new_edge new_wires bac =
     BoundaryArg curr -> Node new_edges
       where
       new_edges = edges (node curr) |> (++ [new_edge])
-    InnerArg curr results -> Node $ do
-      (res, edge) <- results `zip` edges (node curr)
-      case res of
-        OuterRes -> [edge]
-        InnerRes res -> [edge `withNode` res]
-        BoundaryRes res -> [edge `withDict` new_dict `withNode` res]
-          where
-          new_wire = new_wires ! symbolize2 (curr, edge)
-          new_dict = dict edge |> uncurry Map.insert new_wire
+    InnerArg curr results -> forEdges curr results $ \edge -> \case
+      OuterRes -> [edge]
+      InnerRes res -> [edge `withNode` res]
+      BoundaryRes res -> [edge `withDict` new_dict `withNode` res]
+        where
+        new_wire = new_wires ! symbolize2 (curr, edge)
+        new_dict = dict edge |> uncurry Map.insert new_wire
 
 partitionMorphism :: Symbol -> Node e -> Maybe [[(Symbol, Symbol)]]
 partitionMorphism tgt bac = do
@@ -219,17 +213,15 @@ splitMorphism (src, tgt) splittable_keys bac = do
                 |> (splitted_syms !!)
         let splitted_dict = dict edge |> Map.toList |> fmap split |> Map.fromList
         [edge `withDict` splitted_dict]
-    InnerArg curr results -> Node $ do
-      (res, edge) <- results `zip` edges (node curr)
-      case res of
-        OuterRes -> [edge]
-        InnerRes res -> [edge `withNode` res]
-        BoundaryRes res -> [edge `withDict` merged_dict `withNode` res]
-          where
-          merge (s, r)
-            | s == tgt  = [(s', r) | s' <- splitted_syms]
-            | otherwise = [(s, r)]
-          merged_dict = dict edge |> Map.toList |> concatMap merge |> Map.fromList
+    InnerArg curr results -> forEdges curr results $ \edge -> \case
+      OuterRes -> [edge]
+      InnerRes res -> [edge `withNode` res]
+      BoundaryRes res -> [edge `withDict` merged_dict `withNode` res]
+        where
+        merge (s, r)
+          | s == tgt  = [(s', r) | s' <- splitted_syms]
+          | otherwise = [(s, r)]
+        merged_dict = dict edge |> Map.toList |> concatMap merge |> Map.fromList
 
 partitionObject :: Node e -> [[Symbol]]
 partitionObject bac = links |> bipartiteEqclass |> fmap (snd .> sort) |> sort
@@ -329,14 +321,12 @@ mergeMorphisms src tgts bac = do
       edge <- edges (node curr)
       let dict' = dict edge |> Map.toList |> fmap (second merge) |> Map.fromList
       [edge `withDict` dict']
-    InnerArg curr results -> Node $ do
-      (res, edge) <- results `zip` edges (node curr)
-      case res of
-        OuterRes -> [edge]
-        InnerRes res -> [edge `withNode` res]
-        BoundaryRes res -> [edge `withDict` dict' `withNode` res]
-          where
-          dict' = dict edge |> Map.toList |> fmap (first merge) |> Map.fromList
+    InnerArg curr results -> forEdges curr results $ \edge -> \case
+      OuterRes -> [edge]
+      InnerRes res -> [edge `withNode` res]
+      BoundaryRes res -> [edge `withDict` dict' `withNode` res]
+        where
+        dict' = dict edge |> Map.toList |> fmap (first merge) |> Map.fromList
 
 mergeObjects :: [Symbol] -> Node e -> Maybe (Node e)
 mergeObjects tgts bac = do
@@ -428,20 +418,18 @@ trimObject tgt bac = do
 
   forUnder tgt bac $ \case
     BoundaryArg curr -> node curr
-    InnerArg curr results -> Node $ do
-      (res, edge) <- results `zip` edges (node curr)
-      case res of
-        OuterRes -> [edge]
-        BoundaryRes _ -> do
-          subedge <- edges (node edge)
-          let concated_dict = dict edge `cat` dict subedge
-          [subedge `withDict` concated_dict]
-        InnerRes res -> [edge `withDict` filtered_dict `withNode` res]
-          where
-          filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
+    InnerArg curr results -> forEdges curr results $ \edge -> \case
+      OuterRes -> [edge]
+      BoundaryRes _ -> do
+        subedge <- edges (node edge)
+        let concated_dict = dict edge `cat` dict subedge
+        [subedge `withDict` concated_dict]
+      InnerRes res -> [edge `withDict` filtered_dict `withNode` res]
+        where
+        filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
 
-insertMorphism
-  :: (Symbol, Maybe Symbol)
+insertMorphism ::
+  (Symbol, Maybe Symbol)
   -> (e, e)
   -> Node e -> Maybe (Node e)
 insertMorphism (src, tgt) (val1, val2) bac = do
@@ -461,24 +449,21 @@ insertMorphism (src, tgt) (val1, val2) bac = do
 
   forUnder src bac $ \case
     BoundaryArg curr -> Node $ edges (node curr) ++ [new_inedge]
-    InnerArg curr results -> Node $ do
-      (res, edge) <- results `zip` edges (node curr)
-      let s_syms = node curr |> symbols
-      let r_syms = node edge |> symbols
-      let dict' =
-            dict edge
-            |> Map.toList
-            |> concatMap (\(s, r) ->
-              if dict curr ! r == src
-              then [(s, r), (newSym s_syms s, newSym r_syms r)]
-              else [(s, r)])
-            |> Map.fromList
-      case res of
-        OuterRes -> [edge]
-        InnerRes res -> [edge `withDict` dict' `withNode` res]
-        BoundaryRes res -> [edge `withDict` dict' `withNode` res]
-      where
-      newSym syms = (+) (maximum syms + 1)
+    InnerArg curr results -> forEdges curr results $ \edge res -> case toMaybe res of
+      Nothing -> [edge]
+      Just res -> [edge `withDict` dict' `withNode` res]
+        where
+        newSym syms = (+) (maximum syms + 1)
+        s_syms = node curr |> symbols
+        r_syms = node edge |> symbols
+        dict' =
+              dict edge
+              |> Map.toList
+              |> concatMap (\(s, r) ->
+                if dict curr ! r == src
+                then [(s, r), (newSym s_syms s, newSym r_syms r)]
+                else [(s, r)])
+              |> Map.fromList
 
 expandMergingSymbols :: Node e -> [[Symbol]] -> Maybe [[Symbol]]
 expandMergingSymbols bac =
@@ -516,27 +501,23 @@ mergeMorphismsAggressively src tgts bac = do
       results' <- traverse sequence results
       merging_lists <-
         results'
-        |> concatMap (\case
-          InnerRes (_, l) -> l
-          BoundaryRes (_, l) -> l
-          OuterRes -> []
-        )
+        |> concatMap merging_lists_of
         |> zip (node curr |> edges |> fmap dict)
         |> fmap (sequence .> fmap (uncurry (!)))
         |> expandMergingSymbols (node curr)
       let merged_node = Node $ do
             (res, edge) <- results' `zip` edges (node curr)
-            let merging_lists' = case res of
-                  InnerRes (_, l) -> l
-                  BoundaryRes (_, l) -> l
-                  OuterRes -> []
             let merged_dict =
                   dict edge
                   |> fmap (mergeSymbol merging_lists)
-                  |> Map.mapKeys (mergeSymbol merging_lists')
-            case res of
-              OuterRes -> [edge `withDict` merged_dict]
-              InnerRes (res, _) -> [edge `withDict` merged_dict `withNode` res]
-              BoundaryRes (res, _) -> [edge `withDict` merged_dict `withNode` res]
+                  |> Map.mapKeys (mergeSymbol (merging_lists_of res))
+            case toMaybe res of
+              Nothing -> [edge `withDict` merged_dict]
+              Just (res, _) -> [edge `withDict` merged_dict `withNode` res]
       Just (merged_node, merging_lists)
+      where
+      merging_lists_of = \case
+        OuterRes -> []
+        InnerRes (_, l) -> l
+        BoundaryRes (_, l) -> l
 

@@ -67,8 +67,11 @@ withDict edge dict = edge {dict = dict}
 withNode :: Arrow v e -> Node o -> Arrow v o
 withNode edge node = edge {node = node}
 
+withValue :: Arrow v e -> w -> Arrow w e
+withValue edge value = edge {value = value}
+
 asArrow :: Arrow v e -> Arrow () e
-asArrow edge = edge {value = ()}
+asArrow = (`withValue` ())
 
 -- explore methods
 
@@ -168,17 +171,24 @@ fold f = root .> fold'
   fold' = memoize $ \arr -> f arr (arr |> next |> fmap fold')
   memoize = unsafeMemoizeWithKey symbolize
 
-data FoldUnderResult r = InnerRes r | BoundaryRes r | OuterRes
+data FoldUnderResult r =
+    InnerRes    r
+  | BoundaryRes r
+  | OuterRes
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+
 data FoldUnderArgument e r =
-  InnerArg (Arrow () e) [FoldUnderResult r] | BoundaryArg (Arrow () e)
+    InnerArg    (Arrow () e) [FoldUnderResult r]
+  | BoundaryArg (Arrow () e)
   deriving (Functor, Foldable, Traversable)
 
+toMaybe :: FoldUnderResult r -> Maybe r
+toMaybe (InnerRes    res) = Just res
+toMaybe (BoundaryRes res) = Just res
+toMaybe  OuterRes         = Nothing
+
 foldUnder :: Symbol -> (FoldUnderArgument e r -> r) -> (Node e -> Maybe r)
-foldUnder sym f bac = case fold f' bac of
-  InnerRes r -> Just r
-  BoundaryRes r -> Just r
-  OuterRes -> Nothing
+foldUnder sym f = toMaybe . fold f'
   where
   f' arr results = case locate sym arr of
     Outer    -> OuterRes
@@ -188,10 +198,19 @@ foldUnder sym f bac = case fold f' bac of
 forUnder :: Symbol -> Node e -> (FoldUnderArgument e r -> r) -> Maybe r
 forUnder sym = flip (foldUnder sym)
 
+forEdges ::
+  Arrow () e
+  -> [FoldUnderResult (Node e')]
+  -> (Edge e -> FoldUnderResult (Node e') -> [Edge e'])
+  -> Node e'
+forEdges curr results f = Node $ do
+  (res, edge) <- results `zip` edges (node curr)
+  f edge res
+
 data FoldUnderResult' r s = InnerRes' r | BoundaryRes' s | OuterRes'
 
-foldUnder'
-  :: Symbol
+foldUnder' ::
+  Symbol
   -> (Arrow () e -> [FoldUnderResult' r s] -> r)
   -> (Arrow () e                           -> s)
   -> (Node e -> FoldUnderResult' r s)
@@ -205,27 +224,23 @@ foldUnder' sym f_inner f_boundary = fold f'
 map :: ((Arrow () e, Edge e) -> o) -> (Node e -> Node o)
 map g = fold $ \arr results ->
   edges (node arr)
-  |> fmap (\edge -> edge {value = g (arr, edge)})
+  |> fmap (\edge -> edge `withValue` g (arr, edge))
   |> (`zip` results)
   |> fmap (uncurry withNode)
   |> Node
 
-mapUnder
-  :: Symbol
+mapUnder ::
+  Symbol
   -> (Location -> (Arrow () e, Edge e) -> e)
   -> (Node e -> Maybe (Node e))
 mapUnder sym g = foldUnder sym go
   where
   go = \case
-    BoundaryArg curr -> Node {edges = edges (node curr)}
-    InnerArg curr results -> Node {edges = edges'}
-      where
-      edges' = do
-        (edge, res) <- edges (node curr) `zip` results
-        case res of
-          BoundaryRes res -> [edge {value = g Boundary (curr, edge)} `withNode` res]
-          InnerRes res -> [edge {value = g Inner (curr, edge)} `withNode` res]
-          OuterRes -> [edge]
+    BoundaryArg curr -> Node $ edges (node curr)
+    InnerArg curr results -> forEdges curr results $ \edge -> \case
+      OuterRes -> [edge]
+      BoundaryRes res -> [edge `withValue` g Boundary (curr, edge) `withNode` res]
+      InnerRes    res -> [edge `withValue` g Inner    (curr, edge) `withNode` res]
 
 find :: (Arrow () e -> Bool) -> (Node e -> [Arrow () e])
 find f = fold go .> Map.elems
@@ -246,10 +261,6 @@ findUnder sym f = foldUnder sym go .> fmap Map.elems
     (arr, loc, results) = case arg of
       BoundaryArg arr -> (arr, Boundary, [])
       InnerArg arr results -> (arr, Inner, results |> mapMaybe toMaybe)
-    toMaybe = \case
-      InnerRes r -> Just r
-      BoundaryRes r -> Just r
-      OuterRes -> Nothing
 
 rewireEdges :: Symbol -> [(e, Symbol)] -> Node e -> Maybe (Node e)
 rewireEdges src tgts bac = do
@@ -258,18 +269,16 @@ rewireEdges src tgts bac = do
   src_edges' <-
     tgts
     |> traverse (traverse (`walk` root (node src_arr)))
-    |> fmap (fmap (\(value, arr) -> arr {value = value}))
+    |> fmap (fmap (\(value, arr) -> arr `withValue` value))
   let nd_syms = fmap symbolize .> filter (isNondecomposable (node src_arr)) .> sort .> nub
   guard $ nd_syms src_edges == nd_syms src_edges'
 
   forUnder src bac $ \case
     BoundaryArg curr -> Node src_edges'
-    InnerArg curr results -> Node $ do
-      (res, edge) <- results `zip` edges (node curr)
-      case res of
-        OuterRes -> [edge]
-        InnerRes res -> [edge `withNode` res]
-        BoundaryRes res -> [edge `withNode` res]
+    InnerArg curr results -> forEdges curr results $ \edge -> \case
+      OuterRes -> [edge]
+      InnerRes res -> [edge `withNode` res]
+      BoundaryRes res -> [edge `withNode` res]
 
 relabelObject :: Symbol -> Dict -> Node e -> Maybe (Node e)
 relabelObject tgt mapping bac = do
@@ -281,12 +290,10 @@ relabelObject tgt mapping bac = do
       edge <- edges (node curr)
       let relabelled_dict = mapping `cat` dict edge
       [edge `withDict` relabelled_dict]
-    InnerArg curr results -> Node $ do
-      (res, edge) <- results `zip` edges (node curr)
-      case res of
-        OuterRes -> [edge]
-        InnerRes res -> [edge `withNode` res]
-        BoundaryRes res -> [edge `withDict` relabelled_dict `withNode` res]
-          where
-          unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
-          relabelled_dict = dict edge `cat` unmapping
+    InnerArg curr results -> forEdges curr results $ \edge -> \case
+      OuterRes -> [edge]
+      InnerRes res -> [edge `withNode` res]
+      BoundaryRes res -> [edge `withDict` relabelled_dict `withNode` res]
+        where
+        unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
+        relabelled_dict = dict edge `cat` unmapping
