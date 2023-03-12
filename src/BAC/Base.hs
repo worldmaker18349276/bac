@@ -198,16 +198,15 @@ foldUnder sym f = toMaybe . fold f'
 forUnder :: Symbol -> Node e -> (Arrow () e -> FoldUnderArg r -> r) -> Maybe r
 forUnder sym = flip (foldUnder sym)
 
-forEdges ::
-  Arrow () e
-  -> [FoldUnderRes (Node e')]
-  -> (Edge e -> FoldUnderRes (Node e') -> [Edge e'])
-  -> Node e'
+forEdges :: Arrow () e -> [a] -> (Edge e -> a -> [Edge e']) -> Node e'
 forEdges curr results f = Node $ do
   (res, edge) <- results `zip` edges (node curr)
   f edge res
 
-data FoldUnderRes' r s = FromInner' r | FromBoundary' s | FromOuter'
+data FoldUnderRes' r s =
+    FromOuter'
+  | FromBoundary' s
+  | FromInner'    r
 
 foldUnder' ::
   Symbol

@@ -254,29 +254,28 @@ splitObject tgt splittable_keys bac = do
               edges (node curr) |> filter (\edge -> symbolize edge `elem` group)
         [Node splitted_edges]
 
-  let f_inner curr results = Node $ do
-        (res, edge) <- results `zip` edges (node curr)
-        let s_syms = node edge |> symbols
-        let r_syms = node curr |> symbols
-        case res of
-          FromOuter' -> [edge]
-          FromInner' res -> [edge `withDict` duplicated_dict `withNode` res]
-            where
-            duplicate (s, r)
-              | dict curr ! r == tgt = splitSym s_syms s `zip` splitSym r_syms r
-              | otherwise            = [(s, r)]
-            duplicated_dict =
-              dict edge |> Map.toList |> concatMap duplicate |> Map.fromList
-          FromBoundary' splitted_res -> do
-            let splitted_syms = splitSym r_syms (symbolize edge)
-            ((group, sym), res) <- splitted_groups `zip` splitted_syms `zip` splitted_res
-            let split (s, r)
-                  | s == base      = Just (base, sym)
-                  | s `elem` group = Just (s, r)
-                  | otherwise      = Nothing
-            let splitted_dict =
-                  dict edge |> Map.toList |> mapMaybe split |> Map.fromList
-            [edge `withDict` splitted_dict `withNode` res]
+  let f_inner curr results = forEdges curr results $ \edge -> \case
+        FromOuter' -> [edge]
+        FromInner' res -> [edge `withDict` duplicated_dict `withNode` res]
+          where
+          s_syms = node edge |> symbols
+          r_syms = node curr |> symbols
+          duplicate (s, r)
+            | dict curr ! r == tgt = splitSym s_syms s `zip` splitSym r_syms r
+            | otherwise            = [(s, r)]
+          duplicated_dict =
+            dict edge |> Map.toList |> concatMap duplicate |> Map.fromList
+        FromBoundary' splitted_res -> do
+          let r_syms = node curr |> symbols
+          let splitted_syms = splitSym r_syms (symbolize edge)
+          ((group, sym), res) <- splitted_groups `zip` splitted_syms `zip` splitted_res
+          let split (s, r)
+                | s == base      = Just (base, sym)
+                | s `elem` group = Just (s, r)
+                | otherwise      = Nothing
+          let splitted_dict =
+                dict edge |> Map.toList |> mapMaybe split |> Map.fromList
+          [edge `withDict` splitted_dict `withNode` res]
 
   case foldUnder' tgt f_inner f_boundary bac of
     FromInner' res -> Just res
