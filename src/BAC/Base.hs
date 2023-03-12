@@ -243,10 +243,9 @@ mapUnder sym g = foldUnder sym $ \curr -> \case
 find :: (Arrow () e -> Bool) -> (Node e -> [Arrow () e])
 find f = fold go .> Map.elems
   where
-  go curr results =
-    if f curr
-    then Map.unions results |> Map.insert (symbolize curr) curr
-    else Map.unions results
+  go curr =
+    Map.unions
+    .> if f curr then Map.insert (symbolize curr) curr else id
 
 findUnder :: Symbol -> (Location -> Arrow () e -> Bool) -> (Node e -> Maybe [Arrow () e])
 findUnder sym f = foldUnder sym go .> fmap Map.elems
@@ -260,7 +259,7 @@ findUnder sym f = foldUnder sym go .> fmap Map.elems
       results
       |> mapMaybe toMaybe
       |> Map.unions
-      |> (if f loc curr then Map.insert (symbolize curr) curr else id)
+      |> if f loc curr then Map.insert (symbolize curr) curr else id
 
 rewireEdges :: Symbol -> [(e, Symbol)] -> Node e -> Maybe (Node e)
 rewireEdges src tgts bac = do
