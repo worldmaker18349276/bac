@@ -109,12 +109,6 @@ symbolize = dict .> (! base)
 symbolize2 :: (Arrow v e, Arrow w e) -> (Symbol, Symbol)
 symbolize2 = symbolize `bimap` symbolize
 
-walkAll :: Symbol -> Arrow v e -> [Arrow () e]
-walkAll sym arr = case locate sym arr of
-  Outer    -> []
-  Boundary -> [asArrow arr]
-  Inner    -> arr |> next |> concatMap (walkAll sym)
-
 isNondecomposable :: Node e -> Symbol -> Bool
 isNondecomposable bac sym =
   locate sym (root bac) == Inner
@@ -180,20 +174,18 @@ data FoldUnderArgument e r =
   InnerArg (Arrow () e) [FoldUnderResult r] | BoundaryArg (Arrow () e)
   deriving (Functor, Foldable, Traversable)
 
-toMaybe :: FoldUnderResult r -> Maybe r
-toMaybe (InnerRes r) = Just r
-toMaybe (BoundaryRes r) = Just r
-toMaybe OuterRes = Nothing
-
-foldUnder :: Symbol -> (FoldUnderArgument e r -> r) -> (Node e -> FoldUnderResult r)
-foldUnder sym f = fold f'
+foldUnder :: Symbol -> (FoldUnderArgument e r -> r) -> (Node e -> Maybe r)
+foldUnder sym f bac = case fold f' bac of
+  InnerRes r -> Just r
+  BoundaryRes r -> Just r
+  OuterRes -> Nothing
   where
   f' arr results = case locate sym arr of
     Outer    -> OuterRes
     Boundary -> BoundaryRes $ f $ BoundaryArg arr
     Inner    -> InnerRes    $ f $ InnerArg    arr results
 
-forUnder :: Symbol -> Node e -> (FoldUnderArgument e r -> r) -> FoldUnderResult r
+forUnder :: Symbol -> Node e -> (FoldUnderArgument e r -> r) -> Maybe r
 forUnder sym = flip (foldUnder sym)
 
 data FoldUnderResult' r s = InnerRes' r | BoundaryRes' s | OuterRes'
@@ -222,7 +214,7 @@ mapUnder
   :: Symbol
   -> (Location -> (Arrow () e, Edge e) -> e)
   -> (Node e -> Maybe (Node e))
-mapUnder sym g = foldUnder sym go .> toMaybe
+mapUnder sym g = foldUnder sym go
   where
   go = \case
     BoundaryArg curr -> Node {edges = edges (node curr)}
@@ -244,7 +236,7 @@ find f = fold go .> Map.elems
     else Map.unions results
 
 findUnder :: Symbol -> (Location -> Arrow () e -> Bool) -> (Node e -> Maybe [Arrow () e])
-findUnder sym f = foldUnder sym go .> toMaybe .> fmap Map.elems
+findUnder sym f = foldUnder sym go .> fmap Map.elems
   where
   go arg =
     if f loc arr
@@ -254,6 +246,10 @@ findUnder sym f = foldUnder sym go .> toMaybe .> fmap Map.elems
     (arr, loc, results) = case arg of
       BoundaryArg arr -> (arr, Boundary, [])
       InnerArg arr results -> (arr, Inner, results |> mapMaybe toMaybe)
+    toMaybe = \case
+      InnerRes r -> Just r
+      BoundaryRes r -> Just r
+      OuterRes -> Nothing
 
 rewireEdges :: Symbol -> [(e, Symbol)] -> Node e -> Maybe (Node e)
 rewireEdges src tgts bac = do
@@ -266,7 +262,7 @@ rewireEdges src tgts bac = do
   let nd_syms = fmap symbolize .> filter (isNondecomposable (node src_arr)) .> sort .> nub
   guard $ nd_syms src_edges == nd_syms src_edges'
 
-  toMaybe $ forUnder src bac $ \case
+  forUnder src bac $ \case
     BoundaryArg curr -> Node src_edges'
     InnerArg curr results -> Node $ do
       (res, edge) <- results `zip` edges (node curr)
@@ -280,7 +276,7 @@ relabelObject tgt mapping bac = do
   tgt_arr <- walk tgt (root bac)
   guard $ mapping ! base == base
   guard $ Map.keys mapping == symbols (node tgt_arr)
-  toMaybe $ forUnder tgt bac $ \case
+  forUnder tgt bac $ \case
     BoundaryArg curr -> Node $ do
       edge <- edges (node curr)
       let relabelled_dict = mapping `cat` dict edge
