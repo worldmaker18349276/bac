@@ -67,9 +67,6 @@ withDict edge dict = edge {dict = dict}
 withNode :: Arrow v e -> Node o -> Arrow v o
 withNode edge node = edge {node = node}
 
-withEdges :: Node e -> [Edge o] -> Node o
-withEdges bac edges = bac {edges = edges}
-
 asArrow :: Arrow v e -> Arrow () e
 asArrow edge = edge {value = ()}
 
@@ -270,8 +267,8 @@ rewireEdges src tgts bac = do
   guard $ nd_syms src_edges == nd_syms src_edges'
 
   toMaybe $ forUnder src bac $ \case
-    BoundaryArg curr -> node curr `withEdges` src_edges'
-    InnerArg curr results -> node curr `withEdges` do
+    BoundaryArg curr -> Node src_edges'
+    InnerArg curr results -> Node $ do
       (res, edge) <- results `zip` edges (node curr)
       case res of
         OuterRes -> [edge]
@@ -284,11 +281,11 @@ relabelObject tgt mapping bac = do
   guard $ mapping ! base == base
   guard $ Map.keys mapping == symbols (node tgt_arr)
   toMaybe $ forUnder tgt bac $ \case
-    BoundaryArg curr -> node curr `withEdges` do
+    BoundaryArg curr -> Node $ do
       edge <- edges (node curr)
       let relabelled_dict = mapping `cat` dict edge
       [edge `withDict` relabelled_dict]
-    InnerArg curr results -> node curr `withEdges` do
+    InnerArg curr results -> Node $ do
       (res, edge) <- results `zip` edges (node curr)
       case res of
         OuterRes -> [edge]

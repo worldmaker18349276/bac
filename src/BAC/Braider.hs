@@ -58,7 +58,7 @@ knot' :: (DAG.Pointer p, Monad m) => [p] -> BraiderT () p m p
 knot' ptrs = knot (fmap ((),) ptrs)
 
 -- | Merge symbols in the Braider.  See 'braid'.
-infixl 4 //
+infixl 2 //
 (//) :: (DAG.Pointer p, Monad m) => BraiderT e p m p -> [[Int]] -> BraiderT e p m p
 braiding // eqclass = do
   p <- braiding

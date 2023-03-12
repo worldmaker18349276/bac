@@ -41,12 +41,12 @@ removeMorphism (src, tgt) bac = do
     BoundaryArg curr -> do
       let filtered_edges =
             edges (node curr) |> filter (\edge -> symbolize edge /= tgt)
-      let bac = node curr `withEdges` filtered_edges
+      let bac = Node filtered_edges
       guard $ symbols bac == (symbols (node curr) |> delete tgt)
       Just bac
     InnerArg curr results -> do
       results' <- traverse sequence results
-      let bac = node curr `withEdges` do
+      let bac = Node $ do
             (res, edge) <- results' `zip` edges (node curr)
             case res of
               OuterRes -> [edge]
@@ -65,7 +65,7 @@ removeObject tgt bac = do
 
   toMaybe $ forUnder tgt bac $ \case
     BoundaryArg curr -> node curr
-    InnerArg curr results -> node curr `withEdges` do
+    InnerArg curr results -> Node $ do
       (res, edge) <- results `zip` edges (node curr)
       case res of
         OuterRes -> [edge]
@@ -149,10 +149,10 @@ addMorphism
   -> Node e -> Maybe (Node e)
 addMorphism src new_edge new_wires bac =
   toMaybe $ forUnder src bac $ \case
-    BoundaryArg curr -> node curr `withEdges` new_edges
+    BoundaryArg curr -> Node new_edges
       where
       new_edges = edges (node curr) |> (++ [new_edge])
-    InnerArg curr results -> node curr `withEdges` do
+    InnerArg curr results -> Node $ do
       (res, edge) <- results `zip` edges (node curr)
       case res of
         OuterRes -> [edge]
@@ -201,7 +201,7 @@ splitMorphism (src, tgt) splittable_keys bac = do
         splittable_keys |> label 0 |> fmap (\i -> maximum src_syms * i + tgt)
 
   toMaybe $ forUnder src bac $ \case
-    BoundaryArg curr -> node curr `withEdges` do
+    BoundaryArg curr -> Node $ do
       edge <- edges (node curr)
       let sym0 = symbolize edge
       if sym0 == tgt
@@ -220,7 +220,7 @@ splitMorphism (src, tgt) splittable_keys bac = do
                 |> (splitted_syms !!)
         let splitted_dict = dict edge |> Map.toList |> fmap split |> Map.fromList
         [edge `withDict` splitted_dict]
-    InnerArg curr results -> node curr `withEdges` do
+    InnerArg curr results -> Node $ do
       (res, edge) <- results `zip` edges (node curr)
       case res of
         OuterRes -> [edge]
@@ -261,9 +261,9 @@ splitObject tgt splittable_keys bac = do
         group <- splitted_groups
         let splitted_edges =
               edges (node curr) |> filter (\edge -> symbolize edge `elem` group)
-        [node curr `withEdges` splitted_edges]
+        [Node splitted_edges]
 
-  let f_inner curr results = node curr `withEdges` do
+  let f_inner curr results = Node $ do
         (res, edge) <- results `zip` edges (node curr)
         let s_syms = node edge |> symbols
         let r_syms = node curr |> symbols
@@ -307,7 +307,7 @@ splitCategory splittable_keys bac = do
     group <- splitted_groups
     let splitted_edges =
           edges bac |> filter (\edge -> symbolize edge `elem` group)
-    [bac `withEdges` splitted_edges]
+    [Node splitted_edges]
 
 mergeMorphisms :: Symbol -> [Symbol] -> Node e -> Maybe (Node e)
 mergeMorphisms src tgts bac = do
@@ -326,11 +326,11 @@ mergeMorphisms src tgts bac = do
   let merge s = if s `elem` tgts then head tgts else s
 
   toMaybe $ forUnder src bac $ \case
-    BoundaryArg curr -> node curr `withEdges` do
+    BoundaryArg curr -> Node $ do
       edge <- edges (node curr)
       let dict' = dict edge |> Map.toList |> fmap (second merge) |> Map.fromList
       [edge `withDict` dict']
-    InnerArg curr results -> node curr `withEdges` do
+    InnerArg curr results -> Node $ do
       (res, edge) <- results `zip` edges (node curr)
       case res of
         OuterRes -> [edge]
@@ -411,7 +411,7 @@ mergeObjects tgts bac = do
 
             [edge `withDict` collapsed_dict `withNode` collapsed_node]
 
-      Just (node curr `withEdges` collapsed_edges, collapse_lists)
+      Just (Node collapsed_edges, collapse_lists)
 
 mergeCategories :: [Node e] -> Node e
 mergeCategories bacs = Node {edges = merged_edges}
@@ -429,7 +429,7 @@ trimObject tgt bac = do
 
   toMaybe $ forUnder tgt bac $ \case
     BoundaryArg curr -> node curr
-    InnerArg curr results -> node curr `withEdges` do
+    InnerArg curr results -> Node $ do
       (res, edge) <- results `zip` edges (node curr)
       case res of
         OuterRes -> [edge]
@@ -461,8 +461,8 @@ insertMorphism (src, tgt) (val1, val2) bac = do
       Just $ Arrow {dict = Map.singleton base new_sym, node = empty, value = val1}
 
   toMaybe $ forUnder src bac $ \case
-    BoundaryArg curr -> node curr `withEdges` (edges (node curr) ++ [new_inedge])
-    InnerArg curr results -> node curr `withEdges` do
+    BoundaryArg curr -> Node $ edges (node curr) ++ [new_inedge]
+    InnerArg curr results -> Node $ do
       (res, edge) <- results `zip` edges (node curr)
       let s_syms = node curr |> symbols
       let r_syms = node edge |> symbols
@@ -508,7 +508,7 @@ mergeMorphismsAggressively src tgts bac = do
   fmap fst $ Monad.join $ toMaybe $ forUnder src bac $ \case
     BoundaryArg curr -> do
       merging_lists <- expandMergingSymbols (node curr) tgts
-      let merged_node = node curr `withEdges` do
+      let merged_node = Node $ do
             edge <- edges (node curr)
             let merged_dict = dict edge |> fmap (mergeSymbol merging_lists)
             [edge `withDict` merged_dict]
@@ -522,7 +522,7 @@ mergeMorphismsAggressively src tgts bac = do
         |> zip (node curr |> edges |> fmap dict)
         |> fmap (sequence .> fmap (uncurry (!)))
         |> expandMergingSymbols (node curr)
-      let merged_node = node curr `withEdges` do
+      let merged_node = Node $ do
             (res, edge) <- results' `zip` edges (node curr)
             let merging_lists' = res |> toMaybe |> fmap snd |> fromMaybe []
             let merged_dict =
