@@ -216,10 +216,16 @@ forUnder ::
   -> FoldUnderRes r s
 forUnder sym res0 = flip (foldUnder sym res0)
 
-forEdges :: Arrow e -> [a] -> (Edge e -> a -> [Edge e']) -> Node e'
-forEdges curr results f = Node $ do
-  (res, edge) <- results `zip` edges (node curr)
-  f edge res
+modifyEdgesUnder ::
+  Symbol
+  -> r
+  -> Node e
+  -> ((Arrow e, Edge e) -> FoldUnderRes r (Node e') -> [Edge e'])
+  -> FoldUnderRes r (Node e')
+modifyEdgesUnder sym res0 bac f =
+  forUnder sym res0 bac $ \curr results -> Node $ do
+    (res, edge) <- results `zip` edges (node curr)
+    f (curr, edge) res
 
 map :: ((Arrow e, Edge e) -> o) -> (Node e -> Node o)
 map g = fold $ \curr results ->
@@ -233,11 +239,10 @@ mapUnder :: Symbol -> (Location -> (Arrow e, Edge e) -> e) -> (Node e -> Maybe (
 mapUnder sym g bac = do
   curr <- walk sym (root bac)
   let res0 =  Node $ edges (node curr)
-  toMaybe $ forUnder sym res0 bac $ \curr results ->
-    forEdges curr results $ \edge -> \case
-      FromOuter -> [edge]
-      FromBoundary res -> [edge `withValue` g Boundary (curr, edge) `withNode` res]
-      FromInner    res -> [edge `withValue` g Inner    (curr, edge) `withNode` res]
+  toMaybe $ modifyEdgesUnder sym res0 bac $ \(curr, edge) -> \case
+    FromOuter -> [edge]
+    FromBoundary res -> [edge `withValue` g Boundary (curr, edge) `withNode` res]
+    FromInner    res -> [edge `withValue` g Inner    (curr, edge) `withNode` res]
 
 find :: (Arrow e -> Bool) -> (Node e -> [Arrow e])
 find f = fold go .> Map.elems
@@ -268,11 +273,10 @@ rewireEdges src tgts bac = do
   let nd_syms = fmap symbolize .> filter (isNondecomposable (node src_arr)) .> sort .> nub
   guard $ nd_syms src_edges == nd_syms src_edges'
 
-  toMaybe $ forUnder src res0 bac $ \curr results ->
-    forEdges curr results $ \edge -> \case
-      FromOuter -> [edge]
-      FromInner res -> [edge `withNode` res]
-      FromBoundary res -> [edge `withNode` res]
+  toMaybe $ modifyEdgesUnder src res0 bac $ \(_, edge) -> \case
+    FromOuter -> [edge]
+    FromInner res -> [edge `withNode` res]
+    FromBoundary res -> [edge `withNode` res]
 
 relabelObject :: Symbol -> Dict -> Node e -> Maybe (Node e)
 relabelObject tgt mapping bac = do
@@ -283,11 +287,10 @@ relabelObject tgt mapping bac = do
         edge <- edges (node tgt_arr)
         let relabelled_dict = mapping `cat` dict edge
         [edge `withDict` relabelled_dict]
-  toMaybe $ forUnder tgt res0 bac $ \curr results ->
-    forEdges curr results $ \edge -> \case
-      FromOuter -> [edge]
-      FromInner res -> [edge `withNode` res]
-      FromBoundary res -> [edge `withDict` relabelled_dict `withNode` res]
-        where
-        unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
-        relabelled_dict = dict edge `cat` unmapping
+  toMaybe $ modifyEdgesUnder tgt res0 bac $ \(_, edge) -> \case
+    FromOuter -> [edge]
+    FromInner res -> [edge `withNode` res]
+    FromBoundary res -> [edge `withDict` relabelled_dict `withNode` res]
+      where
+      unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
+      relabelled_dict = dict edge `cat` unmapping
