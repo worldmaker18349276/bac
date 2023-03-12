@@ -28,7 +28,7 @@ singleton val = Node {edges = [new_edge]}
   new_sym = 1
   new_dict = Map.singleton base new_sym
   new_node = Node {edges = []}
-  new_edge = Arrow {dict = new_dict, node = new_node, value = val}
+  new_edge = Arrow' {dict = new_dict, node = new_node, value = val}
 
 removeMorphism :: (Symbol, Symbol) -> Node e -> Maybe (Node e)
 removeMorphism (src, tgt) bac = do
@@ -111,7 +111,7 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val bac = do
     |> ((base, new_sym) :)
     |> filterMaybe (fmap fst .> distinct)
     |> fmap Map.fromList
-  let new_edge = Arrow {dict = new_dict, node = node tgt_arr, value = val}
+  let new_edge = Arrow' {dict = new_dict, node = node tgt_arr, value = val}
 
   let new_wires =
         src_inedges
@@ -167,7 +167,7 @@ partitionMorphism tgt bac = do
     |> fmap sort
     |> sort
   where
-  find3Chains :: Edge e -> [(Edge e, Arrow () e, Edge e)]
+  find3Chains :: Edge e -> [(Edge e, Arrow e, Edge e)]
   find3Chains arr =
     dict arr
     |> Map.filter (== tgt)
@@ -175,7 +175,7 @@ partitionMorphism tgt bac = do
     |> mapMaybe (\sym -> parents sym (node arr))
     |> concat
     |> fmap (\(b, c) -> (arr, b, c))
-  symbolize3 :: (Edge e, Arrow () e, Edge e) -> ((Symbol, Symbol), (Symbol, Symbol))
+  symbolize3 :: (Edge e, Arrow e, Edge e) -> ((Symbol, Symbol), (Symbol, Symbol))
   symbolize3 (arr1, arr2, arr3) = ((sym1, sym23), (sym12, sym3))
     where
     sym1  = dict arr1                                 ! base
@@ -439,12 +439,12 @@ insertMorphism (src, tgt) (val1, val2) bac = do
       guard $ tgt /= base
       tgt_arr <- root (node src_arr) |> walk tgt
       let new_outdict = node tgt_arr |> symbols |> fmap (\s -> (s, s + 1)) |> Map.fromList
-      let new_outedge = Arrow {dict = new_outdict, node = node tgt_arr, value = val2}
+      let new_outedge = Arrow' {dict = new_outdict, node = node tgt_arr, value = val2}
       let new_node = Node {edges = [new_outedge]}
       let new_indict = dict tgt_arr |> Map.mapKeys (+ 1) |> Map.insert base new_sym
-      Just $ Arrow {dict = new_indict, node = new_node, value = val1}
+      Just $ Arrow' {dict = new_indict, node = new_node, value = val1}
     Nothing ->
-      Just $ Arrow {dict = Map.singleton base new_sym, node = empty, value = val1}
+      Just $ Arrow' {dict = Map.singleton base new_sym, node = empty, value = val1}
 
   forUnder src bac $ \curr -> \case
     ToBoundary -> Node $ edges (node curr) ++ [new_inedge]

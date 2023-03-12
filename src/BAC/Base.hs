@@ -37,10 +37,13 @@ newtype Node e = Node {edges :: [Edge e]} deriving (Eq, Ord, Show)
 
 -- | The edge of the tree representation of a bounded acyclic category.
 --   The type variable 'e' refers to the data carried by the edges.
-type Edge e = Arrow e e
+type Edge e = Arrow' e e
 
 -- | Arrow of a bounded acyclic category, representing a downward functor.
-data Arrow v e = Arrow {dict :: Dict, node :: Node e, value :: v} deriving (Eq, Ord, Show)
+type Arrow e = Arrow' () e
+
+data Arrow' v e = Arrow' {dict :: Dict, node :: Node e, value :: v}
+  deriving (Eq, Ord, Show)
 
 -- | Dictionary of an arrow, representing mapping between objects.
 type Dict = Map Symbol Symbol
@@ -61,55 +64,55 @@ symbols = edges .> concatMap (dict .> Map.elems) .> sort .> nub .> (base :)
 cat :: Dict -> Dict -> Dict
 cat = fmap . (!)
 
-withDict :: Arrow v e -> Dict -> Arrow v e
+withDict :: Arrow' v e -> Dict -> Arrow' v e
 withDict edge dict = edge {dict = dict}
 
-withNode :: Arrow v e -> Node o -> Arrow v o
+withNode :: Arrow' v e -> Node o -> Arrow' v o
 withNode edge node = edge {node = node}
 
-withValue :: Arrow v e -> w -> Arrow w e
+withValue :: Arrow' v e -> w -> Arrow' w e
 withValue edge value = edge {value = value}
 
-asArrow :: Arrow v e -> Arrow () e
+asArrow :: Arrow' v e -> Arrow e
 asArrow = (`withValue` ())
 
 -- explore methods
 
 data Location = Inner | Boundary | Outer deriving (Eq, Ord, Show)
 
-root :: Node e -> Arrow () e
-root bac = Arrow {dict = id_dict, node = bac, value = ()}
+root :: Node e -> Arrow e
+root bac = Arrow' {dict = id_dict, node = bac, value = ()}
   where
   id_dict = bac |> symbols |> fmap (\a -> (a, a)) |> Map.fromList
 
-join :: Arrow v e -> Arrow w e -> Arrow () e
+join :: Arrow' v e -> Arrow' w e -> Arrow e
 join arr1 arr2 = asArrow $ arr2 `withDict` (dict arr1 `cat` dict arr2)
 
-next :: Arrow v e -> [Arrow () e]
+next :: Arrow' v e -> [Arrow e]
 next arr = edges (node arr) |> fmap (join arr)
 
-locate :: Symbol -> Arrow v e -> Location
+locate :: Symbol -> Arrow' v e -> Location
 locate sym arr
   | symbolize arr == sym = Boundary
   | sym `elem` dict arr  = Inner
   | otherwise            = Outer
 
-walk :: Symbol -> Arrow v e -> Maybe (Arrow () e)
+walk :: Symbol -> Arrow' v e -> Maybe (Arrow e)
 walk sym arr = case locate sym arr of
   Outer    -> Nothing
   Boundary -> Just (asArrow arr)
   Inner    -> Just $ arr |> next |> mapMaybe (walk sym) |> head
 
-walk2 :: (Symbol, Symbol) -> Arrow v e -> Maybe (Arrow () e, Arrow () e)
+walk2 :: (Symbol, Symbol) -> Arrow' v e -> Maybe (Arrow e, Arrow e)
 walk2 (src, tgt) arr = do
   src_arr <- walk src arr
   tgt_subarr <- walk tgt (root (node src_arr))
   Just (src_arr, tgt_subarr)
 
-symbolize :: Arrow v e -> Symbol
+symbolize :: Arrow' v e -> Symbol
 symbolize = dict .> (! base)
 
-symbolize2 :: (Arrow v e, Arrow w e) -> (Symbol, Symbol)
+symbolize2 :: (Arrow' v e, Arrow' w e) -> (Symbol, Symbol)
 symbolize2 = symbolize `bimap` symbolize
 
 isNondecomposable :: Node e -> Symbol -> Bool
@@ -117,12 +120,12 @@ isNondecomposable bac sym =
   locate sym (root bac) == Inner
   && all (locate sym .> (/= Inner)) (edges bac)
 
-children :: Symbol -> Node e -> Maybe [(Arrow () e, Edge e)]
+children :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
 children tgt bac = do
   tgt_arr <- walk tgt (root bac)
   Just $ edges (node tgt_arr) |> fmap (tgt_arr,) |> sortOn symbolize2
 
-parents :: Symbol -> Node e -> Maybe [(Arrow () e, Edge e)]
+parents :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
 parents tgt bac = do
   arrs <- findUnder tgt is_parent bac
   Just $
@@ -135,7 +138,7 @@ parents tgt bac = do
   where
   is_parent _ = next .> any (locate tgt .> (== Boundary))
 
-sameStruct :: Arrow v e -> Arrow w o -> Bool
+sameStruct :: Arrow' v e -> Arrow' w o -> Bool
 sameStruct arr1 arr2 =
   dict arr1 == dict arr2
   && length (edges (node arr1)) == length (edges (node arr2))
@@ -165,7 +168,7 @@ validate bac =
 
 -- fold methods
 
-fold :: (Arrow () e -> [r] -> r) -> (Node e -> r)
+fold :: (Arrow e -> [r] -> r) -> (Node e -> r)
 fold f = root .> fold'
   where
   fold' = memoize $ \curr -> f curr (curr |> next |> fmap fold')
@@ -187,7 +190,7 @@ toMaybe  FromOuter         = Nothing
 toMaybe (FromBoundary res) = Just res
 toMaybe (FromInner    res) = Just res
 
-foldUnder :: Symbol -> (Arrow () e -> FoldUnderArg r -> r) -> (Node e -> Maybe r)
+foldUnder :: Symbol -> (Arrow e -> FoldUnderArg r -> r) -> (Node e -> Maybe r)
 foldUnder sym f = toMaybe . fold f'
   where
   f' curr results = case locate sym curr of
@@ -195,10 +198,10 @@ foldUnder sym f = toMaybe . fold f'
     Boundary -> FromBoundary $ f curr   ToBoundary
     Inner    -> FromInner    $ f curr $ ToInner    results
 
-forUnder :: Symbol -> Node e -> (Arrow () e -> FoldUnderArg r -> r) -> Maybe r
+forUnder :: Symbol -> Node e -> (Arrow e -> FoldUnderArg r -> r) -> Maybe r
 forUnder sym = flip (foldUnder sym)
 
-forEdges :: Arrow () e -> [a] -> (Edge e -> a -> [Edge e']) -> Node e'
+forEdges :: Arrow e -> [a] -> (Edge e -> a -> [Edge e']) -> Node e'
 forEdges curr results f = Node $ do
   (res, edge) <- results `zip` edges (node curr)
   f edge res
@@ -210,8 +213,8 @@ data FoldUnderRes' r s =
 
 foldUnder' ::
   Symbol
-  -> (Arrow () e -> [FoldUnderRes' r s] -> r)
-  -> (Arrow () e                        -> s)
+  -> (Arrow e -> [FoldUnderRes' r s] -> r)
+  -> (Arrow e                        -> s)
   -> (Node e -> FoldUnderRes' r s)
 foldUnder' sym f_inner f_boundary = fold f'
   where
@@ -220,7 +223,7 @@ foldUnder' sym f_inner f_boundary = fold f'
     Boundary -> FromBoundary' $ f_boundary curr
     Inner    -> FromInner'    $ f_inner    curr results
 
-map :: ((Arrow () e, Edge e) -> o) -> (Node e -> Node o)
+map :: ((Arrow e, Edge e) -> o) -> (Node e -> Node o)
 map g = fold $ \curr results ->
   edges (node curr)
   |> fmap (\edge -> edge `withValue` g (curr, edge))
@@ -230,7 +233,7 @@ map g = fold $ \curr results ->
 
 mapUnder ::
   Symbol
-  -> (Location -> (Arrow () e, Edge e) -> e)
+  -> (Location -> (Arrow e, Edge e) -> e)
   -> (Node e -> Maybe (Node e))
 mapUnder sym g = foldUnder sym $ \curr -> \case
     ToBoundary -> Node $ edges (node curr)
@@ -239,14 +242,14 @@ mapUnder sym g = foldUnder sym $ \curr -> \case
       FromBoundary res -> [edge `withValue` g Boundary (curr, edge) `withNode` res]
       FromInner    res -> [edge `withValue` g Inner    (curr, edge) `withNode` res]
 
-find :: (Arrow () e -> Bool) -> (Node e -> [Arrow () e])
+find :: (Arrow e -> Bool) -> (Node e -> [Arrow e])
 find f = fold go .> Map.elems
   where
   go curr =
     Map.unions
     .> if f curr then Map.insert (symbolize curr) curr else id
 
-findUnder :: Symbol -> (Location -> Arrow () e -> Bool) -> (Node e -> Maybe [Arrow () e])
+findUnder :: Symbol -> (Location -> Arrow e -> Bool) -> (Node e -> Maybe [Arrow e])
 findUnder sym f = foldUnder sym go .> fmap Map.elems
   where
   go curr arg =

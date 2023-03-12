@@ -21,7 +21,7 @@ encodeDict =
   .> ("{" ++)
   .> (++ "}")
 
-countStruct :: Arrow () e -> State (Map Symbol (Sum Int)) ()
+countStruct :: Arrow e -> State (Map Symbol (Sum Int)) ()
 countStruct curr =
   for_ (next curr) $ \arr -> do
     let sym = symbolize arr
@@ -66,7 +66,7 @@ write str = modify (\state -> state {output = output state ++ str})
 indent :: Int -> State FormatterState ()
 indent level = write $ repeat " " |> take (level * 4) |> concat
 
-format :: (e -> Maybe String) -> Int -> Arrow () e -> State FormatterState ()
+format :: (e -> Maybe String) -> Int -> Arrow e -> State FormatterState ()
 format showE level curr =
   for_ (edges (node curr)) $ \edge -> do
     case showE (value edge) of

@@ -41,7 +41,7 @@ knot ptrs = do
         ptrs
         |> fmap (second ((table !) .> fst))
         |> zip nums
-        |> fmap (\(num, (val, subnode)) -> Arrow {
+        |> fmap (\(num, (val, subnode)) -> Arrow' {
             dict = subnode |> symbols |> fmap (\a -> (a, num + a)) |> Map.fromList,
             node = subnode,
             value = val
