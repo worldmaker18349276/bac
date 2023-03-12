@@ -12,7 +12,7 @@ import Data.Foldable (for_)
 import Data.List (delete, elemIndices, findIndex, nub, sort, sortOn, transpose)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe, fromJust)
+import Data.Maybe (mapMaybe, fromJust, fromMaybe)
 import Data.Traversable (for)
 
 import Utils.Utils ((|>), (.>), both, nubOn, groupOn, filterMaybe, distinct, allSame, allSameBy, label)
@@ -357,12 +357,15 @@ mergeObjects tgts bac = do
         key <- arr_edges |> fmap symbolize2
         [(key, merged_dict)]
 
+  let placeholder = bac
+  let res0 = Just (placeholder, [])
   let tgt = head tgts
-  fmap fst $ flip fold bac $ \curr results -> case locate tgt curr of
-    Outer -> Just (node curr, [])
-    Boundary -> Just (node curr, [])
-    Inner -> do
-      results' <- sequence results
+  fmap fst $ Monad.join $ toMaybe $
+    forUnder tgt res0 bac $ \curr results -> do
+      results' <-
+        results
+        |> traverse bisequence
+        |> fmap (fmap (toMaybe .> fromMaybe (placeholder, [])))
 
       let collapse_lists1 =
             results' `zip` edges (node curr)
