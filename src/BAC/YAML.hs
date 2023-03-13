@@ -20,8 +20,8 @@ encodeDict =
   .> fmap (both show)
   .> fmap (\(k, v) -> k ++ "->" ++ v)
   .> intercalate "; "
-  .> ("{" ++)
-  .> (++ "}")
+  .> ("'" ++)
+  .> (++ "'")
 
 countStruct :: Arrow e -> State (Map Symbol (Sum Int)) ()
 countStruct curr =

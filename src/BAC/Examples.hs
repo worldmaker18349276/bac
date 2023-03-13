@@ -11,19 +11,19 @@ import Data.Maybe (fromJust)
 
 {- |
 >>> putStrLn $ encodeNode' cone
-- dict: {0->1; 1->2}
+- dict: '0->1; 1->2'
   node:
-    - dict: {0->1}
+    - dict: '0->1'
       node: &0 []
-- dict: {0->3; 1->4; 2->2; 3->6; 4->4}
+- dict: '0->3; 1->4; 2->2; 3->6; 4->4'
   node:
-    - dict: {0->1; 1->2; 2->3}
+    - dict: '0->1; 1->2; 2->3'
       node: &1
-        - dict: {0->1}
+        - dict: '0->1'
           node: *0
-        - dict: {0->2}
+        - dict: '0->2'
           node: []
-    - dict: {0->4; 1->2; 2->3}
+    - dict: '0->4; 1->2; 2->3'
       node: *1
 <BLANKLINE>
 -}
@@ -38,23 +38,23 @@ cone = fromJust $ braid $ do
 
 {- |
 >>> putStrLn $ encodeNode' torus
-- dict: {0->1; 1->2; 2->3; 3->3; 4->5; 6->3; 7->2; 8->3; 10->5}
+- dict: '0->1; 1->2; 2->3; 3->3; 4->5; 6->3; 7->2; 8->3; 10->5'
   node:
-    - dict: {0->1; 1->2; 2->3}
+    - dict: '0->1; 1->2; 2->3'
       node: &0
-        - dict: {0->1}
+        - dict: '0->1'
           node: &1 []
-        - dict: {0->2}
+        - dict: '0->2'
           node: *1
-    - dict: {0->4; 1->3; 2->6}
+    - dict: '0->4; 1->3; 2->6'
       node: &2
-        - dict: {0->1}
+        - dict: '0->1'
           node: *1
-        - dict: {0->2}
+        - dict: '0->2'
           node: *1
-    - dict: {0->7; 1->8; 2->6}
+    - dict: '0->7; 1->8; 2->6'
       node: *0
-    - dict: {0->10; 1->2; 2->8}
+    - dict: '0->10; 1->2; 2->8'
       node: *2
 <BLANKLINE>
 -}
@@ -74,19 +74,19 @@ torus = fromJust $ braid $ do
 
 {- |
 >>> putStrLn $ encodeNode' crescent
-- dict: {0->1; 1->2; 2->3; 3->2; 5->6; 6->3; 7->6}
+- dict: '0->1; 1->2; 2->3; 3->2; 5->6; 6->3; 7->6'
   node:
-    - dict: {0->1; 1->2}
+    - dict: '0->1; 1->2'
       node: &0
-        - dict: {0->1}
+        - dict: '0->1'
           node: &1 []
-    - dict: {0->3; 1->2}
+    - dict: '0->3; 1->2'
       node: *0
-    - dict: {0->5; 1->6}
+    - dict: '0->5; 1->6'
       node: &2
-        - dict: {0->1}
+        - dict: '0->1'
           node: *1
-    - dict: {0->7; 1->6}
+    - dict: '0->7; 1->6'
       node: *2
 <BLANKLINE>
 -}
