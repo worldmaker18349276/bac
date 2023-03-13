@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE BlockArguments #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module BAC.Base where
@@ -172,7 +173,7 @@ validate bac =
 fold :: (Arrow e -> [r] -> r) -> (Node e -> r)
 fold f = root .> fold'
   where
-  fold' = memoize $ \curr -> f curr (curr |> next |> fmap fold')
+  fold' = memoize \curr -> f curr (curr |> next |> fmap fold')
   memoize = unsafeMemoizeWithKey symbolize
 
 data FoldUnderRes s =
@@ -197,25 +198,17 @@ foldUnder sym f = fold f'
     Boundary -> FromBoundary
     Inner    -> FromInner $ f curr results
 
-forUnder ::
-  Symbol
-  -> Node e
-  -> (Arrow e -> [FoldUnderRes s] -> s)
-  -> FoldUnderRes s
-forUnder sym = flip (foldUnder sym)
-
 modifyUnder ::
   Symbol
-  -> Node e
   -> ((Arrow e, Edge e) -> FoldUnderRes (Node e') -> [Edge e'])
-  -> FoldUnderRes (Node e')
-modifyUnder sym bac f =
-  forUnder sym bac $ \curr results -> Node $ do
+  -> (Node e -> FoldUnderRes (Node e'))
+modifyUnder sym f =
+  foldUnder sym \curr results -> Node $ do
     (res, edge) <- results `zip` edges (node curr)
     f (curr, edge) res
 
 map :: ((Arrow e, Edge e) -> o) -> (Node e -> Node o)
-map g = fold $ \curr results ->
+map g = fold \curr results ->
   edges (node curr)
   |> fmap (\edge -> edge `withValue` g (curr, edge))
   |> (`zip` results)
@@ -226,7 +219,7 @@ mapUnder :: Symbol -> (Location -> (Arrow e, Edge e) -> e) -> (Node e -> Maybe (
 mapUnder sym g bac = do
   curr <- bac |> arrow sym
   let res0 = node curr
-  toMaybe res0 $ modifyUnder sym bac $ \(curr, edge) -> \case
+  toMaybe res0 $ bac |> modifyUnder sym \(curr, edge) -> \case
     FromOuter     -> [edge]
     FromBoundary  -> [edge `withValue` g Boundary (curr, edge) `withNode` res0]
     FromInner res -> [edge `withValue` g Inner    (curr, edge) `withNode` res]
@@ -241,7 +234,7 @@ find f = fold go .> Map.elems
 findUnder :: Symbol -> (Arrow e -> Bool) -> (Node e -> Maybe [Arrow e])
 findUnder sym f bac =
   fmap Map.elems $ toMaybe Map.empty $
-    forUnder sym bac $ \curr results ->
+    bac |> foldUnder sym \curr results ->
       results
       |> mapMaybe (toMaybe Map.empty)
       |> Map.unions
@@ -260,7 +253,7 @@ rewireEdges src tgts bac = do
   let nd_syms = fmap symbolize .> filter (nondecomposable (node src_arr)) .> sort .> nub
   guard $ nd_syms src_edges == nd_syms src_edges'
 
-  toMaybe res0 $ modifyUnder src bac $ \(_, edge) -> \case
+  toMaybe res0 $ bac |> modifyUnder src \(_, edge) -> \case
     FromOuter -> [edge]
     FromInner res -> [edge `withNode` res]
     FromBoundary -> [edge `withNode` res0]
@@ -274,7 +267,7 @@ relabelObject tgt mapping bac = do
         edge <- edges (node tgt_arr)
         let relabelled_dict = mapping `cat` dict edge
         [edge `withDict` relabelled_dict]
-  toMaybe res0 $ modifyUnder tgt bac $ \(_, edge) -> \case
+  toMaybe res0 $ bac |> modifyUnder tgt \(_, edge) -> \case
     FromOuter -> [edge]
     FromInner res -> [edge `withNode` res]
     FromBoundary -> [edge `withDict` relabelled_dict `withNode` res0]
