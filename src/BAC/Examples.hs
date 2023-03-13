@@ -2,16 +2,15 @@ module BAC.Examples where
 
 import BAC.Base
 import BAC.Braider
+import Data.Maybe (fromJust)
 
 -- $setup
 -- The examples run with the following settings:
 -- 
--- >>> import Data.Maybe (fromMaybe)
--- >>> import Utils.Utils
 -- >>> import BAC.YAML
 
 {- |
->>> putStrLn $ cone |> fmap encodeNode' |> fromMaybe "Nothing"
+>>> putStrLn $ encodeNode' cone
 - dict: {0->1; 1->2}
   node:
     - dict: {0->1}
@@ -28,8 +27,8 @@ import BAC.Braider
       node: *1
 <BLANKLINE>
 -}
-cone :: Maybe (Node ())
-cone = braid $ do
+cone :: Node ()
+cone = fromJust $ braid $ do
   y <- knot' []
   b <- knot' []
   p <- knot' [y]
@@ -38,7 +37,7 @@ cone = braid $ do
   knot' [p, v] // [[1,0], [1,1]] // [[0,0], [1,0,0]]
 
 {- |
->>> putStrLn $ torus |> fmap encodeNode' |> fromMaybe "Nothing"
+>>> putStrLn $ encodeNode' torus
 - dict: {0->1; 1->2; 2->3; 3->3; 4->5; 6->3; 7->2; 8->3; 10->5}
   node:
     - dict: {0->1; 1->2; 2->3}
@@ -59,8 +58,8 @@ cone = braid $ do
       node: *2
 <BLANKLINE>
 -}
-torus :: Maybe (Node ())
-torus = braid $ do
+torus :: Node ()
+torus = fromJust $ braid $ do
   t <- knot' []
   c <- knot' [t, t]
   c' <- knot' [t, t]
@@ -72,3 +71,34 @@ torus = braid $ do
   knot' [p]
     // [[0,0], [0,2]]
     // [[0,1], [0,3]]
+
+{- |
+>>> putStrLn $ encodeNode' crescent
+- dict: {0->1; 1->2; 2->3; 3->2; 5->6; 6->3; 7->6}
+  node:
+    - dict: {0->1; 1->2}
+      node: &0
+        - dict: {0->1}
+          node: &1 []
+    - dict: {0->3; 1->2}
+      node: *0
+    - dict: {0->5; 1->6}
+      node: &2
+        - dict: {0->1}
+          node: *1
+    - dict: {0->7; 1->6}
+      node: *2
+<BLANKLINE>
+-}
+crescent :: Node ()
+crescent = fromJust $ braid $ do
+  s <- knot' []
+  c <- knot' [s]
+  c' <- knot' [s]
+  p <- knot' [c, c, c', c']
+    // [[0,0], [1,0]]
+    // [[2,0], [3,0]]
+  knot' [p]
+    // [[0,0,0], [0,2,0]]
+    // [[0,0], [0,1]]
+    // [[0,2], [0,3]]
