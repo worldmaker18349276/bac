@@ -1,7 +1,7 @@
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
-{-# LANGUAGE DeriveTraversable #-}
 
 module BAC.Base where
 
@@ -10,12 +10,12 @@ import Data.Bifunctor (bimap)
 import Data.List (nub, nubBy, sort, sortOn)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe, fromJust)
+import Data.Maybe (fromJust, mapMaybe)
 import Data.Tuple (swap)
 import Numeric.Natural (Natural)
 
-import Utils.Utils ((|>), (.>), groupOn)
 import Utils.Memoize (unsafeMemoizeWithKey)
+import Utils.Utils (groupOn, (.>), (|>))
 
 -- $setup
 -- The examples run with the following settings:
@@ -58,10 +58,10 @@ base = 0
 symbols :: Node e -> [Symbol]
 symbols = edges .> concatMap (dict .> Map.elems) .> sort .> nub .> (base :)
 
--- * Others
-
 cat :: Dict -> Dict -> Dict
 cat = fmap . (!)
+
+-- * Others
 
 withDict :: Arrow' v e -> Dict -> Arrow' v e
 withDict edge dict = edge {dict = dict}
@@ -96,16 +96,18 @@ locate sym arr
   | sym `elem` dict arr  = Inner
   | otherwise            = Outer
 
-walk :: Symbol -> Arrow' v e -> Maybe (Arrow e)
-walk sym arr = case locate sym arr of
-  Outer    -> Nothing
-  Boundary -> Just (asArrow arr)
-  Inner    -> Just $ arr |> next |> mapMaybe (walk sym) |> head
+arrow :: Symbol -> Node e -> Maybe (Arrow e)
+arrow sym = root .> go
+  where
+  go arr = case locate sym arr of
+    Outer    -> Nothing
+    Boundary -> Just (asArrow arr)
+    Inner    -> Just $ arr |> next |> mapMaybe go |> head
 
-walk2 :: (Symbol, Symbol) -> Arrow' v e -> Maybe (Arrow e, Arrow e)
-walk2 (src, tgt) arr = do
-  src_arr <- walk src arr
-  tgt_subarr <- walk tgt (root (node src_arr))
+arrow2 :: (Symbol, Symbol) -> Node e -> Maybe (Arrow e, Arrow e)
+arrow2 (src, tgt) bac = do
+  src_arr <- bac |> arrow src
+  tgt_subarr <- node src_arr |> arrow tgt
   Just (src_arr, tgt_subarr)
 
 symbolize :: Arrow' v e -> Symbol
@@ -114,14 +116,14 @@ symbolize = dict .> (! base)
 symbolize2 :: (Arrow' v e, Arrow' w e) -> (Symbol, Symbol)
 symbolize2 = symbolize `bimap` symbolize
 
-isNondecomposable :: Node e -> Symbol -> Bool
-isNondecomposable bac sym =
+nondecomposable :: Node e -> Symbol -> Bool
+nondecomposable bac sym =
   locate sym (root bac) == Inner
   && all (locate sym .> (/= Inner)) (edges bac)
 
 children :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
 children tgt bac = do
-  tgt_arr <- walk tgt (root bac)
+  tgt_arr <- bac |> arrow tgt
   Just $ edges (node tgt_arr) |> fmap (tgt_arr,) |> sortOn symbolize2
 
 parents :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
@@ -156,7 +158,7 @@ validate bac =
   validateSup =
     edges bac
     |> fmap node
-    |> fmap (\node -> symbols node |> fmap (`walk` root node) |> fmap fromJust)
+    |> fmap (\node -> symbols node |> fmap (`arrow` node) |> fmap fromJust)
     |> zip (edges bac)
     |> concatMap sequence
     |> fmap (uncurry join)
@@ -222,7 +224,7 @@ map g = fold $ \curr results ->
 
 mapUnder :: Symbol -> (Location -> (Arrow e, Edge e) -> e) -> (Node e -> Maybe (Node e))
 mapUnder sym g bac = do
-  curr <- walk sym (root bac)
+  curr <- bac |> arrow sym
   let res0 = node curr
   toMaybe res0 $ modifyUnder sym bac $ \(curr, edge) -> \case
     FromOuter     -> [edge]
@@ -247,15 +249,15 @@ findUnder sym f bac =
 
 rewireEdges :: Symbol -> [(e, Symbol)] -> Node e -> Maybe (Node e)
 rewireEdges src tgts bac = do
-  src_arr <- walk src (root bac)
+  src_arr <- bac |> arrow src
   let src_edges = edges (node src_arr)
   src_edges' <-
     tgts
-    |> traverse (traverse (`walk` root (node src_arr)))
+    |> traverse (traverse (`arrow` node src_arr))
     |> fmap (fmap (\(value, arr) -> arr `withValue` value))
   let res0 = Node src_edges'
 
-  let nd_syms = fmap symbolize .> filter (isNondecomposable (node src_arr)) .> sort .> nub
+  let nd_syms = fmap symbolize .> filter (nondecomposable (node src_arr)) .> sort .> nub
   guard $ nd_syms src_edges == nd_syms src_edges'
 
   toMaybe res0 $ modifyUnder src bac $ \(_, edge) -> \case
@@ -265,7 +267,7 @@ rewireEdges src tgts bac = do
 
 relabelObject :: Symbol -> Dict -> Node e -> Maybe (Node e)
 relabelObject tgt mapping bac = do
-  tgt_arr <- walk tgt (root bac)
+  tgt_arr <- bac |> arrow tgt
   guard $ mapping ! base == base
   guard $ Map.keys mapping == symbols (node tgt_arr)
   let res0 = Node $ do
