@@ -176,27 +176,31 @@ fold f = root .> fold'
   fold' = memoize \curr -> f curr (curr |> next |> fmap fold')
   memoize = unsafeMemoizeWithKey symbolize
 
-data FoldUnderRes s =
-    FromOuter
-  | FromBoundary
-  | FromInner s
+data Located s =
+    AtOuter
+  | AtBoundary
+  | AtInner s
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
-toMaybe :: r -> FoldUnderRes r -> Maybe r
-toMaybe _   FromOuter      = Nothing
-toMaybe res FromBoundary   = Just res
-toMaybe _  (FromInner res) = Just res
+fromReachable :: a -> Located a -> Maybe a
+fromReachable _ AtOuter     = Nothing
+fromReachable a AtBoundary  = Just a
+fromReachable _ (AtInner a) = Just a
+
+fromInner :: Located a -> Maybe a
+fromInner (AtInner a) = Just a
+fromInner _           = Nothing
 
 foldUnder ::
   Symbol
-  -> (Arrow e -> [FoldUnderRes s] -> s)
-  -> (Node e -> FoldUnderRes s)
+  -> (Arrow e -> [Located s] -> s)
+  -> (Node e -> Located s)
 foldUnder sym f = fold f'
   where
   f' curr results = case locate sym curr of
-    Outer    -> FromOuter
-    Boundary -> FromBoundary
-    Inner    -> FromInner $ f curr results
+    Outer    -> AtOuter
+    Boundary -> AtBoundary
+    Inner    -> AtInner $ f curr results
 
 modify ::
   ((Arrow e, Edge e) -> Node e' -> [Edge e'])
@@ -208,8 +212,8 @@ modify f =
 
 modifyUnder ::
   Symbol
-  -> ((Arrow e, Edge e) -> FoldUnderRes (Node e') -> [Edge e'])
-  -> (Node e -> FoldUnderRes (Node e'))
+  -> ((Arrow e, Edge e) -> Located (Node e') -> [Edge e'])
+  -> (Node e -> Located (Node e'))
 modifyUnder sym f =
   foldUnder sym \curr results -> Node do
     (res, edge) <- results `zip` edges (node curr)
@@ -222,10 +226,10 @@ mapUnder :: Symbol -> (Location -> (Arrow e, Edge e) -> e) -> (Node e -> Maybe (
 mapUnder sym f bac = do
   curr <- bac |> arrow sym
   let res0 = node curr
-  toMaybe res0 $ bac |> modifyUnder sym \(curr, edge) -> \case
-    FromOuter     -> [edge]
-    FromBoundary  -> [edge `withValue` f Boundary (curr, edge) `withNode` res0]
-    FromInner res -> [edge `withValue` f Inner    (curr, edge) `withNode` res]
+  fromReachable res0 $ bac |> modifyUnder sym \(curr, edge) -> \case
+    AtOuter     -> [edge]
+    AtBoundary  -> [edge `withValue` f Boundary (curr, edge) `withNode` res0]
+    AtInner res -> [edge `withValue` f Inner    (curr, edge) `withNode` res]
 
 find :: (Arrow e -> Bool) -> (Node e -> [Arrow e])
 find f = Map.elems . fold \curr ->
@@ -233,10 +237,10 @@ find f = Map.elems . fold \curr ->
 
 findUnder :: Symbol -> (Arrow e -> Bool) -> (Node e -> Maybe [Arrow e])
 findUnder sym f bac =
-  fmap Map.elems $ toMaybe Map.empty $
+  fromReachable [] $ fmap Map.elems $
     bac |> foldUnder sym \curr results ->
       results
-      |> mapMaybe (toMaybe Map.empty)
+      |> mapMaybe (fromReachable Map.empty)
       |> Map.unions
       |> if f curr then Map.insert (symbolize curr) curr else id
 
@@ -253,10 +257,10 @@ rewireEdges src tgts bac = do
   let nd_syms = fmap symbolize .> filter (nondecomposable (node src_arr)) .> sort .> nub
   guard $ nd_syms src_edges == nd_syms src_edges'
 
-  toMaybe res0 $ bac |> modifyUnder src \(_, edge) -> \case
-    FromOuter -> [edge]
-    FromInner res -> [edge `withNode` res]
-    FromBoundary -> [edge `withNode` res0]
+  fromReachable res0 $ bac |> modifyUnder src \(_, edge) -> \case
+    AtOuter -> [edge]
+    AtInner res -> [edge `withNode` res]
+    AtBoundary -> [edge `withNode` res0]
 
 relabelObject :: Symbol -> Dict -> Node e -> Maybe (Node e)
 relabelObject tgt mapping bac = do
@@ -267,10 +271,10 @@ relabelObject tgt mapping bac = do
         edge <- edges (node tgt_arr)
         let relabelled_dict = mapping `cat` dict edge
         [edge `withDict` relabelled_dict]
-  toMaybe res0 $ bac |> modifyUnder tgt \(_, edge) -> \case
-    FromOuter -> [edge]
-    FromInner res -> [edge `withNode` res]
-    FromBoundary -> [edge `withDict` relabelled_dict `withNode` res0]
+  fromReachable res0 $ bac |> modifyUnder tgt \(_, edge) -> \case
+    AtOuter -> [edge]
+    AtInner res -> [edge `withNode` res]
+    AtBoundary -> [edge `withDict` relabelled_dict `withNode` res0]
       where
       unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
       relabelled_dict = dict edge `cat` unmapping
