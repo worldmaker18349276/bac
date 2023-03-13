@@ -24,13 +24,25 @@ import Utils.Utils (groupOn, (.>), (|>))
 -- >>> import BAC.YAML
 -- >>> import BAC.Examples
 
--- * Basic
+-- * Basic #basic#
 
--- ** Types
+-- ** Types #types#
 --
 -- $doc
 -- Tree representation of a bounded acyclic category.
--- ...
+--
+-- A bounded acyclic category can be represented as a tree structure with implicitly
+-- shared nodes.
+--
+-- Edges of such structure have dictionaries, which obey three laws:
+--
+-- 1.  __totality__: the dictionary of an edge should be a mapping from all valid symbols
+--     in the child node to valid symbols in the parent node.
+-- 2.  __surjectivity__: all valid symbols should be covered by the dictionaries of
+--     outgoing edges, except the base symbol.
+-- 3.  __supportivity__: if dictionaries of given two paths with the same starting node
+--     map the base symbol to the same symbol, then they should have the same dictionary
+--     and target node.  Note that null paths also count.
 
 -- | The node of the tree representation of a bounded acyclic category.
 --   The type variable `e` refers to the data carried by the edges.
@@ -46,7 +58,8 @@ type Edge e = Arrow' e e
 type Arrow e = Arrow' () e
 
 -- | Arrow of a bounded acyclic category with a value.
-data Arrow' v e = Arrow' {
+data Arrow' v e = Arrow'
+  {
     -- | The dictionary of the arrow.
     --   Its keys should be the symbols of the target node, and it should map the base
     --   symbol to the unique symbol comparing with others elements of this map.
@@ -55,7 +68,8 @@ data Arrow' v e = Arrow' {
     node :: Node e,
     -- | The value carried by this arrow.
     value :: v
-  } deriving (Eq, Ord, Show)
+  }
+  deriving (Eq, Ord, Show)
 
 -- | Dictionary of an arrow, representing mapping between objects.
 type Dict = Map Symbol Symbol
@@ -67,7 +81,18 @@ type Symbol = Natural
 base :: Symbol
 base = 0
 
--- | Return all symbols of a node in ascending order.
+-- | Return all symbols of a node in ascending order.  The first one is the base symbol.
+--
+--   Examples:
+--
+--   >>> symbols cone
+--   [0,1,2,3,4,6]
+--
+--   >>> symbols torus
+--   [0,1,2,3,5]
+--
+--   >>> symbols crescent
+--   [0,1,2,3,6]
 symbols :: Node e -> [Symbol]
 symbols = edges .> concatMap (dict .> Map.elems) .> sort .> nub .> (base :)
 
@@ -79,7 +104,7 @@ symbols = edges .> concatMap (dict .> Map.elems) .> sort .> nub .> (base :)
 cat :: Dict -> Dict -> Dict
 cat = fmap . (!)
 
--- ** Traversing
+-- ** Traversing #traversing#
 
 -- | The relative location between nodes.
 data Location = Inner | Boundary | Outer deriving (Eq, Ord, Show)
@@ -95,11 +120,23 @@ root bac = Arrow' {dict = id_dict, node = bac, value = ()}
 join :: Arrow' v e -> Arrow' w e -> Arrow e
 join arr1 arr2 = arr2 {dict = dict arr1 `cat` dict arr2, value = ()}
 
--- | Extend an arrow by joining to edges of the target node.
+-- | Extend an arrow by joining to the edges of the target node.
 extend :: Arrow' v e -> [Arrow e]
 extend arr = edges (node arr) |> fmap (join arr)
 
--- | Find the relative Location of the node referenced by the given symbol with respect to a given arrow.
+-- | Find the relative Location of the node referenced by the given symbol with respect to
+--   a given arrow.
+--
+--   Examples:
+--
+--   >>> locate 2 (root cone)
+--   Inner
+--
+--   >>> locate 0 (root cone)
+--   Boundary
+--
+--   >>> locate 5 (root cone)
+--   Outer
 locate :: Symbol -> Arrow' v e -> Location
 locate sym arr
   | symbolize arr == sym = Boundary
@@ -107,6 +144,7 @@ locate sym arr
   | otherwise            = Outer
 
 -- | Make a arrow pointing to the node referenced by the given symbol.
+--   Return `Nothing` if it is outside the node.
 arrow :: Symbol -> Node e -> Maybe (Arrow e)
 arrow sym = root .> go
   where
@@ -136,37 +174,30 @@ nondecomposable bac sym =
   (root bac |> locate sym |> (== Inner))
   && (edges bac |> all (locate sym .> (/= Inner)))
 
-children :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
-children tgt bac = do
-  tgt_arr <- bac |> arrow tgt
-  Just $ edges (node tgt_arr) |> fmap (tgt_arr,) |> sortOn symbolize2
+-- ** Validation #validation#
 
-parents :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
-parents tgt bac = do
-  arrs <- findUnder tgt is_parent bac
-  Just $
-    arrs
-    |> fmap (node .> edges)
-    |> zip arrs
-    |> concatMap sequence
-    |> filter (uncurry join .> locate tgt .> (== Boundary))
-    |> sortOn symbolize2
-  where
-  is_parent = extend .> any (locate tgt .> (== Boundary))
-
--- ** Validation
-
+-- | Check if two arrows have the same structure by ignoring the additional data they
+--   stored.
 sameStruct :: Arrow' v e -> Arrow' w o -> Bool
 sameStruct arr1 arr2 =
   dict arr1 == dict arr2
   && length (edges (node arr1)) == length (edges (node arr2))
   && (edges (node arr1) `zip` edges (node arr2) |> all (uncurry sameStruct))
 
+-- | Check if a node is valid.  See [Types]("BAC.Base#g:types") for detail.
+--
+--   Examples:
+--
+--   >>> validate cone
+--   True
+--
+--   >>> validate torus
+--   True
+--
+--   >>> validate crescent
+--   True
 validate :: Node e -> Bool
-validate bac =
-  validateChildren
-  && validateDicts
-  && validateSup
+validate bac = validateChildren && validateDicts && validateSup
   where
   validateChildren = edges bac |> fmap node |> all validate
   validateDicts =
@@ -174,8 +205,7 @@ validate bac =
     |> all (\edge -> Map.keys (dict edge) == symbols (node edge))
   validateSup =
     edges bac
-    |> fmap node
-    |> fmap (\node -> symbols node |> fmap (`arrow` node) |> fmap fromJust)
+    |> fmap (node .> descendants)
     |> zip (edges bac)
     |> concatMap sequence
     |> fmap (uncurry join)
@@ -183,8 +213,9 @@ validate bac =
     |> sortOn symbolize
     |> groupOn symbolize
     |> all (nubBy sameStruct .> length .> (== 1))
+  descendants bac = symbols bac |> fmap (`arrow` bac) |> fmap fromJust
 
--- * Folding
+-- * Folding #folding#
 
 fold :: (Arrow e -> [r] -> r) -> (Node e -> r)
 fold f = root .> fold'
@@ -260,7 +291,25 @@ findUnder sym f bac =
       |> Map.unions
       |> if f curr then Map.insert (symbolize curr) curr else id
 
--- * Non-Categorical Operation
+children :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
+children tgt bac = do
+  tgt_arr <- bac |> arrow tgt
+  Just $ edges (node tgt_arr) |> fmap (tgt_arr,) |> sortOn symbolize2
+
+parents :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
+parents tgt bac = do
+  arrs <- findUnder tgt is_parent bac
+  Just $
+    arrs
+    |> fmap (node .> edges)
+    |> zip arrs
+    |> concatMap sequence
+    |> filter (uncurry join .> locate tgt .> (== Boundary))
+    |> sortOn symbolize2
+  where
+  is_parent = extend .> any (locate tgt .> (== Boundary))
+
+-- * Non-Categorical Operations #operations#
 
 rewireEdges :: Symbol -> [(e, Symbol)] -> Node e -> Maybe (Node e)
 rewireEdges src tgts bac = do
