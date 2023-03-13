@@ -22,6 +22,7 @@ import Utils.Utils (groupOn, (.>), (|>))
 -- The examples run with the following settings:
 -- 
 -- >>> import BAC.YAML
+-- >>> import BAC.Examples
 
 -- * Basic
 
@@ -32,18 +33,29 @@ import Utils.Utils (groupOn, (.>), (|>))
 -- ...
 
 -- | The node of the tree representation of a bounded acyclic category.
---   The type variable 'e' refers to the data carried by the edges.
+--   The type variable `e` refers to the data carried by the edges.
 newtype Node e = Node {edges :: [Edge e]} deriving (Eq, Ord, Show)
 
 -- | The edge of the tree representation of a bounded acyclic category.
---   The type variable 'e' refers to the data carried by the edges.
+--   The type variable `e` refers to the data carried by the edges.
+--   See 'Arrow'' for detail.
 type Edge e = Arrow' e e
 
 -- | Arrow of a bounded acyclic category, representing a downward functor.
+--   See 'Arrow'' for detail.
 type Arrow e = Arrow' () e
 
-data Arrow' v e = Arrow' {dict :: Dict, node :: Node e, value :: v}
-  deriving (Eq, Ord, Show)
+-- | Arrow of a bounded acyclic category with a value.
+data Arrow' v e = Arrow' {
+    -- | The dictionary of the arrow.
+    --   Its keys should be the symbols of the target node, and it should map the base
+    --   symbol to the unique symbol comparing with others elements of this map.
+    dict :: Dict,
+    -- | The target node.
+    node :: Node e,
+    -- | The value carried by this arrow.
+    value :: v
+  } deriving (Eq, Ord, Show)
 
 -- | Dictionary of an arrow, representing mapping between objects.
 type Dict = Map Symbol Symbol
@@ -63,27 +75,9 @@ symbols = edges .> concatMap (dict .> Map.elems) .> sort .> nub .> (base :)
 --
 --   > (a `cat` b) ! i = a ! (b ! i)
 --
---   It may crashes if the given dictionaries is not composable.
+--   It may crash if given dictionaries are not composable.
 cat :: Dict -> Dict -> Dict
 cat = fmap . (!)
-
--- ** Field Setter
-
--- | Modify dictionary of an arrow.
-withDict :: Arrow' v e -> Dict -> Arrow' v e
-withDict edge dict = edge {dict = dict}
-
--- | Modify node of an arrow.
-withNode :: Arrow' v e -> Node o -> Arrow' v o
-withNode edge node = edge {node = node}
-
--- | Modify value of an arrow.
-withValue :: Arrow' v e -> w -> Arrow' w e
-withValue edge value = edge {value = value}
-
--- | Make an edge as an arrow.
-asArrow :: Arrow' v e -> Arrow e
-asArrow = (`withValue` ())
 
 -- ** Traversing
 
@@ -99,7 +93,7 @@ root bac = Arrow' {dict = id_dict, node = bac, value = ()}
 -- | Join two arrows into one arrow.
 --   It may crashes if two arrows are not composable.
 join :: Arrow' v e -> Arrow' w e -> Arrow e
-join arr1 arr2 = asArrow $ arr2 `withDict` (dict arr1 `cat` dict arr2)
+join arr1 arr2 = arr2 {dict = dict arr1 `cat` dict arr2, value = ()}
 
 -- | Extend an arrow by joining to edges of the target node.
 extend :: Arrow' v e -> [Arrow e]
@@ -118,7 +112,7 @@ arrow sym = root .> go
   where
   go arr = case locate sym arr of
     Outer    -> Nothing
-    Boundary -> Just (asArrow arr)
+    Boundary -> Just arr
     Inner    -> Just $ arr |> extend |> mapMaybe go |> head
 
 -- | Make a 2-chain by given pair of symbols.
@@ -242,7 +236,7 @@ modifyUnder sym f =
     f (curr, edge) res
 
 map :: ((Arrow e, Edge e) -> o) -> (Node e -> Node o)
-map f = modify \(curr, edge) res -> [edge `withValue` f (curr, edge) `withNode` res]
+map f = modify \(curr, edge) res -> [edge {value = f (curr, edge), node = res}]
 
 mapUnder :: Symbol -> (Location -> (Arrow e, Edge e) -> e) -> (Node e -> Maybe (Node e))
 mapUnder sym f bac = do
@@ -250,8 +244,8 @@ mapUnder sym f bac = do
   let res0 = node curr
   fromReachable res0 $ bac |> modifyUnder sym \(curr, edge) -> \case
     AtOuter     -> [edge]
-    AtBoundary  -> [edge `withValue` f Boundary (curr, edge) `withNode` res0]
-    AtInner res -> [edge `withValue` f Inner    (curr, edge) `withNode` res]
+    AtBoundary  -> [edge {value = f Boundary (curr, edge), node = res0}]
+    AtInner res -> [edge {value = f Inner    (curr, edge), node = res}]
 
 find :: (Arrow e -> Bool) -> (Node e -> [Arrow e])
 find f = Map.elems . fold \curr ->
@@ -275,7 +269,7 @@ rewireEdges src tgts bac = do
   src_edges' <-
     tgts
     |> traverse (traverse (`arrow` node src_arr))
-    |> fmap (fmap (\(value, arr) -> arr `withValue` value))
+    |> fmap (fmap (\(value, arr) -> arr {value = value}))
   let res0 = Node src_edges'
 
   let nd_syms = fmap symbolize .> filter (nondecomposable (node src_arr)) .> sort .> nub
@@ -283,8 +277,8 @@ rewireEdges src tgts bac = do
 
   fromReachable res0 $ bac |> modifyUnder src \(_, edge) -> \case
     AtOuter -> [edge]
-    AtInner res -> [edge `withNode` res]
-    AtBoundary -> [edge `withNode` res0]
+    AtInner res -> [edge {node = res}]
+    AtBoundary -> [edge {node = res0}]
 
 relabelObject :: Symbol -> Dict -> Node e -> Maybe (Node e)
 relabelObject tgt mapping bac = do
@@ -294,11 +288,11 @@ relabelObject tgt mapping bac = do
   let res0 = Node do
         edge <- edges (node tgt_arr)
         let relabelled_dict = mapping `cat` dict edge
-        [edge `withDict` relabelled_dict]
+        [edge {dict = relabelled_dict}]
   fromReachable res0 $ bac |> modifyUnder tgt \(_, edge) -> \case
     AtOuter -> [edge]
-    AtInner res -> [edge `withNode` res]
-    AtBoundary -> [edge `withDict` relabelled_dict `withNode` res0]
+    AtInner res -> [edge {node = res}]
+    AtBoundary -> [edge {dict = relabelled_dict, node = res0}]
       where
       unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
       relabelled_dict = dict edge `cat` unmapping
