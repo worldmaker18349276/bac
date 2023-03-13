@@ -25,7 +25,7 @@ import Utils.Utils (groupOn, (.>), (|>))
 
 -- * Basic
 
--- ** BAC
+-- ** Types
 --
 -- $doc
 -- Tree representation of a bounded acyclic category.
@@ -59,44 +59,60 @@ base = 0
 symbols :: Node e -> [Symbol]
 symbols = edges .> concatMap (dict .> Map.elems) .> sort .> nub .> (base :)
 
+-- | Concatenate two dictionaries:
+--
+--   > (a `cat` b) ! i = a ! (b ! i)
+--
+--   It may crashes if the given dictionaries is not composable.
 cat :: Dict -> Dict -> Dict
 cat = fmap . (!)
 
--- * Others
+-- ** Field Setter
 
+-- | Modify dictionary of an arrow.
 withDict :: Arrow' v e -> Dict -> Arrow' v e
 withDict edge dict = edge {dict = dict}
 
+-- | Modify node of an arrow.
 withNode :: Arrow' v e -> Node o -> Arrow' v o
 withNode edge node = edge {node = node}
 
+-- | Modify value of an arrow.
 withValue :: Arrow' v e -> w -> Arrow' w e
 withValue edge value = edge {value = value}
 
+-- | Make an edge as an arrow.
 asArrow :: Arrow' v e -> Arrow e
 asArrow = (`withValue` ())
 
--- explore methods
+-- ** Traversing
 
+-- | The relative location between nodes.
 data Location = Inner | Boundary | Outer deriving (Eq, Ord, Show)
 
+-- | Return root arrow of a node.
 root :: Node e -> Arrow e
 root bac = Arrow' {dict = id_dict, node = bac, value = ()}
   where
   id_dict = bac |> symbols |> fmap (\a -> (a, a)) |> Map.fromList
 
+-- | Join two arrows into one arrow.
+--   It may crashes if two arrows are not composable.
 join :: Arrow' v e -> Arrow' w e -> Arrow e
 join arr1 arr2 = asArrow $ arr2 `withDict` (dict arr1 `cat` dict arr2)
 
+-- | Extend an arrow by joining to edges of the target node.
 extend :: Arrow' v e -> [Arrow e]
 extend arr = edges (node arr) |> fmap (join arr)
 
+-- | Find the relative Location of the node referenced by the given symbol with respect to a given arrow.
 locate :: Symbol -> Arrow' v e -> Location
 locate sym arr
   | symbolize arr == sym = Boundary
   | sym `elem` dict arr  = Inner
   | otherwise            = Outer
 
+-- | Make a arrow pointing to the node referenced by the given symbol.
 arrow :: Symbol -> Node e -> Maybe (Arrow e)
 arrow sym = root .> go
   where
@@ -105,18 +121,22 @@ arrow sym = root .> go
     Boundary -> Just (asArrow arr)
     Inner    -> Just $ arr |> extend |> mapMaybe go |> head
 
+-- | Make a 2-chain by given pair of symbols.
 arrow2 :: (Symbol, Symbol) -> Node e -> Maybe (Arrow e, Arrow e)
 arrow2 (src, tgt) bac = do
   src_arr <- bac |> arrow src
   tgt_subarr <- node src_arr |> arrow tgt
   Just (src_arr, tgt_subarr)
 
+-- | Find the symbol referencing to the given arrow.
 symbolize :: Arrow' v e -> Symbol
 symbolize = dict .> (! base)
 
+-- | Find the pair of symbols referencing to the given 2-chain.
 symbolize2 :: (Arrow' v e, Arrow' w e) -> (Symbol, Symbol)
 symbolize2 = symbolize `bimap` symbolize
 
+-- | Check if the given symbol reference to a nondecomposable initial morphism.
 nondecomposable :: Node e -> Symbol -> Bool
 nondecomposable bac sym =
   (root bac |> locate sym |> (== Inner))
@@ -139,6 +159,8 @@ parents tgt bac = do
     |> sortOn symbolize2
   where
   is_parent = extend .> any (locate tgt .> (== Boundary))
+
+-- ** Validation
 
 sameStruct :: Arrow' v e -> Arrow' w o -> Bool
 sameStruct arr1 arr2 =
@@ -168,7 +190,7 @@ validate bac =
     |> groupOn symbolize
     |> all (nubBy sameStruct .> length .> (== 1))
 
--- fold methods
+-- * Folding
 
 fold :: (Arrow e -> [r] -> r) -> (Node e -> r)
 fold f = root .> fold'
@@ -243,6 +265,8 @@ findUnder sym f bac =
       |> mapMaybe (fromReachable Map.empty)
       |> Map.unions
       |> if f curr then Map.insert (symbolize curr) curr else id
+
+-- * Non-Categorical Operation
 
 rewireEdges :: Symbol -> [(e, Symbol)] -> Node e -> Maybe (Node e)
 rewireEdges src tgts bac = do
