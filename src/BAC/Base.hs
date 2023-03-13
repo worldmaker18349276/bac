@@ -202,7 +202,7 @@ modify ::
   ((Arrow e, Edge e) -> Node e' -> [Edge e'])
   -> (Node e -> Node e')
 modify f =
-  fold \curr results -> Node $ do
+  fold \curr results -> Node do
     (res, edge) <- results `zip` edges (node curr)
     f (curr, edge) res
 
@@ -211,7 +211,7 @@ modifyUnder ::
   -> ((Arrow e, Edge e) -> FoldUnderRes (Node e') -> [Edge e'])
   -> (Node e -> FoldUnderRes (Node e'))
 modifyUnder sym f =
-  foldUnder sym \curr results -> Node $ do
+  foldUnder sym \curr results -> Node do
     (res, edge) <- results `zip` edges (node curr)
     f (curr, edge) res
 
@@ -263,7 +263,7 @@ relabelObject tgt mapping bac = do
   tgt_arr <- bac |> arrow tgt
   guard $ mapping ! base == base
   guard $ Map.keys mapping == symbols (node tgt_arr)
-  let res0 = Node $ do
+  let res0 = Node do
         edge <- edges (node tgt_arr)
         let relabelled_dict = mapping `cat` dict edge
         [edge `withDict` relabelled_dict]

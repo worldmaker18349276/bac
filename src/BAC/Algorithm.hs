@@ -45,7 +45,7 @@ removeMorphism (src, tgt) bac = do
     bac |> foldUnder src \curr results -> do
       results' <- traverse sequence results
 
-      let bac = Node $ do
+      let bac = Node do
             (res, edge) <- results' `zip` edges (node curr)
             case res of
               FromOuter -> [edge]
@@ -190,7 +190,7 @@ splitMorphism (src, tgt) splittable_keys bac = do
   let splitted_syms =
         splittable_keys |> label 0 |> fmap (\i -> maximum src_syms * i + tgt)
 
-  let res0 = Node $ do
+  let res0 = Node do
         edge <- edges (node src_arr)
         let sym0 = symbolize edge
         if sym0 == tgt
@@ -288,7 +288,7 @@ splitCategory splittable_keys bac = do
         |> fmap (`elemIndices` splittable_keys)
         |> fmap (concatMap (splittable_groups !!))
 
-  Just $ do
+  Just do
     group <- splitted_groups
     let splitted_edges =
           edges bac |> filter (\edge -> symbolize edge `elem` group)
@@ -310,7 +310,7 @@ mergeMorphisms src tgts bac = do
 
   let merge s = if s `elem` tgts then head tgts else s
 
-  let res0 = Node $ do
+  let res0 = Node do
         edge <- edges (node src_arr)
         let dict' = dict edge |> Map.toList |> fmap (second merge) |> Map.fromList
         [edge `withDict` dict']
@@ -339,7 +339,7 @@ mergeObjects tgts bac = do
   let merged_node = mergeCategories tgt_nodes
   let merging_nums = tgt_nodes |> fmap (symbols .> maximum) |> scanl (+) 0
 
-  let merged_dicts = Map.fromList $ do
+  let merged_dicts = Map.fromList do
         arr_edges <- transpose tgt_pars
         let merged_wire =
               arr_edges |> fmap (snd .> symbolize) |> sort |> head |> (base,)
@@ -487,7 +487,7 @@ mergeMorphismsAggressively src tgts bac = do
   let mergeSymbol tgts' s = tgts' |> filter (elem s) |> (++ [[s]]) |> head |> head
 
   merging_lists <- expandMergingSymbols (node src_arr) tgts
-  let merged_node = Node $ do
+  let merged_node = Node do
         edge <- edges (node src_arr)
         let merged_dict = dict edge |> fmap (mergeSymbol merging_lists)
         [edge `withDict` merged_dict]
@@ -503,7 +503,7 @@ mergeMorphismsAggressively src tgts bac = do
         |> zip (node curr |> edges |> fmap dict)
         |> fmap (sequence .> fmap (uncurry (!)))
         |> expandMergingSymbols (node curr)
-      let merged_node = Node $ do
+      let merged_node = Node do
             (res, edge) <- results' `zip` edges (node curr)
             let merged_dict =
                   dict edge
