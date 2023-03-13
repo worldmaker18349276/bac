@@ -25,7 +25,7 @@ encodeDict =
 
 countStruct :: Arrow e -> State (Map Symbol (Sum Int)) ()
 countStruct curr =
-  next curr |> traverse_ \arr -> do
+  extend curr |> traverse_ \arr -> do
     let sym = symbolize arr
     state <- get
     let is_new = isNothing (lookup sym state)

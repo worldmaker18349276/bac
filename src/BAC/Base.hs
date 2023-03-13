@@ -88,8 +88,8 @@ root bac = Arrow' {dict = id_dict, node = bac, value = ()}
 join :: Arrow' v e -> Arrow' w e -> Arrow e
 join arr1 arr2 = asArrow $ arr2 `withDict` (dict arr1 `cat` dict arr2)
 
-next :: Arrow' v e -> [Arrow e]
-next arr = edges (node arr) |> fmap (join arr)
+extend :: Arrow' v e -> [Arrow e]
+extend arr = edges (node arr) |> fmap (join arr)
 
 locate :: Symbol -> Arrow' v e -> Location
 locate sym arr
@@ -103,7 +103,7 @@ arrow sym = root .> go
   go arr = case locate sym arr of
     Outer    -> Nothing
     Boundary -> Just (asArrow arr)
-    Inner    -> Just $ arr |> next |> mapMaybe go |> head
+    Inner    -> Just $ arr |> extend |> mapMaybe go |> head
 
 arrow2 :: (Symbol, Symbol) -> Node e -> Maybe (Arrow e, Arrow e)
 arrow2 (src, tgt) bac = do
@@ -138,7 +138,7 @@ parents tgt bac = do
     |> filter (uncurry join .> locate tgt .> (== Boundary))
     |> sortOn symbolize2
   where
-  is_parent = next .> any (locate tgt .> (== Boundary))
+  is_parent = extend .> any (locate tgt .> (== Boundary))
 
 sameStruct :: Arrow' v e -> Arrow' w o -> Bool
 sameStruct arr1 arr2 =
@@ -173,7 +173,7 @@ validate bac =
 fold :: (Arrow e -> [r] -> r) -> (Node e -> r)
 fold f = root .> fold'
   where
-  fold' = memoize \curr -> f curr (curr |> next |> fmap fold')
+  fold' = memoize \curr -> f curr (curr |> extend |> fmap fold')
   memoize = unsafeMemoizeWithKey symbolize
 
 data Located s =

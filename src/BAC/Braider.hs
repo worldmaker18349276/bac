@@ -75,7 +75,7 @@ braiding // eqclass = do
     guard $ ptrs |> nub |> length |> (<= 1)
     guard $ ptrs /= [p]
 
-  let pathToArrow = foldl (\arr index -> arr |> next |> (!! index)) (root node)
+  let pathToArrow = foldl (\arr index -> arr |> extend |> (!! index)) (root node)
 
   let eqclass' =
         eqclass
