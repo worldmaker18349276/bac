@@ -9,12 +9,11 @@ module BAC.Algorithm where
 import Control.Monad (guard)
 import qualified Control.Monad as Monad
 import Data.Bifunctor (Bifunctor (first, second))
-import Data.Foldable (for_)
+import Data.Foldable (traverse_)
 import Data.List (delete, elemIndices, findIndex, nub, sort, sortOn, transpose)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust, fromMaybe)
-import Data.Traversable (for)
 
 import Utils.Utils ((|>), (.>), both, nubOn, groupOn, filterMaybe, distinct, allSame, allSameBy, label)
 import Utils.DisjointSet (bipartiteEqclass)
@@ -34,7 +33,7 @@ singleton val = Node {edges = [new_edge]}
 removeMorphism :: (Symbol, Symbol) -> Node e -> Maybe (Node e)
 removeMorphism (src, tgt) bac = do
   src_arr <- bac |> arrow src
-  for_ (edges (node src_arr)) \edge -> do
+  edges (node src_arr) |> traverse_ \edge -> do
     guard $ symbolize edge == tgt || tgt `notElem` dict edge
 
   let filtered_edges =
@@ -59,7 +58,7 @@ removeMorphism (src, tgt) bac = do
 
 removeObject :: Symbol -> Node e -> Maybe (Node e)
 removeObject tgt bac = do
-  guard $ locate tgt (root bac) == Inner
+  guard $ root bac |> locate tgt |> (== Inner)
   tgt_arr <- bac |> arrow tgt
   guard $ edges (node tgt_arr) |> null
 
@@ -78,28 +77,28 @@ prepareForAddingMorphism ::
 prepareForAddingMorphism src tgt src_alts tgt_alts val bac = do
   src_arr <- bac |> arrow src
   tgt_arr <- bac |> arrow tgt
-  guard $ locate src tgt_arr == Outer
+  guard $ tgt_arr |> locate src |> (== Outer)
 
   let new_sym = node src_arr |> symbols |> maximum |> (+ 1)
 
-  src_inedges <- parents src bac
-  tgt_outedges <- children tgt bac
-  src_outedges' <- traverse (`arrow2` bac) src_alts
-  tgt_inedges' <- traverse (`arrow2` bac) tgt_alts
+  src_inedges <- bac |> parents src
+  tgt_outedges <- bac |> children tgt
+  src_outedges' <- src_alts |> traverse (`arrow2` bac)
+  tgt_inedges' <- tgt_alts |> traverse (`arrow2` bac)
 
   guard $ length src_inedges == length tgt_inedges'
   guard $ length tgt_outedges == length src_outedges'
 
-  for_ (src_outedges' `zip` tgt_outedges) \((arr1', edge1'), (arr1, edge1)) -> do
+  src_outedges' `zip` tgt_outedges |> traverse_ \((arr1', edge1'), (arr1, edge1)) -> do
     guard $ dict arr1 == dict tgt_arr
     guard $ dict arr1' == dict src_arr
     guard $ dict arr1' `cat` dict edge1' == dict arr1 `cat` dict edge1
-  for_ (src_inedges `zip` tgt_inedges') \((arr2, edge2), (arr2', edge2')) -> do
+  src_inedges `zip` tgt_inedges' |> traverse_ \((arr2, edge2), (arr2', edge2')) -> do
     guard $ dict arr2' == dict arr2
     guard $ dict arr2 `cat` dict edge2 == dict tgt_arr
     guard $ dict arr2' `cat` dict edge2' == dict tgt_arr
-  for_ (src_outedges' `zip` tgt_outedges) \((arr1', edge1'), (arr1, edge1)) -> do
-    for_ (src_inedges `zip` tgt_inedges') \((arr2, edge2), (arr2', edge2')) -> do
+  src_outedges' `zip` tgt_outedges |> traverse_ \((arr1', edge1'), (arr1, edge1)) -> do
+    src_inedges `zip` tgt_inedges' |> traverse_ \((arr2, edge2), (arr2', edge2')) -> do
       guard $ dict edge2 `cat` dict edge1' == dict edge2' `cat` dict edge1
 
   new_dict <-
@@ -155,7 +154,7 @@ addMorphism src new_edge new_wires bac = do
 
 partitionMorphism :: Symbol -> Node e -> Maybe [[(Symbol, Symbol)]]
 partitionMorphism tgt bac = do
-  guard $ locate tgt (root bac) == Inner
+  guard $ root bac |> locate tgt |> (== Inner)
   Just $
     edges bac
     |> concatMap find3Chains
@@ -170,7 +169,7 @@ partitionMorphism tgt bac = do
     dict arr
     |> Map.filter (== tgt)
     |> Map.keys
-    |> mapMaybe (\sym -> parents sym (node arr))
+    |> mapMaybe (\sym -> node arr |> parents sym)
     |> concat
     |> fmap (\(b, c) -> (arr, b, c))
   symbolize3 :: (Edge e, Arrow e, Edge e) -> ((Symbol, Symbol), (Symbol, Symbol))
@@ -232,7 +231,7 @@ partitionObject bac = links |> bipartiteEqclass |> fmap (snd .> sort) |> sort
 
 splitObject :: Ord k => Symbol -> [k] -> Node e -> Maybe (Node e)
 splitObject tgt splittable_keys bac = do
-  guard $ locate tgt (root bac) == Inner
+  guard $ root bac |> locate tgt |> (== Inner)
   tgt_arr <- bac |> arrow tgt
   let splittable_groups = partitionObject (node tgt_arr)
   guard $ length splittable_groups == length splittable_keys
@@ -299,14 +298,14 @@ mergeMorphisms :: Symbol -> [Symbol] -> Node e -> Maybe (Node e)
 mergeMorphisms src tgts bac = do
   src_arr <- bac |> arrow src
 
-  tgt_arrs <- for tgts \tgt -> node src_arr |> arrow tgt
+  tgt_arrs <- tgts |> traverse \tgt -> node src_arr |> arrow tgt
   guard $ not (null tgt_arrs)
   guard $ tgt_arrs |> fmap (dict .> Map.delete base) |> allSame
   guard $
     src /= base
     || (tgt_arrs |> fmap (node .> edges .> fmap dict) |> allSame)
-  pars <- parents src bac
-  for_ pars \(_, edge) ->
+  pars <- bac |> parents src
+  pars |> traverse_ \(_, edge) ->
     guard $ tgts |> fmap (dict edge !) |> allSame
 
   let merge s = if s `elem` tgts then head tgts else s
@@ -325,8 +324,8 @@ mergeMorphisms src tgts bac = do
 
 mergeObjects :: [Symbol] -> Node e -> Maybe (Node e)
 mergeObjects tgts bac = do
-  tgt_pars <- for tgts \tgt -> do
-    pars <- parents tgt bac
+  tgt_pars <- tgts |> traverse \tgt -> do
+    pars <- bac |> parents tgt
     Just $
       pars
       |> filter (\(arr, edge) -> symbolize edge |> nondecomposable (node arr))
@@ -413,7 +412,7 @@ mergeCategories bacs = Node {edges = merged_edges}
 
 trimObject :: Symbol -> Node e -> Maybe (Node e)
 trimObject tgt bac = do
-  guard $ locate tgt (root bac) == Inner
+  guard $ root bac |> locate tgt |> (== Inner)
   tgt_arr <- bac |> arrow tgt
 
   toMaybe (node tgt_arr) $ bac |> modifyUnder tgt \(curr, edge) -> \case
@@ -467,7 +466,7 @@ expandMergingSymbols :: Node e -> [[Symbol]] -> Maybe [[Symbol]]
 expandMergingSymbols bac =
   traverse (traverse (`arrow` bac))
   .> fmap (
-    zip ([0..] :: [Integer])
+    zip [0 :: Integer ..]
     .> concatMap sequence
     .> fmap (fmap (dict .> Map.toList))
     .> concatMap sequence
@@ -482,7 +481,7 @@ mergeMorphismsAggressively :: Symbol -> [[Symbol]] -> Node e -> Maybe (Node e)
 mergeMorphismsAggressively src tgts bac = do
   src_arr <- bac |> arrow src
 
-  tgt_arrs <- traverse (traverse (`arrow` node src_arr)) tgts
+  tgt_arrs <- tgts |> traverse (traverse (`arrow` node src_arr))
   guard $ tgt_arrs |> all (fmap node .> fmap root .> allSameBy sameStruct)
 
   let mergeSymbol tgts' s = tgts' |> filter (elem s) |> (++ [[s]]) |> head |> head

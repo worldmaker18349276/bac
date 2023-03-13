@@ -1,12 +1,14 @@
+{-# LANGUAGE BlockArguments #-}
+
 module BAC.YAML (encodeDict, encodeNode, encodeNodeBy, encodeNode') where
 
-import BAC.Base
+import BAC.Base hiding (modify)
 import Utils.Utils ((|>), (.>), both)
 
 import Data.List (intercalate)
 import Control.Monad.State (State, execState, modify, MonadState (get, put))
 import Data.Map (Map, toList, lookup, fromList, unionWith)
-import Data.Foldable (for_)
+import Data.Foldable (traverse_)
 import Data.Monoid (Sum)
 import Prelude hiding (lookup)
 import Data.Maybe (isNothing)
@@ -23,7 +25,7 @@ encodeDict =
 
 countStruct :: Arrow e -> State (Map Symbol (Sum Int)) ()
 countStruct curr =
-  for_ (next curr) $ \arr -> do
+  next curr |> traverse_ \arr -> do
     let sym = symbolize arr
     state <- get
     let is_new = isNothing (lookup sym state)
@@ -68,7 +70,7 @@ indent level = write $ repeat " " |> take (level * 4) |> concat
 
 format :: (e -> Maybe String) -> Int -> Arrow e -> State FormatterState ()
 format showE level curr =
-  for_ (edges (node curr)) $ \edge -> do
+  edges (node curr) |> traverse_ \edge -> do
     case showE (value edge) of
       Just estr -> do
         indent level

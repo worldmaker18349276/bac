@@ -119,8 +119,8 @@ symbolize2 = symbolize `bimap` symbolize
 
 nondecomposable :: Node e -> Symbol -> Bool
 nondecomposable bac sym =
-  locate sym (root bac) == Inner
-  && all (locate sym .> (/= Inner)) (edges bac)
+  (root bac |> locate sym |> (== Inner))
+  && (edges bac |> all (locate sym .> (/= Inner)))
 
 children :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
 children tgt bac = do
@@ -198,6 +198,14 @@ foldUnder sym f = fold f'
     Boundary -> FromBoundary
     Inner    -> FromInner $ f curr results
 
+modify ::
+  ((Arrow e, Edge e) -> Node e' -> [Edge e'])
+  -> (Node e -> Node e')
+modify f =
+  fold \curr results -> Node $ do
+    (res, edge) <- results `zip` edges (node curr)
+    f (curr, edge) res
+
 modifyUnder ::
   Symbol
   -> ((Arrow e, Edge e) -> FoldUnderRes (Node e') -> [Edge e'])
@@ -208,28 +216,20 @@ modifyUnder sym f =
     f (curr, edge) res
 
 map :: ((Arrow e, Edge e) -> o) -> (Node e -> Node o)
-map g = fold \curr results ->
-  edges (node curr)
-  |> fmap (\edge -> edge `withValue` g (curr, edge))
-  |> (`zip` results)
-  |> fmap (uncurry withNode)
-  |> Node
+map f = modify \(curr, edge) res -> [edge `withValue` f (curr, edge) `withNode` res]
 
 mapUnder :: Symbol -> (Location -> (Arrow e, Edge e) -> e) -> (Node e -> Maybe (Node e))
-mapUnder sym g bac = do
+mapUnder sym f bac = do
   curr <- bac |> arrow sym
   let res0 = node curr
   toMaybe res0 $ bac |> modifyUnder sym \(curr, edge) -> \case
     FromOuter     -> [edge]
-    FromBoundary  -> [edge `withValue` g Boundary (curr, edge) `withNode` res0]
-    FromInner res -> [edge `withValue` g Inner    (curr, edge) `withNode` res]
+    FromBoundary  -> [edge `withValue` f Boundary (curr, edge) `withNode` res0]
+    FromInner res -> [edge `withValue` f Inner    (curr, edge) `withNode` res]
 
 find :: (Arrow e -> Bool) -> (Node e -> [Arrow e])
-find f = fold go .> Map.elems
-  where
-  go curr =
-    Map.unions
-    .> if f curr then Map.insert (symbolize curr) curr else id
+find f = Map.elems . fold \curr ->
+  Map.unions .> if f curr then Map.insert (symbolize curr) curr else id
 
 findUnder :: Symbol -> (Arrow e -> Bool) -> (Node e -> Maybe [Arrow e])
 findUnder sym f bac =
