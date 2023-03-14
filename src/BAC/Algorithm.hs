@@ -33,10 +33,10 @@ removeMorphism :: (Symbol, Symbol) -> Node e -> Maybe (Node e)
 removeMorphism (src, tgt) bac = do
   src_arr <- bac |> arrow src
   edges (node src_arr) |> traverse_ \edge -> do
-    guard $ symbolize edge == tgt || tgt `notElem` dict edge
+    guard $ symbol edge == tgt || tgt `notElem` dict edge
 
   let filtered_edges =
-        edges (node src_arr) |> filter (\edge -> symbolize edge /= tgt)
+        edges (node src_arr) |> filter (\edge -> symbol edge /= tgt)
   let res0 = Node filtered_edges
   guard $ symbols res0 == (symbols (node src_arr) |> delete tgt)
 
@@ -84,7 +84,7 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val bac = do
 
   let children tgt bac = do
         tgt_arr <- bac |> arrow tgt
-        Just $ edges (node tgt_arr) |> fmap (tgt_arr,) |> sortOn symbolize2
+        Just $ edges (node tgt_arr) |> fmap (tgt_arr,) |> sortOn symbol2
   src_inedges <- bac |> parents src
   tgt_outedges <- bac |> children tgt
   src_outedges' <- src_alts |> traverse (`arrow2` bac)
@@ -121,7 +121,7 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val bac = do
         src_inedges
         |> fmap (second (\arr -> arr {value = ()}))
         |> (`zip` tgt_inedges')
-        |> fmap (both symbolize2)
+        |> fmap (both symbol2)
         |> fmap (second $ snd .> (new_sym,))
         |> Map.fromList
 
@@ -132,9 +132,9 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val bac = do
           case res of
             AtOuter -> []
             AtInner res -> res |> fmap (both (dict edge !))
-            AtBoundary -> [(symbolize edge, snd new_wire)]
+            AtBoundary -> [(symbol edge, snd new_wire)]
               where
-              new_wire = new_wires ! symbolize2 (curr, edge)
+              new_wire = new_wires ! symbol2 (curr, edge)
 
     pairs |> sort |> nub |> filterMaybe (fmap fst .> distinct)
 
@@ -153,7 +153,7 @@ addMorphism src new_edge new_wires bac = do
     AtInner res -> [edge {node = res}]
     AtBoundary -> [edge {dict = new_dict, node = res0}]
       where
-      new_wire = new_wires ! symbolize2 (curr, edge)
+      new_wire = new_wires ! symbol2 (curr, edge)
       new_dict = dict edge |> uncurry Map.insert new_wire
 
 partitionMorphism :: Symbol -> Node e -> Maybe [[(Symbol, Symbol)]]
@@ -162,7 +162,7 @@ partitionMorphism tgt bac = do
   Just $
     edges bac
     |> concatMap find3Chains
-    |> fmap symbolize3
+    |> fmap symbol3
     |> bipartiteEqclass
     |> fmap fst
     |> fmap sort
@@ -176,8 +176,8 @@ partitionMorphism tgt bac = do
     |> mapMaybe (\sym -> node arr |> parents sym)
     |> concat
     |> fmap (\(b, c) -> (arr, b, c))
-  symbolize3 :: (Edge e, Arrow e, Edge e) -> ((Symbol, Symbol), (Symbol, Symbol))
-  symbolize3 (arr1, arr2, arr3) = ((sym1, sym23), (sym12, sym3))
+  symbol3 :: (Edge e, Arrow e, Edge e) -> ((Symbol, Symbol), (Symbol, Symbol))
+  symbol3 (arr1, arr2, arr3) = ((sym1, sym23), (sym12, sym3))
     where
     sym1  = dict arr1                                 ! base
     sym23 =                 dict arr2 `cat` dict arr3 ! base
@@ -196,7 +196,7 @@ splitMorphism (src, tgt) splittable_keys bac = do
 
   let res0 = Node do
         edge <- edges (node src_arr)
-        let sym0 = symbolize edge
+        let sym0 = symbol edge
         if sym0 == tgt
         then do
           r' <- splitted_syms
@@ -229,7 +229,7 @@ partitionObject bac = links |> bipartiteEqclass |> fmap (snd .> sort) |> sort
   where
   links = do
     arr <- edges bac
-    let sym0 = symbolize arr
+    let sym0 = symbol arr
     sym <- dict arr |> Map.elems
     [(sym0, sym)]
 
@@ -252,7 +252,7 @@ splitObject tgt splittable_keys bac = do
   let splitted_res = do
         group <- splitted_groups
         let splitted_edges =
-              edges (node tgt_arr) |> filter (\edge -> symbolize edge `elem` group)
+              edges (node tgt_arr) |> filter (\edge -> symbol edge `elem` group)
         [Node splitted_edges]
 
   fromInner $ bac |> modifyUnder tgt \(curr, edge) -> \case
@@ -268,7 +268,7 @@ splitObject tgt splittable_keys bac = do
         dict edge |> Map.toList |> concatMap duplicate |> Map.fromList
     AtBoundary -> do
       let r_syms = node curr |> symbols
-      let splitted_syms = splitSym r_syms (symbolize edge)
+      let splitted_syms = splitSym r_syms (symbol edge)
       ((group, sym), res) <- splitted_groups `zip` splitted_syms `zip` splitted_res
       let split (s, r)
             | s == base      = Just (base, sym)
@@ -293,7 +293,7 @@ splitCategory splittable_keys bac = do
   Just do
     group <- splitted_groups
     let splitted_edges =
-          edges bac |> filter (\edge -> symbolize edge `elem` group)
+          edges bac |> filter (\edge -> symbol edge `elem` group)
     [Node splitted_edges]
 
 mergeMorphisms :: Symbol -> [Symbol] -> Node e -> Maybe (Node e)
@@ -330,12 +330,12 @@ mergeObjects tgts bac = do
     pars <- bac |> parents tgt
     Just $
       pars
-      |> filter (\(arr, edge) -> symbolize edge |> nondecomposable (node arr))
-      |> nubOn symbolize2
+      |> filter (\(arr, edge) -> symbol edge |> nondecomposable (node arr))
+      |> nubOn symbol2
 
   guard $ not (null tgt_pars)
   guard $ tgt_pars |> fmap length |> allSame
-  guard $ transpose tgt_pars |> all (fmap (fst .> symbolize) .> allSame)
+  guard $ transpose tgt_pars |> all (fmap (fst .> symbol) .> allSame)
 
   let tgt_nodes = tgts |> fmap (`arrow` bac) |> fmap (fromJust .> node)
   let merged_node = mergeCategories tgt_nodes
@@ -344,7 +344,7 @@ mergeObjects tgts bac = do
   let merged_dicts = Map.fromList do
         arr_edges <- transpose tgt_pars
         let merged_wire =
-              arr_edges |> fmap (snd .> symbolize) |> sort |> head |> (base,)
+              arr_edges |> fmap (snd .> symbol) |> sort |> head |> (base,)
         let merged_dict =
               arr_edges
               |> fmap (snd .> dict .> Map.delete base .> Map.toList)
@@ -352,7 +352,7 @@ mergeObjects tgts bac = do
               |> concatMap (\(num, dict) -> dict |> fmap (first (+ num)))
               |> (merged_wire :)
               |> Map.fromList
-        key <- arr_edges |> fmap symbolize2
+        key <- arr_edges |> fmap symbol2
         [(key, merged_dict)]
 
   let placeholder = bac
@@ -369,7 +369,7 @@ mergeObjects tgts bac = do
             |> concatMap (\((_, lists), edge) -> lists |> fmap (fmap (dict edge !)))
       let collapse_lists2 =
             edges (node curr)
-            |> fmap ((curr,) .> symbolize2)
+            |> fmap ((curr,) .> symbol2)
             |> filter (`Map.member` merged_dicts)
             |> sortOn (merged_dicts !)
             |> groupOn (merged_dicts !)
@@ -381,19 +381,19 @@ mergeObjects tgts bac = do
       let collapsed_edges = do
             ((res_node, collapse_lists'), edge) <- results' `zip` edges (node curr)
 
-            let is_tgt = symbolize (curr `join` edge) `elem` tgts
+            let is_tgt = symbol (curr `join` edge) `elem` tgts
             let collapsed_node = if is_tgt then merged_node else res_node
-            let collapsed_dict = case symbolize2 (curr, edge) `Map.lookup` merged_dicts of
+            let collapsed_dict = case symbol2 (curr, edge) `Map.lookup` merged_dicts of
                   Just dict -> dict
                   Nothing | not is_tgt ->
                     collapse_lists' |> concatMap tail |> foldr Map.delete (dict edge)
                   _ ->
                     edges (node curr)
-                    |> findIndex (locate (symbolize edge) .> (== Inner))
+                    |> findIndex (locate (symbol edge) .> (== Inner))
                     |> fromJust
                     |> (collapsed_edges !!)
                     |> (\edge -> Node [edge])
-                    |> arrow (symbolize edge)
+                    |> arrow (symbol edge)
                     |> fromJust
                     |> dict
 

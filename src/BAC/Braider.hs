@@ -73,7 +73,7 @@ braiding // eqclass = do
 
   let eqclass' =
         eqclass
-        |> fmap (pathToArrow .> symbolize)
+        |> fmap (pathToArrow .> symbol)
         |> (: [])
         |> expandMergingSymbols node
         |> fromJust

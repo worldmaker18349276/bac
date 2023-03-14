@@ -26,7 +26,7 @@ encodeDict =
 countStruct :: Arrow e -> State (Map Symbol (Sum Int)) ()
 countStruct curr =
   extend curr |> traverse_ \arr -> do
-    let sym = symbolize arr
+    let sym = symbol arr
     state <- get
     let is_new = isNothing (lookup sym state)
     modify $ unionWith (<>) (fromList [(sym, 1)])
@@ -84,7 +84,7 @@ format showE level curr =
         indent level
 
     let arr = curr `join` edge
-    let sym = symbolize arr
+    let sym = symbol arr
     state <- get
     let ptr = lookup sym (pointers state)
 

@@ -140,7 +140,7 @@ extend arr = edges (node arr) |> fmap (join arr)
 --   Outer
 locate :: Symbol -> Arrow' v e -> Location
 locate sym arr
-  | symbolize arr == sym = Boundary
+  | symbol arr == sym = Boundary
   | sym `elem` dict arr  = Inner
   | otherwise            = Outer
 
@@ -183,32 +183,32 @@ arrow2 (src, tgt) bac = do
 -- | Find the symbol referencing to the given arrow.
 --   It is the inverse of `arrow`:
 --
---   > fmap symbolize (arrow sym bac) = Just sym
+--   > fmap symbol (arrow sym bac) = Just sym
 --
 --   Examples:
 --
---   >>> fmap symbolize (arrow 3 cone)
+--   >>> fmap symbol (arrow 3 cone)
 --   Just 3
 --
---   >>> fmap symbolize (arrow 5 cone)
+--   >>> fmap symbol (arrow 5 cone)
 --   Nothing
-symbolize :: Arrow' v e -> Symbol
-symbolize = dict .> (! base)
+symbol :: Arrow' v e -> Symbol
+symbol = dict .> (! base)
 
 -- | Find the pair of symbols referencing to the given 2-chain.
 --   It is the inverse of `arrow2`:
 --
---   > fmap symbolize2 (arrow2 sym2 bac) = Just sym2
+--   > fmap symbol2 (arrow2 sym2 bac) = Just sym2
 --
 --   Examples:
 --
---   >>> fmap symbolize2 (arrow2 (3,2) cone)
+--   >>> fmap symbol2 (arrow2 (3,2) cone)
 --   Just (3,2)
 --
---   >>> fmap symbolize2 (arrow2 (1,2) cone)
+--   >>> fmap symbol2 (arrow2 (1,2) cone)
 --   Nothing
-symbolize2 :: (Arrow' v e, Arrow' w e) -> (Symbol, Symbol)
-symbolize2 = symbolize `bimap` symbolize
+symbol2 :: (Arrow' v e, Arrow' w e) -> (Symbol, Symbol)
+symbol2 = symbol `bimap` symbol
 
 -- | Check if the given symbol reference to a nondecomposable initial morphism.
 --
@@ -260,8 +260,8 @@ validate bac = validateChildren && validateDicts && validateSup
     |> concatMap sequence
     |> fmap (uncurry join)
     |> (root bac :)
-    |> sortOn symbolize
-    |> groupOn symbolize
+    |> sortOn symbol
+    |> groupOn symbol
     |> all (nubBy sameStruct .> length .> (== 1))
   descendants bac = symbols bac |> fmap (`arrow` bac) |> fmap fromJust
 
@@ -291,7 +291,7 @@ fold ::
 fold f = root .> fold'
   where
   fold' = memoize \curr -> f curr (curr |> extend |> fmap fold')
-  memoize = unsafeMemoizeWithKey symbolize
+  memoize = unsafeMemoizeWithKey symbol
 
 -- | Fold a BAC under a node.
 foldUnder ::
@@ -338,7 +338,7 @@ mapUnder sym f bac = do
 
 find :: (Arrow e -> Bool) -> (Node e -> [Arrow e])
 find f = Map.elems . fold \curr ->
-  Map.unions .> if f curr then Map.insert (symbolize curr) curr else id
+  Map.unions .> if f curr then Map.insert (symbol curr) curr else id
 
 findUnder :: Symbol -> (Arrow e -> Bool) -> (Node e -> Maybe [Arrow e])
 findUnder sym f bac =
@@ -347,7 +347,7 @@ findUnder sym f bac =
       results
       |> mapMaybe (fromReachable Map.empty)
       |> Map.unions
-      |> if f curr then Map.insert (symbolize curr) curr else id
+      |> if f curr then Map.insert (symbol curr) curr else id
 
 parents :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
 parents tgt bac = do
@@ -358,7 +358,7 @@ parents tgt bac = do
     |> zip arrs
     |> concatMap sequence
     |> filter (uncurry join .> locate tgt .> (== Boundary))
-    |> sortOn symbolize2
+    |> sortOn symbol2
   where
   is_parent = extend .> any (locate tgt .> (== Boundary))
 
@@ -374,7 +374,7 @@ rewireEdges src tgts bac = do
     |> fmap (fmap (\(value, arr) -> arr {value = value}))
   let res0 = Node src_edges'
 
-  let nd_syms = fmap symbolize .> filter (nondecomposable (node src_arr)) .> sort .> nub
+  let nd_syms = fmap symbol .> filter (nondecomposable (node src_arr)) .> sort .> nub
   guard $ nd_syms src_edges == nd_syms src_edges'
 
   fromReachable res0 $ bac |> modifyUnder src \(_, edge) -> \case
