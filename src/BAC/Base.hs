@@ -6,7 +6,7 @@
 module BAC.Base where
 
 import Control.Monad (guard)
-import Data.Bifunctor (bimap)
+import Data.Bifunctor (bimap, Bifunctor (second))
 import Data.List (nub, nubBy, sort, sortOn)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
@@ -47,6 +47,7 @@ import Utils.Utils (groupOn, (.>), (|>))
 
 -- | The node of the tree representation of a bounded acyclic category.
 --   The type variable `e` refers to the data carried by the edges.
+--   It should be validated by `validate . root`.
 newtype Node e = Node {edges :: [Edge e]} deriving (Eq, Ord, Show)
 
 -- | The edge of the tree representation of a bounded acyclic category.
@@ -59,17 +60,8 @@ type Edge e = Arrow' e e
 type Arrow e = Arrow' () e
 
 -- | Arrow of a bounded acyclic category with a value.
-data Arrow' v e = Arrow'
-  {
-    -- | The dictionary of the arrow.
-    --   Its keys should be the symbols of the target node, and it should map the base
-    --   symbol to the unique symbol comparing with others elements of this map.
-    dict :: Dict,
-    -- | The target node.
-    target :: Node e,
-    -- | The value carried by this arrow.
-    value :: v
-  }
+--   It should be validated by `validate`.
+data Arrow' v e = Arrow' {dict :: Dict, target :: Node e, value :: v}
   deriving (Eq, Ord, Show)
 
 -- | Dictionary of an arrow, representing mapping between objects.
@@ -238,28 +230,29 @@ sameStruct arr1 arr2 =
 --
 --   Examples:
 --
---   >>> validate cone
+--   >>> validate (root cone)
 --   True
 --
---   >>> validate torus
+--   >>> validate (root torus)
 --   True
 --
---   >>> validate crescent
+--   >>> validate (root crescent)
 --   True
-validate :: Node e -> Bool
-validate node = validateChildren && validateDicts && validateSup
+--
+--   >>> fmap validate (arrow 3 cone)
+--   Just True
+validate :: Arrow' v e -> Bool
+validate arr = validateChildren && validateDicts && validateSup
   where
-  validateChildren = edges node |> fmap target |> all validate
-  validateDicts =
-    edges node
-    |> all (\edge -> Map.keys (dict edge) == symbols (target edge))
+  validateChildren = edges (target arr) |> all validate
+  validateDicts = Map.keys (dict arr) == symbols (target arr)
   validateSup =
-    edges node
-    |> fmap (target .> descendants)
-    |> zip (edges node)
+    extend arr
+    |> fmap (\a -> (a, a))
+    |> fmap (second (target .> descendants))
     |> concatMap sequence
     |> fmap (uncurry join)
-    |> (root node :)
+    |> (arr {value = ()} :)
     |> sortOn symbol
     |> groupOn symbol
     |> all (nubBy sameStruct .> length .> (== 1))
