@@ -24,7 +24,7 @@ empty = Node {edges = []}
 singleton :: e -> Node e
 singleton val = Node {edges = [new_edge]}
   where
-  new_sym = 1
+  new_sym = base + 1
   new_dict = Map.singleton base new_sym
   new_node = Node {edges = []}
   new_edge = Arrow' {dict = new_dict, node = new_node, value = val}
