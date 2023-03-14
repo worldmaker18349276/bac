@@ -63,7 +63,7 @@ removeObject tgt bac = do
   tgt_arr <- bac |> arrow tgt
   guard $ edges (node tgt_arr) |> null
 
-  fromReachable (node tgt_arr) $ bac |> scanUnder tgt \(curr, edge) -> \case
+  fromReachable (node tgt_arr) $ bac |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> [edge]
     AtBoundary -> []
     AtInner res -> [edge {dict = filtered_dict, node = res}]
@@ -148,7 +148,7 @@ addMorphism src new_edge new_wires bac = do
   src_arr <- bac |> arrow src
   let new_edges = edges (node src_arr) |> (++ [new_edge])
   let res0 = Node new_edges
-  fromReachable res0 $ bac |> scanUnder src \(curr, edge) -> \case
+  fromReachable res0 $ bac |> modifyUnder src \(curr, edge) -> \case
     AtOuter -> [edge]
     AtInner res -> [edge {node = res}]
     AtBoundary -> [edge {dict = new_dict, node = res0}]
@@ -214,7 +214,7 @@ splitMorphism (src, tgt) splittable_keys bac = do
           let splitted_dict = dict edge |> Map.toList |> fmap split |> Map.fromList
           [edge {dict = splitted_dict}]
 
-  fromReachable res0 $ bac |> scanUnder src \(curr, edge) -> \case
+  fromReachable res0 $ bac |> modifyUnder src \(curr, edge) -> \case
     AtOuter -> [edge]
     AtInner res -> [edge {node = res}]
     AtBoundary -> [edge {dict = merged_dict, node = res0}]
@@ -255,7 +255,7 @@ splitObject tgt splittable_keys bac = do
               edges (node tgt_arr) |> filter (\edge -> symbolize edge `elem` group)
         [Node splitted_edges]
 
-  fromInner $ bac |> scanUnder tgt \(curr, edge) -> \case
+  fromInner $ bac |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> [edge]
     AtInner res -> [edge {dict = duplicated_dict, node = res}]
       where
@@ -317,7 +317,7 @@ mergeMorphisms src tgts bac = do
         let dict' = dict edge |> Map.toList |> fmap (second merge) |> Map.fromList
         [edge {dict = dict'}]
 
-  fromReachable res0 $ bac |> scanUnder src \(curr, edge) -> \case
+  fromReachable res0 $ bac |> modifyUnder src \(curr, edge) -> \case
     AtOuter -> [edge]
     AtInner res -> [edge {node = res}]
     AtBoundary -> [edge {dict = dict', node = res0}]
@@ -418,7 +418,7 @@ trimObject tgt bac = do
   guard $ root bac |> locate tgt |> (== Inner)
   tgt_arr <- bac |> arrow tgt
 
-  fromReachable (node tgt_arr) $ bac |> scanUnder tgt \(curr, edge) -> \case
+  fromReachable (node tgt_arr) $ bac |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> [edge]
     AtBoundary -> do
       subedge <- edges (node edge)
@@ -449,7 +449,7 @@ insertMorphism (src, tgt) (val1, val2) bac = do
 
   let res0 = Node $ edges (node src_arr) ++ [new_inedge]
 
-  fromReachable res0 $ bac |> scanUnder src \(curr, edge) res ->
+  fromReachable res0 $ bac |> modifyUnder src \(curr, edge) res ->
     case fromReachable res0 res of
       Nothing -> [edge]
       Just res -> [edge {dict = dict', node = res}]

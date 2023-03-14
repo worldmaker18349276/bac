@@ -2,7 +2,7 @@
 
 module BAC.YAML (encodeDict, encodeNode, encodeNodeBy, encodeNode') where
 
-import BAC.Base
+import BAC.Base hiding (modify)
 import Utils.Utils ((|>), (.>), both)
 
 import Data.List (intercalate)
