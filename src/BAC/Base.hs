@@ -95,7 +95,7 @@ base = 0
 --   >>> symbols crescent
 --   [0,1,2,3,6]
 symbols :: Node e -> [Symbol]
-symbols = edges .> concatMap (dict .> Map.elems) .> sort .> nub .> (base :)
+symbols = edges .> concatMap (dict .> Map.elems) .> (base :) .> sort .> nub
 
 -- | Concatenate two dictionaries:
 --
