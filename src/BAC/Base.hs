@@ -150,7 +150,7 @@ locate sym arr
 --   Examples:
 --
 --   >>> arrow 3 cone
---   Just (Arrow' {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], node = ...
+--   Just (Arrow' {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
 --
 --   >>> arrow 5 cone
 --   Nothing
@@ -167,10 +167,10 @@ arrow sym = root .> go
 --   Examples:
 --
 --   >>> fmap fst (arrow2 (3,2) cone)
---   Just (Arrow' {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], node = ...
+--   Just (Arrow' {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
 --
 --   >>> fmap snd (arrow2 (3,2) cone)
---   Just (Arrow' {dict = fromList [(0,2)], node = ...
+--   Just (Arrow' {dict = fromList [(0,2)], target = ...
 --
 --   >>> arrow2 (1,2) cone
 --   Nothing
@@ -268,7 +268,7 @@ validate node = validateChildren && validateDicts && validateSup
 -- * Folding #folding#
 
 -- | A value labeled by the relative position of the node.
-data Located s = AtOuter | AtBoundary | AtInner s
+data Located r = AtOuter | AtBoundary | AtInner r
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 -- | Retrieve a reachable value, or return nothing if it is unreachable.
@@ -296,10 +296,10 @@ fold f = root .> fold'
 -- | Fold a BAC under a node.
 foldUnder ::
   Symbol                            -- ^ The symbol referencing to the boundary.
-  -> (Arrow e -> [Located s] -> s)  -- ^ The reduce function.  Where the results of child
+  -> (Arrow e -> [Located r] -> r)  -- ^ The reduce function.  Where the results of child
                                     --   nodes are labeled by `Located`.
   -> Node e                         -- ^ The root node of BAC to fold.
-  -> Located s                      -- ^ The folding result, which is labeled by `Located`.
+  -> Located r                      -- ^ The folding result, which is labeled by `Located`.
 foldUnder sym f = fold f'
   where
   f' curr results = case locate sym curr of
@@ -374,8 +374,8 @@ rewireEdges src tgts node = do
     |> fmap (fmap (\(value, arr) -> arr {value = value}))
   let res0 = Node src_edges'
 
-  let nd_syms = fmap symbol .> filter (nondecomposable (target src_arr)) .> sort .> nub
-  guard $ nd_syms src_edges == nd_syms src_edges'
+  let nd_symbols = fmap symbol .> filter (nondecomposable (target src_arr))
+  guard $ nd_symbols src_edges == nd_symbols src_edges'
 
   fromReachable res0 $ node |> modifyUnder src \(_, edge) -> \case
     AtOuter -> [edge]
@@ -390,9 +390,7 @@ relabelObject tgt mapping node = do
   let unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
   guard $ length unmapping == length mapping
 
-  let res0 = Node do
-        edge <- edges (target tgt_arr)
-        [edge {dict = mapping `cat` dict edge}]
+  let res0 = Node [edge {dict = mapping `cat` dict edge} | edge <- edges (target tgt_arr)]
   fromReachable res0 $ node |> modifyUnder tgt \(_, edge) -> \case
     AtOuter -> [edge]
     AtInner res -> [edge {target = res}]
