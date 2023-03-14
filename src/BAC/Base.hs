@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE BlockArguments #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
@@ -290,11 +289,6 @@ findUnder sym f bac =
       |> mapMaybe (fromReachable Map.empty)
       |> Map.unions
       |> if f curr then Map.insert (symbolize curr) curr else id
-
-children :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
-children tgt bac = do
-  tgt_arr <- bac |> arrow tgt
-  Just $ edges (node tgt_arr) |> fmap (tgt_arr,) |> sortOn symbolize2
 
 parents :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
 parents tgt bac = do

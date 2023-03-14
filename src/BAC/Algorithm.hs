@@ -82,6 +82,9 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val bac = do
 
   let new_sym = node src_arr |> symbols |> maximum |> (+ 1)
 
+  let children tgt bac = do
+        tgt_arr <- bac |> arrow tgt
+        Just $ edges (node tgt_arr) |> fmap (tgt_arr,) |> sortOn symbolize2
   src_inedges <- bac |> parents src
   tgt_outedges <- bac |> children tgt
   src_outedges' <- src_alts |> traverse (`arrow2` bac)
