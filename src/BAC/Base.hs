@@ -267,31 +267,39 @@ validate bac = validateChildren && validateDicts && validateSup
 
 -- * Folding #folding#
 
-fold :: (Arrow e -> [r] -> r) -> (Node e -> r)
-fold f = root .> fold'
-  where
-  fold' = memoize \curr -> f curr (curr |> extend |> fmap fold')
-  memoize = unsafeMemoizeWithKey symbolize
-
-data Located s =
-    AtOuter
-  | AtBoundary
-  | AtInner s
+-- | A value labeled by the relative position of the node.
+data Located s = AtOuter | AtBoundary | AtInner s
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
+-- | Retrieve a reachable value, or return nothing if it is unreachable.
 fromReachable :: a -> Located a -> Maybe a
 fromReachable _ AtOuter     = Nothing
 fromReachable a AtBoundary  = Just a
 fromReachable _ (AtInner a) = Just a
 
+-- | Retrieve the inner variant of a located value, otherwise return nothing.
 fromInner :: Located a -> Maybe a
 fromInner (AtInner a) = Just a
 fromInner _           = Nothing
 
+-- | Fold a BAC.  All nodes are visited only once according to symbols.
+fold ::
+  (Arrow e -> [r] -> r)  -- ^ The function to reduce a node and the results from its child
+                         --   nodes into a value.
+  -> Node e              -- ^ The root node of BAC to fold.
+  -> r                   -- ^ The folding result.
+fold f = root .> fold'
+  where
+  fold' = memoize \curr -> f curr (curr |> extend |> fmap fold')
+  memoize = unsafeMemoizeWithKey symbolize
+
+-- | Fold a BAC under a node.
 foldUnder ::
-  Symbol
-  -> (Arrow e -> [Located s] -> s)
-  -> (Node e -> Located s)
+  Symbol                            -- ^ The symbol referencing to the boundary.
+  -> (Arrow e -> [Located s] -> s)  -- ^ The reduce function.  Where the results of child
+                                    --   nodes are labeled by `Located`.
+  -> Node e                         -- ^ The root node of BAC to fold.
+  -> Located s                      -- ^ The folding result, which is labeled by `Located`.
 foldUnder sym f = fold f'
   where
   f' curr results = case locate sym curr of
