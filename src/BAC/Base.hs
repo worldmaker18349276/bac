@@ -341,11 +341,11 @@ find f = Map.elems . fold \curr ->
   Map.unions .> if f curr then Map.insert (symbol curr) curr else id
 
 findUnder :: Symbol -> (Arrow e -> Bool) -> (Node e -> Maybe [Arrow e])
-findUnder sym f bac =
-  fromReachable [] $ fmap Map.elems $
-    bac |> foldUnder sym \curr results ->
+findUnder sym f =
+  fromReachable [] . fmap Map.elems .
+    foldUnder sym \curr results ->
       results
-      |> mapMaybe (fromReachable Map.empty)
+      |> mapMaybe fromInner
       |> Map.unions
       |> if f curr then Map.insert (symbol curr) curr else id
 
