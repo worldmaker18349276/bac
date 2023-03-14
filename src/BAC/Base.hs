@@ -387,14 +387,13 @@ relabelObject tgt mapping bac = do
   tgt_arr <- bac |> arrow tgt
   guard $ mapping ! base == base
   guard $ Map.keys mapping == symbols (node tgt_arr)
+  let unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
+  guard $ length unmapping == length mapping
+
   let res0 = Node do
         edge <- edges (node tgt_arr)
-        let relabelled_dict = mapping `cat` dict edge
-        [edge {dict = relabelled_dict}]
+        [edge {dict = mapping `cat` dict edge}]
   fromReachable res0 $ bac |> modifyUnder tgt \(_, edge) -> \case
     AtOuter -> [edge]
     AtInner res -> [edge {node = res}]
-    AtBoundary -> [edge {dict = relabelled_dict, node = res0}]
-      where
-      unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
-      relabelled_dict = dict edge `cat` unmapping
+    AtBoundary -> [edge {dict = dict edge `cat` unmapping, node = res0}]
