@@ -48,7 +48,7 @@ import Utils.Utils (groupOn, (.>), (|>), filterMaybe)
 
 -- | The node of the tree representation of a bounded acyclic category.
 --   The type variable `e` refers to the data carried by the edges.
---   It should be validated by `validate . root`.
+--   It should be validated by @validate . root@.
 newtype Node e = Node {edges :: [Edge e]} deriving (Eq, Ord, Show)
 
 -- | The edge of the tree representation of a bounded acyclic category.
@@ -227,25 +227,11 @@ sameStruct arr1 arr2 =
   && length (edges (target arr1)) == length (edges (target arr2))
   && (edges (target arr1) `zip` edges (target arr2) |> all (uncurry sameStruct))
 
--- | Check if a node is valid.  See [Types]("BAC.Base#g:types") for detail.
---
---   Examples:
---
---   >>> validate (root cone)
---   True
---
---   >>> validate (root torus)
---   True
---
---   >>> validate (root crescent)
---   True
---
---   >>> fmap validate (arrow 3 cone)
---   Just True
+-- | Check if an arrow is valid.  To validate a node, try @validate (root node)@.
+--   See [Types]("BAC.Base#g:types") for detail.
 validate :: Arrow' v e -> Bool
-validate arr = validateChildren && validateDicts && validateSup
+validate arr = validateDicts && validateSup
   where
-  validateChildren = edges (target arr) |> all validate
   validateDicts = Map.keys (dict arr) == symbols (target arr)
   validateSup =
     extend arr
@@ -258,6 +244,24 @@ validate arr = validateChildren && validateDicts && validateSup
     |> groupOn symbol
     |> all (nubBy sameStruct .> length .> (== 1))
   descendants node = symbols node |> fmap (`arrow` node) |> fmap fromJust
+
+-- | Check if an arrow is valid in depth.  All descendant nodes will be checked.
+--
+--   Examples:
+--
+--   >>> validateAll (root cone)
+--   True
+--
+--   >>> validateAll (root torus)
+--   True
+--
+--   >>> validateAll (root crescent)
+--   True
+--
+--   >>> fmap validateAll (arrow 3 cone)
+--   Just True
+validateAll :: Arrow' v e -> Bool
+validateAll arr = all validateAll (edges (target arr)) && validate arr
 
 -- | Make a node with validation.
 makeNode :: [Edge e] -> Maybe (Node e)
