@@ -249,31 +249,31 @@ foldUnder sym f = fold f'
     Boundary -> AtBoundary
     Inner    -> AtInner $ f curr results
 
-modify ::
+scan ::
   ((Arrow e, Edge e) -> Node e' -> [Edge e'])
   -> (Node e -> Node e')
-modify f =
+scan f =
   fold \curr results -> Node do
     (res, edge) <- results `zip` edges (node curr)
     f (curr, edge) res
 
-modifyUnder ::
+scanUnder ::
   Symbol
   -> ((Arrow e, Edge e) -> Located (Node e') -> [Edge e'])
   -> (Node e -> Located (Node e'))
-modifyUnder sym f =
+scanUnder sym f =
   foldUnder sym \curr results -> Node do
     (res, edge) <- results `zip` edges (node curr)
     f (curr, edge) res
 
 map :: ((Arrow e, Edge e) -> o) -> (Node e -> Node o)
-map f = modify \(curr, edge) res -> [edge {value = f (curr, edge), node = res}]
+map f = scan \(curr, edge) res -> [edge {value = f (curr, edge), node = res}]
 
 mapUnder :: Symbol -> (Location -> (Arrow e, Edge e) -> e) -> (Node e -> Maybe (Node e))
 mapUnder sym f bac = do
   curr <- bac |> arrow sym
   let res0 = node curr
-  fromReachable res0 $ bac |> modifyUnder sym \(curr, edge) -> \case
+  fromReachable res0 $ bac |> scanUnder sym \(curr, edge) -> \case
     AtOuter     -> [edge]
     AtBoundary  -> [edge {value = f Boundary (curr, edge), node = res0}]
     AtInner res -> [edge {value = f Inner    (curr, edge), node = res}]
@@ -324,7 +324,7 @@ rewireEdges src tgts bac = do
   let nd_syms = fmap symbolize .> filter (nondecomposable (node src_arr)) .> sort .> nub
   guard $ nd_syms src_edges == nd_syms src_edges'
 
-  fromReachable res0 $ bac |> modifyUnder src \(_, edge) -> \case
+  fromReachable res0 $ bac |> scanUnder src \(_, edge) -> \case
     AtOuter -> [edge]
     AtInner res -> [edge {node = res}]
     AtBoundary -> [edge {node = res0}]
@@ -338,7 +338,7 @@ relabelObject tgt mapping bac = do
         edge <- edges (node tgt_arr)
         let relabelled_dict = mapping `cat` dict edge
         [edge {dict = relabelled_dict}]
-  fromReachable res0 $ bac |> modifyUnder tgt \(_, edge) -> \case
+  fromReachable res0 $ bac |> scanUnder tgt \(_, edge) -> \case
     AtOuter -> [edge]
     AtInner res -> [edge {node = res}]
     AtBoundary -> [edge {dict = relabelled_dict, node = res0}]
