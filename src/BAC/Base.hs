@@ -13,9 +13,10 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe)
 import Data.Tuple (swap)
 import Numeric.Natural (Natural)
+import GHC.Stack (HasCallStack)
 
 import Utils.Memoize (unsafeMemoizeWithKey)
-import Utils.Utils (groupOn, (.>), (|>))
+import Utils.Utils (groupOn, (.>), (|>), filterMaybe)
 
 -- $setup
 -- The example code below runs with the following settings:
@@ -94,7 +95,7 @@ symbols = edges .> concatMap (dict .> Map.elems) .> (base :) .> sort .> nub
 --   > (a `cat` b) ! i = a ! (b ! i)
 --
 --   It may crash if given dictionaries are not composable.
-cat :: Dict -> Dict -> Dict
+cat :: HasCallStack => Dict -> Dict -> Dict
 cat = fmap . (!)
 
 -- ** Traversing #traversing#
@@ -110,7 +111,7 @@ root node = Arrow' {dict = id_dict, target = node, value = ()}
 
 -- | Join two arrows into one arrow.
 --   It may crashes if two arrows are not composable.
-join :: Arrow' v e -> Arrow' w e -> Arrow e
+join :: HasCallStack => Arrow' v e -> Arrow' w e -> Arrow e
 join arr1 arr2 = arr2 {dict = dict arr1 `cat` dict arr2, value = ()}
 
 -- | Extend an arrow by joining to the edges of the target node.
@@ -257,6 +258,15 @@ validate arr = validateChildren && validateDicts && validateSup
     |> groupOn symbol
     |> all (nubBy sameStruct .> length .> (== 1))
   descendants node = symbols node |> fmap (`arrow` node) |> fmap fromJust
+
+-- | Make a node with validation.
+makeNode :: [Edge e] -> Maybe (Node e)
+makeNode edges = filterMaybe (root .> validate) (Node {edges = edges})
+
+-- | Make an edge with validation.
+makeEdge :: Dict -> Node e -> e -> Maybe (Edge e)
+makeEdge dict target value =
+  filterMaybe validate (Arrow' {dict = dict, target = target, value = value})
 
 -- * Folding #folding#
 
