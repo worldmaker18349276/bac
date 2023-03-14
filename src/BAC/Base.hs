@@ -221,7 +221,7 @@ symbol2 = symbol `bimap` symbol
 --   False
 nondecomposable :: Node e -> Symbol -> Bool
 nondecomposable bac sym =
-  (root bac |> locate sym |> (== Inner))
+  (root bac |> locate sym |> (/= Outer))
   && (edges bac |> all (locate sym .> (/= Inner)))
 
 -- ** Validation #validation#
