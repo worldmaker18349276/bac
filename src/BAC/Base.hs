@@ -385,7 +385,7 @@ rewireEdges src tgts node = do
 relabelObject :: Symbol -> Dict -> Node e -> Maybe (Node e)
 relabelObject tgt mapping node = do
   tgt_arr <- node |> arrow tgt
-  guard $ mapping ! base == base
+  guard $ base `Map.member` mapping && mapping ! base == base
   guard $ Map.keys mapping == symbols (target tgt_arr)
   let unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
   guard $ length unmapping == length mapping
