@@ -33,14 +33,14 @@ countStruct curr =
     when is_new $ countStruct arr
 
 encodeNodeBy :: (e -> Maybe String) -> Node e -> String
-encodeNodeBy showE bac =
-  root bac
+encodeNodeBy showE node =
+  root node
   |> format showE 0
   |> (`execState` FormatterState ptrs [] "")
   |> output
   where
   ptrs =
-    root bac
+    root node
     |> countStruct
     |> (`execState` mempty)
     |> toList
@@ -70,7 +70,7 @@ indent level = write $ repeat " " |> take (level * 4) |> concat
 
 format :: (e -> Maybe String) -> Int -> Arrow e -> State FormatterState ()
 format showE level curr =
-  edges (node curr) |> traverse_ \edge -> do
+  edges (target curr) |> traverse_ \edge -> do
     case showE (value edge) of
       Just estr -> do
         indent level
@@ -99,7 +99,7 @@ format showE level curr =
 
     case ptr of
       Just _ | sym `elem` is_init state -> write "\n"
-      _ | null (edges (node arr)) -> write " []\n"
+      _ | null (edges (target arr)) -> write " []\n"
       _ -> do
         write "\n"
         format showE (level + 1) arr

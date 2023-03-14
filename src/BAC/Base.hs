@@ -66,7 +66,7 @@ data Arrow' v e = Arrow'
     --   symbol to the unique symbol comparing with others elements of this map.
     dict :: Dict,
     -- | The target node.
-    node :: Node e,
+    target :: Node e,
     -- | The value carried by this arrow.
     value :: v
   }
@@ -112,9 +112,9 @@ data Location = Inner | Boundary | Outer deriving (Eq, Ord, Show)
 
 -- | Return root arrow of a node.
 root :: Node e -> Arrow e
-root bac = Arrow' {dict = id_dict, node = bac, value = ()}
+root node = Arrow' {dict = id_dict, target = node, value = ()}
   where
-  id_dict = bac |> symbols |> fmap (\a -> (a, a)) |> Map.fromList
+  id_dict = node |> symbols |> fmap (\a -> (a, a)) |> Map.fromList
 
 -- | Join two arrows into one arrow.
 --   It may crashes if two arrows are not composable.
@@ -123,7 +123,7 @@ join arr1 arr2 = arr2 {dict = dict arr1 `cat` dict arr2, value = ()}
 
 -- | Extend an arrow by joining to the edges of the target node.
 extend :: Arrow' v e -> [Arrow e]
-extend arr = edges (node arr) |> fmap (join arr)
+extend arr = edges (target arr) |> fmap (join arr)
 
 -- | Find the relative Location of the node referenced by the given symbol with respect to
 --   a given arrow.
@@ -175,15 +175,15 @@ arrow sym = root .> go
 --   >>> arrow2 (1,2) cone
 --   Nothing
 arrow2 :: (Symbol, Symbol) -> Node e -> Maybe (Arrow e, Arrow e)
-arrow2 (src, tgt) bac = do
-  src_arr <- bac |> arrow src
-  tgt_subarr <- node src_arr |> arrow tgt
+arrow2 (src, tgt) node = do
+  src_arr <- node |> arrow src
+  tgt_subarr <- target src_arr |> arrow tgt
   Just (src_arr, tgt_subarr)
 
 -- | Find the symbol referencing to the given arrow.
 --   It is the inverse of `arrow`:
 --
---   > fmap symbol (arrow sym bac) = Just sym
+--   > fmap symbol (arrow sym node) = Just sym
 --
 --   Examples:
 --
@@ -198,7 +198,7 @@ symbol = dict .> (! base)
 -- | Find the pair of symbols referencing to the given 2-chain.
 --   It is the inverse of `arrow2`:
 --
---   > fmap symbol2 (arrow2 sym2 bac) = Just sym2
+--   > fmap symbol2 (arrow2 sym2 node) = Just sym2
 --
 --   Examples:
 --
@@ -220,9 +220,9 @@ symbol2 = symbol `bimap` symbol
 --   >>> nondecomposable cone 4
 --   False
 nondecomposable :: Node e -> Symbol -> Bool
-nondecomposable bac sym =
-  (root bac |> locate sym |> (/= Outer))
-  && (edges bac |> all (locate sym .> (/= Inner)))
+nondecomposable node sym =
+  (root node |> locate sym |> (/= Outer))
+  && (edges node |> all (locate sym .> (/= Inner)))
 
 -- ** Validation #validation#
 
@@ -231,8 +231,8 @@ nondecomposable bac sym =
 sameStruct :: Arrow' v e -> Arrow' w o -> Bool
 sameStruct arr1 arr2 =
   dict arr1 == dict arr2
-  && length (edges (node arr1)) == length (edges (node arr2))
-  && (edges (node arr1) `zip` edges (node arr2) |> all (uncurry sameStruct))
+  && length (edges (target arr1)) == length (edges (target arr2))
+  && (edges (target arr1) `zip` edges (target arr2) |> all (uncurry sameStruct))
 
 -- | Check if a node is valid.  See [Types]("BAC.Base#g:types") for detail.
 --
@@ -247,23 +247,23 @@ sameStruct arr1 arr2 =
 --   >>> validate crescent
 --   True
 validate :: Node e -> Bool
-validate bac = validateChildren && validateDicts && validateSup
+validate node = validateChildren && validateDicts && validateSup
   where
-  validateChildren = edges bac |> fmap node |> all validate
+  validateChildren = edges node |> fmap target |> all validate
   validateDicts =
-    edges bac
-    |> all (\edge -> Map.keys (dict edge) == symbols (node edge))
+    edges node
+    |> all (\edge -> Map.keys (dict edge) == symbols (target edge))
   validateSup =
-    edges bac
-    |> fmap (node .> descendants)
-    |> zip (edges bac)
+    edges node
+    |> fmap (target .> descendants)
+    |> zip (edges node)
     |> concatMap sequence
     |> fmap (uncurry join)
-    |> (root bac :)
+    |> (root node :)
     |> sortOn symbol
     |> groupOn symbol
     |> all (nubBy sameStruct .> length .> (== 1))
-  descendants bac = symbols bac |> fmap (`arrow` bac) |> fmap fromJust
+  descendants node = symbols node |> fmap (`arrow` node) |> fmap fromJust
 
 -- * Folding #folding#
 
@@ -312,7 +312,7 @@ modify ::
   -> (Node e -> Node e')
 modify f =
   fold \curr results -> Node do
-    (res, edge) <- results `zip` edges (node curr)
+    (res, edge) <- results `zip` edges (target curr)
     f (curr, edge) res
 
 modifyUnder ::
@@ -321,20 +321,20 @@ modifyUnder ::
   -> (Node e -> Located (Node e'))
 modifyUnder sym f =
   foldUnder sym \curr results -> Node do
-    (res, edge) <- results `zip` edges (node curr)
+    (res, edge) <- results `zip` edges (target curr)
     f (curr, edge) res
 
 map :: ((Arrow e, Edge e) -> o) -> (Node e -> Node o)
-map f = modify \(curr, edge) res -> [edge {value = f (curr, edge), node = res}]
+map f = modify \(curr, edge) res -> [edge {value = f (curr, edge), target = res}]
 
 mapUnder :: Symbol -> (Location -> (Arrow e, Edge e) -> e) -> (Node e -> Maybe (Node e))
-mapUnder sym f bac = do
-  curr <- bac |> arrow sym
-  let res0 = node curr
-  fromReachable res0 $ bac |> modifyUnder sym \(curr, edge) -> \case
+mapUnder sym f node = do
+  curr <- node |> arrow sym
+  let res0 = target curr
+  fromReachable res0 $ node |> modifyUnder sym \(curr, edge) -> \case
     AtOuter     -> [edge]
-    AtBoundary  -> [edge {value = f Boundary (curr, edge), node = res0}]
-    AtInner res -> [edge {value = f Inner    (curr, edge), node = res}]
+    AtBoundary  -> [edge {value = f Boundary (curr, edge), target = res0}]
+    AtInner res -> [edge {value = f Inner    (curr, edge), target = res}]
 
 find :: (Arrow e -> Bool) -> (Node e -> [Arrow e])
 find f = Map.elems . fold \curr ->
@@ -350,11 +350,11 @@ findUnder sym f =
       |> if f curr then Map.insert (symbol curr) curr else id
 
 parents :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
-parents tgt bac = do
-  arrs <- findUnder tgt is_parent bac
+parents tgt node = do
+  arrs <- findUnder tgt is_parent node
   Just $
     arrs
-    |> fmap (node .> edges)
+    |> fmap (target .> edges)
     |> zip arrs
     |> concatMap sequence
     |> filter (uncurry join .> locate tgt .> (== Boundary))
@@ -365,35 +365,35 @@ parents tgt bac = do
 -- * Non-Categorical Operations #operations#
 
 rewireEdges :: Symbol -> [(e, Symbol)] -> Node e -> Maybe (Node e)
-rewireEdges src tgts bac = do
-  src_arr <- bac |> arrow src
-  let src_edges = edges (node src_arr)
+rewireEdges src tgts node = do
+  src_arr <- node |> arrow src
+  let src_edges = edges (target src_arr)
   src_edges' <-
     tgts
-    |> traverse (traverse (`arrow` node src_arr))
+    |> traverse (traverse (`arrow` target src_arr))
     |> fmap (fmap (\(value, arr) -> arr {value = value}))
   let res0 = Node src_edges'
 
-  let nd_syms = fmap symbol .> filter (nondecomposable (node src_arr)) .> sort .> nub
+  let nd_syms = fmap symbol .> filter (nondecomposable (target src_arr)) .> sort .> nub
   guard $ nd_syms src_edges == nd_syms src_edges'
 
-  fromReachable res0 $ bac |> modifyUnder src \(_, edge) -> \case
+  fromReachable res0 $ node |> modifyUnder src \(_, edge) -> \case
     AtOuter -> [edge]
-    AtInner res -> [edge {node = res}]
-    AtBoundary -> [edge {node = res0}]
+    AtInner res -> [edge {target = res}]
+    AtBoundary -> [edge {target = res0}]
 
 relabelObject :: Symbol -> Dict -> Node e -> Maybe (Node e)
-relabelObject tgt mapping bac = do
-  tgt_arr <- bac |> arrow tgt
+relabelObject tgt mapping node = do
+  tgt_arr <- node |> arrow tgt
   guard $ mapping ! base == base
-  guard $ Map.keys mapping == symbols (node tgt_arr)
+  guard $ Map.keys mapping == symbols (target tgt_arr)
   let unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
   guard $ length unmapping == length mapping
 
   let res0 = Node do
-        edge <- edges (node tgt_arr)
+        edge <- edges (target tgt_arr)
         [edge {dict = mapping `cat` dict edge}]
-  fromReachable res0 $ bac |> modifyUnder tgt \(_, edge) -> \case
+  fromReachable res0 $ node |> modifyUnder tgt \(_, edge) -> \case
     AtOuter -> [edge]
-    AtInner res -> [edge {node = res}]
-    AtBoundary -> [edge {dict = dict edge `cat` unmapping, node = res0}]
+    AtInner res -> [edge {target = res}]
+    AtBoundary -> [edge {dict = dict edge `cat` unmapping, target = res0}]

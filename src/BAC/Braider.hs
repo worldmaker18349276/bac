@@ -37,7 +37,7 @@ knot ptrs = do
         |> zip nums
         |> fmap (\(num, (val, subnode)) -> Arrow' {
             dict = subnode |> symbols |> fmap (\a -> (a, num + a)) |> Map.fromList,
-            node = subnode,
+            target = subnode,
             value = val
           }
         )
