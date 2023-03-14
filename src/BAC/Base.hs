@@ -18,10 +18,10 @@ import Utils.Memoize (unsafeMemoizeWithKey)
 import Utils.Utils (groupOn, (.>), (|>))
 
 -- $setup
--- The examples run with the following settings:
--- 
+-- The example code below runs with the following settings:
+--
 -- >>> import BAC.YAML
--- >>> import BAC.Examples
+-- >>> import BAC.Examples (cone, torus, crescent)
 
 -- * Basic #basic#
 
@@ -42,6 +42,8 @@ import Utils.Utils (groupOn, (.>), (|>))
 -- 3.  __supportivity__: if dictionaries of given two paths with the same starting node
 --     map the base symbol to the same symbol, then they should have the same dictionary
 --     and target node.  Note that null paths also count.
+--
+-- See my paper for a detailed explanation.
 
 -- | The node of the tree representation of a bounded acyclic category.
 --   The type variable `e` refers to the data carried by the edges.
@@ -144,6 +146,14 @@ locate sym arr
 
 -- | Make a arrow pointing to the node referenced by the given symbol.
 --   Return `Nothing` if it is outside the node.
+--
+--   Examples:
+--
+--   >>> arrow 3 cone
+--   Just (Arrow' {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], node = ...
+--
+--   >>> arrow 5 cone
+--   Nothing
 arrow :: Symbol -> Node e -> Maybe (Arrow e)
 arrow sym = root .> go
   where
@@ -153,6 +163,17 @@ arrow sym = root .> go
     Inner    -> Just $ arr |> extend |> mapMaybe go |> head
 
 -- | Make a 2-chain by given pair of symbols.
+--
+--   Examples:
+--
+--   >>> fmap fst (arrow2 (3,2) cone)
+--   Just (Arrow' {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], node = ...
+--
+--   >>> fmap snd (arrow2 (3,2) cone)
+--   Just (Arrow' {dict = fromList [(0,2)], node = ...
+--
+--   >>> arrow2 (1,2) cone
+--   Nothing
 arrow2 :: (Symbol, Symbol) -> Node e -> Maybe (Arrow e, Arrow e)
 arrow2 (src, tgt) bac = do
   src_arr <- bac |> arrow src
@@ -160,14 +181,44 @@ arrow2 (src, tgt) bac = do
   Just (src_arr, tgt_subarr)
 
 -- | Find the symbol referencing to the given arrow.
+--   It is the inverse of `arrow`:
+--
+--   > fmap symbolize (arrow sym bac) = Just sym
+--
+--   Examples:
+--
+--   >>> fmap symbolize (arrow 3 cone)
+--   Just 3
+--
+--   >>> fmap symbolize (arrow 5 cone)
+--   Nothing
 symbolize :: Arrow' v e -> Symbol
 symbolize = dict .> (! base)
 
 -- | Find the pair of symbols referencing to the given 2-chain.
+--   It is the inverse of `arrow2`:
+--
+--   > fmap symbolize2 (arrow2 sym2 bac) = Just sym2
+--
+--   Examples:
+--
+--   >>> fmap symbolize2 (arrow2 (3,2) cone)
+--   Just (3,2)
+--
+--   >>> fmap symbolize2 (arrow2 (1,2) cone)
+--   Nothing
 symbolize2 :: (Arrow' v e, Arrow' w e) -> (Symbol, Symbol)
 symbolize2 = symbolize `bimap` symbolize
 
 -- | Check if the given symbol reference to a nondecomposable initial morphism.
+--
+--   Examples:
+--
+--   >>> nondecomposable cone 3
+--   True
+--
+--   >>> nondecomposable cone 4
+--   False
 nondecomposable :: Node e -> Symbol -> Bool
 nondecomposable bac sym =
   (root bac |> locate sym |> (== Inner))

@@ -6,7 +6,7 @@ import Data.Maybe (fromJust)
 
 -- $setup
 -- The examples run with the following settings:
--- 
+--
 -- >>> import BAC.YAML
 
 {- |
