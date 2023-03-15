@@ -14,7 +14,7 @@ import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust, fromMaybe)
 
-import Utils.Utils ((|>), (.>), both, nubOn, groupOn, filterMaybe, distinct, allSame, allSameBy, label)
+import Utils.Utils ((|>), (.>), both, nubOn, groupOn, filterMaybe, distinct, allSame, allSameBy, label, toMaybe)
 import Utils.DisjointSet (bipartiteEqclass)
 import BAC.Base
 
@@ -85,7 +85,7 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val node = do
   let children tgt node = do
         tgt_arr <- node |> arrow tgt
         return $ edges (target tgt_arr) |> fmap snd |> fmap (tgt_arr,) |> sortOn symbol2
-  let parents src = findUnder src (\a _ _ -> not a) .> fmap (fmap (fmap snd))
+  let parents src = findMapUnder src (\a r _ -> toMaybe a r)
   src_inedges <- node |> parents src
   tgt_outedges <- node |> children tgt
   src_outedges' <- src_alts |> traverse (`arrow2` node)
@@ -169,7 +169,7 @@ partitionMorphism tgt node = do
     |> sort
   where
   parents :: Symbol -> Node e -> Maybe [(Arrow e, Arrow e)]
-  parents sym = findUnder sym (\a _ _ -> not a) .> fmap (fmap (fmap snd))
+  parents sym = findMapUnder sym (\a r _ -> toMaybe a r)
   find3Chains :: Arrow e -> [(Arrow e, Arrow e, Arrow e)]
   find3Chains arr =
     dict arr
@@ -308,7 +308,7 @@ mergeMorphisms src tgts node = do
   guard $
     src /= base
     || (tgt_arrs |> fmap (target .> edges .> fmap snd .> fmap dict) |> allSame)
-  pars <- node |> findUnder src (\a _ _ -> not a) |> fmap (fmap (fmap snd))
+  pars <- node |> findMapUnder src (\a r _ -> toMaybe a r)
   pars |> traverse_ \(_, arr) ->
     guard $ tgts |> fmap (dict arr !) |> allSame
 
@@ -329,7 +329,7 @@ mergeMorphisms src tgts node = do
 mergeObjects :: [Symbol] -> Node e -> Maybe (Node e)
 mergeObjects tgts node = do
   tgt_pars <- tgts |> traverse \tgt -> do
-    pars <- node |> findUnder tgt (\a _ _ -> not a) |> fmap (fmap (fmap snd))
+    pars <- node |> findMapUnder tgt (\a r _ -> toMaybe a r)
     return $
       pars
       |> filter (\(arr, arr') -> symbol arr' |> nondecomposable (target arr))

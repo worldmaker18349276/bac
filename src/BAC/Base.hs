@@ -5,8 +5,9 @@
 
 module BAC.Base where
 
-import Control.Monad (guard, MonadPlus (mzero))
+import Control.Monad (guard)
 import Data.Bifunctor (bimap, Bifunctor (second))
+import Data.Foldable (toList)
 import Data.List (nub, nubBy, sort, sortOn)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
@@ -364,29 +365,24 @@ mapUnder sym f node = do
     AtBoundary  -> return (f False (curr, arr) value, arr {target = res0})
     AtInner res -> return (f True (curr, arr) value, arr {target = res})
 
--- | Find edges of BAC.
-find :: ((Arrow e, Arrow e) -> e -> Bool) -> Node e -> [(Arrow e, Edge e)]
-find f = concat . Map.elems . fold \curr results ->
-    results |> Map.unions |> Map.insert (symbol curr) do
-      edge@(value, arr) <- edges (target curr)
-      if f (curr, arr) value then return (curr, edge) else mzero
+-- | Map and find edges of BAC.
+findMap :: ((Arrow e, Arrow e) -> e -> Maybe a) -> Node e -> [a]
+findMap f = concat . Map.elems . fold \curr results ->
+  results |> Map.unions |> Map.insert (symbol curr) do
+    (value, arr) <- edges (target curr)
+    toList $ f (curr, arr) value
 
--- | Find edges of BAC under a node.
-findUnder ::
-  Symbol
-  -> (Bool -> (Arrow e, Arrow e) -> e -> Bool)
-  -> Node e
-  -> Maybe [(Arrow e, Edge e)]
-findUnder sym f =
-  fromReachable [] . fmap (concat . Map.elems) .
-    foldUnder sym \curr results ->
-      results |> mapMaybe fromInner |> Map.unions |> Map.insert (symbol curr) do
-        (res, edge@(value, arr)) <- results `zip` edges (target curr)
-        let matched = case res of
-              AtOuter -> False
-              AtBoundary -> f False (curr, arr) value
-              AtInner _ -> f True (curr, arr) value
-        if matched then return (curr, edge) else mzero
+-- | Map and find edges of BAC under a node.
+findMapUnder ::
+  Symbol -> (Bool -> (Arrow e, Arrow e) -> e -> Maybe a) -> Node e -> Maybe [a]
+findMapUnder sym f =
+  fromReachable [] . fmap (concat . Map.elems) . foldUnder sym \curr results ->
+    results |> mapMaybe fromInner |> Map.unions |> Map.insert (symbol curr) do
+      (res, (value, arr)) <- results `zip` edges (target curr)
+      toList case res of
+        AtOuter -> Nothing
+        AtBoundary -> f False (curr, arr) value
+        AtInner _ -> f True (curr, arr) value
 
 -- * Non-Categorical Operations #operations#
 
