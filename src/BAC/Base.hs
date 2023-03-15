@@ -279,14 +279,14 @@ data Located r = AtOuter | AtBoundary | AtInner r
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 -- | Retrieve a reachable value, or return nothing if it is unreachable.
-fromReachable :: a -> Located a -> Maybe a
+fromReachable :: r -> Located r -> Maybe r
 fromReachable _ AtOuter     = Nothing
-fromReachable a AtBoundary  = Just a
-fromReachable _ (AtInner a) = Just a
+fromReachable r AtBoundary  = Just r
+fromReachable _ (AtInner r) = Just r
 
 -- | Retrieve the inner variant of a located value, otherwise return nothing.
-fromInner :: Located a -> Maybe a
-fromInner (AtInner a) = Just a
+fromInner :: Located r -> Maybe r
+fromInner (AtInner r) = Just r
 fromInner _           = Nothing
 
 -- | Fold a BAC.  All nodes are visited only once according to symbols.
