@@ -137,7 +137,7 @@ locate sym arr
 --   Examples:
 --
 --   >>> arrow 3 cone
---   Just (Arrow' {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
+--   Just (Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
 --
 --   >>> arrow 5 cone
 --   Nothing
@@ -154,10 +154,10 @@ arrow sym = root .> go
 --   Examples:
 --
 --   >>> fmap fst (arrow2 (3,2) cone)
---   Just (Arrow' {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
+--   Just (Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
 --
 --   >>> fmap snd (arrow2 (3,2) cone)
---   Just (Arrow' {dict = fromList [(0,2)], target = ...
+--   Just (Arrow {dict = fromList [(0,2)], target = ...
 --
 --   >>> arrow2 (1,2) cone
 --   Nothing
