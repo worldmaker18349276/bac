@@ -12,9 +12,9 @@ import Data.Foldable (traverse_)
 import Data.List (delete, elemIndices, findIndex, nub, sort, sortOn, transpose)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe, fromJust, fromMaybe)
+import Data.Maybe (mapMaybe, fromJust, fromMaybe, maybeToList)
 
-import Utils.Utils ((|>), (.>), both, nubOn, groupOn, filterMaybe, distinct, allSame, allSameBy, label, toMaybe)
+import Utils.Utils ((|>), (.>), both, nubOn, groupOn, filterMaybe, distinct, allSame, allSameBy, label)
 import Utils.DisjointSet (bipartiteEqclass)
 import BAC.Base
 
@@ -85,6 +85,28 @@ removeMorphism (src, tgt) node = do
 
   fromReachable res0 located_res
 
+-- | Extend a morphism specified by two symbols to the right by joining to the outgoing
+--   edges of the target node.
+--   Return empty if the given morphism is invalid or no valid extended morphism.
+rightExtend :: (Symbol, Symbol) -> Node e -> [(Symbol, Symbol)]
+rightExtend (sym01, sym12) node = nub $ sort do
+  arr01 <- node |> arrow sym01 |> maybeToList
+  arr12 <- target arr01 |> arrow sym12 |> maybeToList
+  sym13 <- arr12 |> extend |> fmap symbol
+  return (sym01, sym13)
+
+-- | Extend a morphism specified by two symbols to the left by joining to the incoming
+--   edges of the source node.
+--   Return empty if the given morphism is invalid or no valid extended morphism.
+leftExtend :: (Symbol, Symbol) -> Node e -> [(Symbol, Symbol)]
+leftExtend (sym02, sym23) node = nub $ sort do
+  arr02 <- node |> arrow sym02 |> maybeToList
+  arr23 <- target arr02 |> arrow sym23 |> maybeToList
+  (arr01, arr12) <- node |> parents sym02 |> fromMaybe []
+  let sym01 = symbol arr01
+  let sym13 = symbol (arr12 `join` arr23)
+  return (sym01, sym13)
+
 removeObject :: Symbol -> Node e -> Maybe (Node e)
 removeObject tgt node = do
   guard $ root node |> locate tgt |> (== Inner)
@@ -115,7 +137,6 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val node = do
   let children tgt node = do
         tgt_arr <- node |> arrow tgt
         return $ edges (target tgt_arr) |> fmap snd |> fmap (tgt_arr,) |> sortOn symbol2
-  let parents src = findMapUnder src (\a r _ -> toMaybe a r)
   src_inedges <- node |> parents src
   tgt_outedges <- node |> children tgt
   src_outedges' <- src_alts |> traverse (`arrow2` node)
@@ -200,8 +221,6 @@ partitionMorphism tgt node = do
     |> fmap sort
     |> sort
   where
-  parents :: Symbol -> Node e -> Maybe [(Arrow e, Arrow e)]
-  parents sym = findMapUnder sym (\a r _ -> toMaybe a r)
   find3Chains :: Arrow e -> [(Arrow e, Arrow e, Arrow e)]
   find3Chains arr =
     dict arr
@@ -342,7 +361,7 @@ mergeMorphisms src tgts node = do
   guard $
     src /= base
     || (tgt_arrs |> fmap (target .> edges .> fmap snd .> fmap dict) |> allSame)
-  pars <- node |> findMapUnder src (\a r _ -> toMaybe a r)
+  pars <- node |> parents src
   pars |> traverse_ \(_, arr) ->
     guard $ tgts |> fmap (dict arr !) |> allSame
 
@@ -363,7 +382,7 @@ mergeMorphisms src tgts node = do
 mergeObjects :: [Symbol] -> Node e -> Maybe (Node e)
 mergeObjects tgts node = do
   tgt_pars <- tgts |> traverse \tgt -> do
-    pars <- node |> findMapUnder tgt (\a r _ -> toMaybe a r)
+    pars <- node |> parents tgt
     return $
       pars
       |> filter (\(arr, arr') -> symbol arr' |> nondecomposable (target arr))

@@ -17,7 +17,7 @@ import Numeric.Natural (Natural)
 import GHC.Stack (HasCallStack)
 
 import Utils.Memoize (unsafeMemoizeWithKey)
-import Utils.Utils (groupOn, (.>), (|>), filterMaybe)
+import Utils.Utils (groupOn, (.>), (|>), filterMaybe, toMaybe, nubOn)
 
 -- $setup
 -- The example code below runs with the following settings:
@@ -383,6 +383,11 @@ findMapUnder sym f =
         AtOuter -> Nothing
         AtBoundary -> f False (curr, arr) value
         AtInner _ -> f True (curr, arr) value
+
+parents :: Symbol -> Node e -> Maybe [(Arrow e, Arrow e)]
+parents sym =
+  findMapUnder sym (\b r _ -> toMaybe (not b) r)
+  .> fmap (sortOn symbol2 .> nubOn symbol2)
 
 -- * Non-Categorical Operations #operations#
 
