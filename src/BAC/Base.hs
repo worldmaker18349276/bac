@@ -5,7 +5,7 @@
 
 module BAC.Base where
 
-import Control.Monad (guard)
+import Control.Monad (guard, MonadPlus (mzero))
 import Data.Bifunctor (bimap, Bifunctor (second))
 import Data.List (nub, nubBy, sort, sortOn)
 import Data.Map.Strict (Map, (!))
@@ -350,49 +350,40 @@ modifyUnder sym f =
     f (curr, edge) res
 
 -- | Map stored data of BAC.
-map :: ((Arrow e, Edge e) -> o) -> Node e -> Node o
+map :: ((Arrow e, Arrow e) -> e -> o) -> Node e -> Node o
 map f = modify \(curr, (value, arr)) res ->
-  return (f (curr, (value, arr)), arr {target = res})
+  return (f (curr, arr) value, arr {target = res})
 
 -- | Map stored data of BAC under a node.
-mapUnder :: Symbol -> (Location -> (Arrow e, Edge e) -> e) -> Node e -> Maybe (Node e)
+mapUnder :: Symbol -> ((Arrow e, Arrow e) -> Bool -> e -> e) -> Node e -> Maybe (Node e)
 mapUnder sym f node = do
   curr <- node |> arrow sym
   let res0 = target curr
   fromReachable res0 $ node |> modifyUnder sym \(curr, (value, arr)) -> \case
     AtOuter     -> return (value, arr)
-    AtBoundary  -> return (f Boundary (curr, (value, arr)), arr {target = res0})
-    AtInner res -> return (f Inner    (curr, (value, arr)), arr {target = res})
+    AtBoundary  -> return (f (curr, arr) False value, arr {target = res0})
+    AtInner res -> return (f (curr, arr) True value, arr {target = res})
 
--- | Find nodes of BAC.
-find :: (Arrow e -> Bool) -> Node e -> [Arrow e]
-find f = Map.elems . fold \curr ->
-  Map.unions .> if f curr then Map.insert (symbol curr) curr else id
+-- | Find edges of BAC.
+find :: ((Arrow e, Edge e) -> Bool) -> Node e -> [(Arrow e, Edge e)]
+find f = concat . Map.elems . fold \curr results ->
+    results |> Map.unions |> Map.insert (symbol curr) do
+      edge <- edges (target curr)
+      if f (curr, edge) then return (curr, edge) else mzero
 
--- | Find nodes of BAC under a node.
-findUnder :: Symbol -> (Arrow e -> Bool) -> Node e -> Maybe [Arrow e]
+-- | Find edges of BAC under a node.
+findUnder ::
+  Symbol -> ((Arrow e, Edge e) -> Bool -> Bool) -> Node e -> Maybe [(Arrow e, Edge e)]
 findUnder sym f =
-  fromReachable [] . fmap Map.elems .
+  fromReachable [] . fmap (concat . Map.elems) .
     foldUnder sym \curr results ->
-      results
-      |> mapMaybe fromInner
-      |> Map.unions
-      |> if f curr then Map.insert (symbol curr) curr else id
-
--- | Fond all parent nodes of a given node.
---   Return edges between them, or nothing if no such node.
-parents :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
-parents tgt node = do
-  arrs <- findUnder tgt is_parent node
-  return $
-    arrs
-    |> fmap (target .> edges)
-    |> zip arrs
-    |> concatMap sequence
-    |> filter (fmap snd .> uncurry join .> locate tgt .> (== Boundary))
-    |> sortOn (fmap snd .> symbol2)
-  where
-  is_parent = extend .> any (locate tgt .> (== Boundary))
+      results |> mapMaybe fromInner |> Map.unions |> Map.insert (symbol curr) do
+        (res, edge) <- results `zip` edges (target curr)
+        let matched = case res of
+              AtOuter -> False
+              AtBoundary -> f (curr, edge) False
+              AtInner _ -> f (curr, edge) True
+        if matched then return (curr, edge) else mzero
 
 -- * Non-Categorical Operations #operations#
 
