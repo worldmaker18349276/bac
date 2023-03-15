@@ -269,8 +269,7 @@ makeNode edges = filterMaybe (root .> validate) (Node {edges = edges})
 
 -- | Make an arrow with validation.
 makeArrow :: Dict -> Node e -> Maybe (Arrow e)
-makeArrow dict target =
-  filterMaybe validate (Arrow {dict = dict, target = target})
+makeArrow dict target = filterMaybe validate (Arrow {dict = dict, target = target})
 
 -- * Folding #folding#
 
@@ -290,6 +289,11 @@ fromInner (AtInner r) = Just r
 fromInner _           = Nothing
 
 -- | Fold a BAC.  All nodes are visited only once according to symbols.
+--
+--   Examples:
+--
+--   >>> fold (\_ results -> "<" ++ concat results ++ ">") cone
+--   "<<<>><<<><>><<><>>>>"
 fold ::
   (Arrow e -> [r] -> r)  -- ^ The function to reduce a node and the results from its child
                          --   nodes into a value.
@@ -301,6 +305,11 @@ fold f = root .> fold'
   memoize = unsafeMemoizeWithKey symbol
 
 -- | Fold a BAC under a node.
+--
+--   Examples:
+--
+--   >>> foldUnder 6 (\_ results -> "<" ++ concat (mapMaybe fromInner results) ++ ">") cone
+--   AtInner "<<<><>>>"
 foldUnder ::
   Symbol                            -- ^ The symbol referencing to the boundary.
   -> (Arrow e -> [Located r] -> r)  -- ^ The reduce function.  Where the results of child
@@ -314,28 +323,39 @@ foldUnder sym f = fold f'
     Boundary -> AtBoundary
     Inner    -> AtInner $ f curr results
 
+-- | Modify edges of BAC.
 modify ::
   ((Arrow e, Edge e) -> Node e' -> [Edge e'])
-  -> (Node e -> Node e')
+              -- ^ The function to modify edge.  The first parameter is the original edge
+              --   to modified, and the second parameter is the modified target node.  It
+              --   should return a list of modified edges.
+  -> Node e   -- ^ The root node of BAC to modify.
+  -> Node e'  -- ^ The modified result.
 modify f =
   fold \curr results -> Node do
     (res, edge) <- results `zip` edges (target curr)
     f (curr, edge) res
 
+-- | Modify edges of BAC under a node.
 modifyUnder ::
-  Symbol
+  Symbol                -- ^ The symbol referencing to the boundary.
   -> ((Arrow e, Edge e) -> Located (Node e') -> [Edge e'])
-  -> (Node e -> Located (Node e'))
+                        -- ^ The modify function.  Where the results of child nodes are
+                        --   labeled by `Located`.
+  -> Node e             -- ^ The root node of BAC to modify.
+  -> Located (Node e')  -- ^ The modified result, which is labeled by `Located`.
 modifyUnder sym f =
   foldUnder sym \curr results -> Node do
     (res, edge) <- results `zip` edges (target curr)
     f (curr, edge) res
 
-map :: ((Arrow e, Edge e) -> o) -> (Node e -> Node o)
+-- | Map stored data of BAC.
+map :: ((Arrow e, Edge e) -> o) -> Node e -> Node o
 map f = modify \(curr, (value, arr)) res ->
   return (f (curr, (value, arr)), arr {target = res})
 
-mapUnder :: Symbol -> (Location -> (Arrow e, Edge e) -> e) -> (Node e -> Maybe (Node e))
+-- | Map stored data of BAC under a node.
+mapUnder :: Symbol -> (Location -> (Arrow e, Edge e) -> e) -> Node e -> Maybe (Node e)
 mapUnder sym f node = do
   curr <- node |> arrow sym
   let res0 = target curr
@@ -344,11 +364,13 @@ mapUnder sym f node = do
     AtBoundary  -> return (f Boundary (curr, (value, arr)), arr {target = res0})
     AtInner res -> return (f Inner    (curr, (value, arr)), arr {target = res})
 
-find :: (Arrow e -> Bool) -> (Node e -> [Arrow e])
+-- | Find nodes of BAC.
+find :: (Arrow e -> Bool) -> Node e -> [Arrow e]
 find f = Map.elems . fold \curr ->
   Map.unions .> if f curr then Map.insert (symbol curr) curr else id
 
-findUnder :: Symbol -> (Arrow e -> Bool) -> (Node e -> Maybe [Arrow e])
+-- | Find nodes of BAC under a node.
+findUnder :: Symbol -> (Arrow e -> Bool) -> Node e -> Maybe [Arrow e]
 findUnder sym f =
   fromReachable [] . fmap Map.elems .
     foldUnder sym \curr results ->
@@ -357,6 +379,8 @@ findUnder sym f =
       |> Map.unions
       |> if f curr then Map.insert (symbol curr) curr else id
 
+-- | Fond all parent nodes of a given node.
+--   Return edges between them, or nothing if no such node.
 parents :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
 parents tgt node = do
   arrs <- findUnder tgt is_parent node
@@ -372,7 +396,12 @@ parents tgt node = do
 
 -- * Non-Categorical Operations #operations#
 
-rewireEdges :: Symbol -> [(e, Symbol)] -> Node e -> Maybe (Node e)
+-- | Rewire edges of a given node.
+rewireEdges ::
+  Symbol             -- ^ The symbol referencing to the node to rewire.
+  -> [(e, Symbol)]   -- ^ The list of values and symbols of rewired edges.
+  -> Node e          -- ^ The root node of BAC.
+  -> Maybe (Node e)  -- ^ The result.
 rewireEdges src tgts node = do
   src_arr <- node |> arrow src
   let src_edges = edges (target src_arr)
@@ -387,7 +416,12 @@ rewireEdges src tgts node = do
     AtInner res -> return (value, arr {target = res})
     AtBoundary -> return (value, arr {target = res0})
 
-relabelObject :: Symbol -> Dict -> Node e -> Maybe (Node e)
+-- | Relabel a given node.
+relabelObject ::
+  Symbol             -- ^ The symbol referencing to the node to relabel.
+  -> Dict            -- ^ The dictionary to relabel the symbols of the node.
+  -> Node e          -- ^ The root node of BAC.
+  -> Maybe (Node e)  -- ^ The result.
 relabelObject tgt mapping node = do
   tgt_arr <- node |> arrow tgt
   guard $ base `Map.member` mapping && mapping ! base == base
