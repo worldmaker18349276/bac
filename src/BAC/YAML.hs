@@ -70,21 +70,21 @@ indent level = write $ repeat " " |> take (level * 4) |> concat
 
 format :: (e -> Maybe String) -> Int -> Arrow e -> State FormatterState ()
 format showE level curr =
-  edges (target curr) |> traverse_ \edge -> do
-    case showE (value edge) of
+  edges (target curr) |> traverse_ \(value, arr) -> do
+    case showE value of
       Just estr -> do
         indent level
         write $ "- value: " ++ estr ++ "\n"
         indent level
-        write $ "  dict: " ++ encodeDict (dict edge) ++ "\n"
+        write $ "  dict: " ++ encodeDict (dict arr) ++ "\n"
         indent level
       Nothing -> do
         indent level
-        write $ "- dict: " ++ encodeDict (dict edge) ++ "\n"
+        write $ "- dict: " ++ encodeDict (dict arr) ++ "\n"
         indent level
 
-    let arr = curr `join` edge
-    let sym = symbol arr
+    let arr' = curr `join` arr
+    let sym = symbol arr'
     state <- get
     let ptr = lookup sym (pointers state)
 
@@ -99,7 +99,7 @@ format showE level curr =
 
     case ptr of
       Just _ | sym `elem` is_init state -> write "\n"
-      _ | null (edges (target arr)) -> write " []\n"
+      _ | null (edges (target arr')) -> write " []\n"
       _ -> do
         write "\n"
-        format showE (level + 1) arr
+        format showE (level + 1) arr'

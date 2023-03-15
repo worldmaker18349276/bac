@@ -35,11 +35,10 @@ knot ptrs = do
         ptrs
         |> fmap (second ((table !) .> fst))
         |> zip nums
-        |> fmap (\(num, (val, subnode)) -> Arrow' {
+        |> fmap (\(num, (val, subnode)) -> (val, Arrow {
             dict = subnode |> symbols |> fmap (\a -> (a, num + a)) |> Map.fromList,
-            target = subnode,
-            value = val
-          }
+            target = subnode
+          })
         )
         |> Node
 
@@ -80,9 +79,9 @@ braiding // eqclass = do
 
   let mergeSymbol sym = eqclass' |> filter (elem sym) |> (++ [[sym]]) |> head |> head
   let merged_edges = do
-        edge <- edges node
-        let merged_dict = dict edge |> fmap mergeSymbol
-        let merged_edge = edge {dict = merged_dict}
+        (value, arr) <- edges node
+        let merged_dict = dict arr |> fmap mergeSymbol
+        let merged_edge = (value, arr {dict = merged_dict})
         [merged_edge]
   let merged_node = node {edges = merged_edges}
   let merged_children = children |> zip (edges merged_node) |> fmap (fmap snd)
