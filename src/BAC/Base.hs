@@ -333,16 +333,16 @@ modifyUnder sym f =
 
 map :: ((Arrow e, Edge e) -> o) -> (Node e -> Node o)
 map f = modify \(curr, (value, arr)) res ->
-  [(f (curr, (value, arr)), arr {target = res})]
+  return (f (curr, (value, arr)), arr {target = res})
 
 mapUnder :: Symbol -> (Location -> (Arrow e, Edge e) -> e) -> (Node e -> Maybe (Node e))
 mapUnder sym f node = do
   curr <- node |> arrow sym
   let res0 = target curr
   fromReachable res0 $ node |> modifyUnder sym \(curr, (value, arr)) -> \case
-    AtOuter     -> [(value, arr)]
-    AtBoundary  -> [(f Boundary (curr, (value, arr)), arr {target = res0})]
-    AtInner res -> [(f Inner    (curr, (value, arr)), arr {target = res})]
+    AtOuter     -> return (value, arr)
+    AtBoundary  -> return (f Boundary (curr, (value, arr)), arr {target = res0})
+    AtInner res -> return (f Inner    (curr, (value, arr)), arr {target = res})
 
 find :: (Arrow e -> Bool) -> (Node e -> [Arrow e])
 find f = Map.elems . fold \curr ->
@@ -383,9 +383,9 @@ rewireEdges src tgts node = do
   guard $ nd_symbols src_edges == nd_symbols src_edges'
 
   fromReachable res0 $ node |> modifyUnder src \(_, (value, arr)) -> \case
-    AtOuter -> [(value, arr)]
-    AtInner res -> [(value, arr {target = res})]
-    AtBoundary -> [(value, arr {target = res0})]
+    AtOuter -> return (value, arr)
+    AtInner res -> return (value, arr {target = res})
+    AtBoundary -> return (value, arr {target = res0})
 
 relabelObject :: Symbol -> Dict -> Node e -> Maybe (Node e)
 relabelObject tgt mapping node = do
@@ -397,8 +397,8 @@ relabelObject tgt mapping node = do
 
   let res0 = Node do
         (value, arr) <- edges (target tgt_arr)
-        [(value, arr {dict = mapping `cat` dict arr})]
+        return (value, arr {dict = mapping `cat` dict arr})
   fromReachable res0 $ node |> modifyUnder tgt \(_, (value, arr)) -> \case
-    AtOuter -> [(value, arr)]
-    AtInner res -> [(value, arr {target = res})]
-    AtBoundary -> [(value, arr {dict = dict arr `cat` unmapping, target = res0})]
+    AtOuter -> return (value, arr)
+    AtInner res -> return (value, arr {target = res})
+    AtBoundary -> return (value, arr {dict = dict arr `cat` unmapping, target = res0})

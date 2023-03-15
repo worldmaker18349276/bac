@@ -6,7 +6,7 @@
 
 module BAC.Algorithm where
 
-import Control.Monad (guard)
+import Control.Monad (guard, MonadPlus (mzero))
 import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable (traverse_)
 import Data.List (delete, elemIndices, findIndex, nub, sort, sortOn, transpose)
@@ -48,9 +48,9 @@ removeMorphism (src, tgt) node = do
       let node = Node do
             (res, (value, arr)) <- results' `zip` edges (target curr)
             case res of
-              AtOuter -> [(value, arr)]
-              AtInner res -> [(value, arr {target = res})]
-              AtBoundary -> [(value, arr {dict = filtered_dict, target = res0})]
+              AtOuter -> return (value, arr)
+              AtInner res -> return (value, arr {target = res})
+              AtBoundary -> return (value, arr {dict = filtered_dict, target = res0})
                 where
                 filtered_dict = dict arr |> Map.delete tgt
       guard $ symbols node == symbols (target curr)
@@ -65,9 +65,9 @@ removeObject tgt node = do
   guard $ edges (target tgt_arr) |> null
 
   fromReachable (target tgt_arr) $ node |> modifyUnder tgt \(curr, (value, arr)) -> \case
-    AtOuter -> [(value, arr)]
-    AtBoundary -> []
-    AtInner res -> [(value, arr {dict = filtered_dict, target = res})]
+    AtOuter -> return (value, arr)
+    AtBoundary -> mzero
+    AtInner res -> return (value, arr {dict = filtered_dict, target = res})
       where
       filtered_dict = dict arr |> Map.filter (\s -> dict curr ! s /= tgt)
 
@@ -129,9 +129,9 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val node = do
     let pairs = do
           (res, (value, arr)) <- results' `zip` edges (target curr)
           case res of
-            AtOuter -> []
+            AtOuter -> mzero
             AtInner res -> res |> fmap (both (dict arr !))
-            AtBoundary -> [(symbol arr, snd new_wire)]
+            AtBoundary -> return (symbol arr, snd new_wire)
               where
               new_wire = new_wires ! symbol2 (curr, arr)
 
@@ -148,9 +148,9 @@ addMorphism src new_edge new_wires node = do
   let new_edges = edges (target src_arr) |> (++ [new_edge])
   let res0 = Node new_edges
   fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
-    AtOuter -> [(value, arr)]
-    AtInner res -> [(value, arr {target = res})]
-    AtBoundary -> [(value, arr {dict = new_dict, target = res0})]
+    AtOuter -> return (value, arr)
+    AtInner res -> return (value, arr {target = res})
+    AtBoundary -> return (value, arr {dict = new_dict, target = res0})
       where
       new_wire = new_wires ! symbol2 (curr, arr)
       new_dict = dict arr |> uncurry Map.insert new_wire
@@ -202,7 +202,7 @@ splitMorphism (src, tgt) splittable_keys node = do
           r' <- splitted_syms
           let split (s, r) = if r == tgt then (s, r') else (s, r)
           let splitted_dict = dict arr |> Map.toList |> fmap split |> Map.fromList
-          [(value, arr {dict = splitted_dict})]
+          return (value, arr {dict = splitted_dict})
         else do
           let split (s, r) = if r == tgt then (s, r') else (s, r)
                 where
@@ -212,12 +212,12 @@ splitMorphism (src, tgt) splittable_keys node = do
                   |> fromJust
                   |> (splitted_syms !!)
           let splitted_dict = dict arr |> Map.toList |> fmap split |> Map.fromList
-          [(value, arr {dict = splitted_dict})]
+          return (value, arr {dict = splitted_dict})
 
   fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
-    AtOuter -> [(value, arr)]
-    AtInner res -> [(value, arr {target = res})]
-    AtBoundary -> [(value, arr {dict = merged_dict, target = res0})]
+    AtOuter -> return (value, arr)
+    AtInner res -> return (value, arr {target = res})
+    AtBoundary -> return (value, arr {dict = merged_dict, target = res0})
       where
       merge (s, r)
         | s == tgt  = [(s', r) | s' <- splitted_syms]
@@ -231,7 +231,7 @@ partitionObject node = links |> bipartiteEqclass |> fmap (snd .> sort) |> sort
     (_, arr) <- edges node
     let sym0 = symbol arr
     sym <- dict arr |> Map.elems
-    [(sym0, sym)]
+    return (sym0, sym)
 
 splitObject :: Ord k => Symbol -> [k] -> Node e -> Maybe (Node e)
 splitObject tgt splittable_keys node = do
@@ -253,11 +253,11 @@ splitObject tgt splittable_keys node = do
         group <- splitted_groups
         let splitted_edges =
               edges (target tgt_arr) |> filter (\(_, arr) -> symbol arr `elem` group)
-        [Node splitted_edges]
+        return $ Node splitted_edges
 
   fromInner $ node |> modifyUnder tgt \(curr, (value, arr)) -> \case
-    AtOuter -> [(value, arr)]
-    AtInner res -> [(value, arr {dict = duplicated_dict, target = res})]
+    AtOuter -> return (value, arr)
+    AtInner res -> return (value, arr {dict = duplicated_dict, target = res})
       where
       s_syms = target arr |> symbols
       r_syms = target curr |> symbols
@@ -276,7 +276,7 @@ splitObject tgt splittable_keys node = do
             | otherwise      = Nothing
       let splitted_dict =
             dict arr |> Map.toList |> mapMaybe split |> Map.fromList
-      [(value, arr {dict = splitted_dict, target = res})]
+      return (value, arr {dict = splitted_dict, target = res})
 
 splitCategory :: Ord k => [k] -> Node e -> Maybe [Node e]
 splitCategory splittable_keys node = do
@@ -294,7 +294,7 @@ splitCategory splittable_keys node = do
     group <- splitted_groups
     let splitted_edges =
           edges node |> filter (\(_, arr) -> symbol arr `elem` group)
-    [Node splitted_edges]
+    return $ Node splitted_edges
 
 mergeMorphisms :: Symbol -> [Symbol] -> Node e -> Maybe (Node e)
 mergeMorphisms src tgts node = do
@@ -315,12 +315,12 @@ mergeMorphisms src tgts node = do
   let res0 = Node do
         (value, arr) <- edges (target src_arr)
         let dict' = dict arr |> Map.toList |> fmap (second merge) |> Map.fromList
-        [(value, arr {dict = dict'})]
+        return (value, arr {dict = dict'})
 
   fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
-    AtOuter -> [(value, arr)]
-    AtInner res -> [(value, arr {target = res})]
-    AtBoundary -> [(value, arr {dict = dict', target = res0})]
+    AtOuter -> return (value, arr)
+    AtInner res -> return (value, arr {target = res})
+    AtBoundary -> return (value, arr {dict = dict', target = res0})
       where
       dict' = dict arr |> Map.toList |> fmap (first merge) |> Map.fromList
 
@@ -353,7 +353,7 @@ mergeObjects tgts node = do
               |> (merged_wire :)
               |> Map.fromList
         key <- arr_arrs |> fmap symbol2
-        [(key, merged_dict)]
+        return (key, merged_dict)
 
   let placeholder = node
   let tgt = head tgts
@@ -399,7 +399,7 @@ mergeObjects tgts node = do
                     |> fromJust
                     |> dict
 
-            [(value, arr {dict = collapsed_dict, target = collapsed_node})]
+            return (value, arr {dict = collapsed_dict, target = collapsed_node})
 
       Just (Node collapsed_edges, collapse)
 
@@ -413,7 +413,7 @@ mergeCategories nodes = Node {edges = merged_edges}
     (num, node) <- zip nums nodes
     (value, arr) <- edges node
     let dict' = dict arr |> fmap (+ num)
-    [(value, arr {dict = dict'})]
+    return (value, arr {dict = dict'})
 
 trimObject :: Symbol -> Node e -> Maybe (Node e)
 trimObject tgt node = do
@@ -421,12 +421,12 @@ trimObject tgt node = do
   tgt_arr <- node |> arrow tgt
 
   fromReachable (target tgt_arr) $ node |> modifyUnder tgt \(curr, (value, arr)) -> \case
-    AtOuter -> [(value, arr)]
+    AtOuter -> return (value, arr)
     AtBoundary -> do
       (subvalue, subarr) <- edges (target arr)
       let concated_dict = dict arr `cat` dict subarr
-      [(subvalue, subarr {dict = concated_dict})]
-    AtInner res -> [(value, arr {dict = filtered_dict, target = res})]
+      return (subvalue, subarr {dict = concated_dict})
+    AtInner res -> return (value, arr {dict = filtered_dict, target = res})
       where
       filtered_dict = dict arr |> Map.filter (\s -> dict curr ! s /= tgt)
 
@@ -453,20 +453,21 @@ insertMorphism (src, tgt) (val1, val2) node = do
 
   fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) res ->
     case fromReachable res0 res of
-      Nothing -> [(value, arr)]
-      Just res -> [(value, arr {dict = dict', target = res})]
+      Nothing -> return (value, arr)
+      Just res -> return (value, arr {dict = dict', target = res})
         where
         newSym syms = (+) (maximum syms + 1)
         s_syms = target curr |> symbols
         r_syms = target arr |> symbols
         dict' =
-              dict arr
-              |> Map.toList
-              |> concatMap (\(s, r) ->
-                if dict curr ! r == src
-                then [(s, r), (newSym s_syms s, newSym r_syms r)]
-                else [(s, r)])
-              |> Map.fromList
+          dict arr
+          |> Map.toList
+          |> concatMap (\(s, r) ->
+            if dict curr ! r == src
+            then [(s, r), (newSym s_syms s, newSym r_syms r)]
+            else [(s, r)]
+          )
+          |> Map.fromList
 
 expandMergingSymbols :: Node e -> [[Symbol]] -> Maybe [[Symbol]]
 expandMergingSymbols node =
@@ -496,7 +497,7 @@ mergeMorphismsAggressively src tgts node = do
   let merged_node = Node do
         (value, arr) <- edges (target src_arr)
         let merged_dict = dict arr |> fmap (mergeSymbol merging_lists)
-        [(value, arr {dict = merged_dict})]
+        return (value, arr {dict = merged_dict})
   let res0 = (merged_node, merging_lists)
   let merging_lists_of = fromReachable res0 .> fmap snd .> fromMaybe []
 
@@ -516,8 +517,8 @@ mergeMorphismsAggressively src tgts node = do
                   |> fmap (mergeSymbol merging_lists)
                   |> Map.mapKeys (mergeSymbol (merging_lists_of res))
             case fromReachable res0 res of
-              Nothing -> [(value, arr {dict = merged_dict})]
-              Just (res, _) -> [(value, arr {dict = merged_dict, target = res})]
+              Nothing -> return (value, arr {dict = merged_dict})
+              Just (res, _) -> return (value, arr {dict = merged_dict, target = res})
       Just (merged_node, merging_lists)
 
   fromReachable merged_node $ fmap fst located_res

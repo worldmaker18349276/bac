@@ -81,8 +81,7 @@ braiding // eqclass = do
   let merged_edges = do
         (value, arr) <- edges node
         let merged_dict = dict arr |> fmap mergeSymbol
-        let merged_edge = (value, arr {dict = merged_dict})
-        [merged_edge]
+        return (value, arr {dict = merged_dict})
   let merged_node = node {edges = merged_edges}
   let merged_children = children |> zip (edges merged_node) |> fmap (fmap snd)
 
