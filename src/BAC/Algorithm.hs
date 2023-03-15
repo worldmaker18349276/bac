@@ -22,19 +22,18 @@ empty :: Node e
 empty = Node {edges = []}
 
 singleton :: e -> Node e
-singleton val = Node {edges = [new_edge]}
+singleton val = Node {edges = [(val, new_arr)]}
   where
   new_sym = base + 1
   new_dict = Map.singleton base new_sym
   new_node = empty
   new_arr = Arrow {dict = new_dict, target = new_node}
-  new_edge = (val, new_arr)
 
 removeMorphism :: (Symbol, Symbol) -> Node e -> Maybe (Node e)
 removeMorphism (src, tgt) node = do
   src_arr <- node |> arrow src
-  edges (target src_arr) |> traverse_ \(_, arr) -> do
-    guard $ locate tgt arr /= Inner
+  guard $ tgt /= base
+  guard $ nondecomposable (target src_arr) tgt
 
   let filtered_edges =
         edges (target src_arr) |> filter (\(_, arr) -> symbol arr /= tgt)
@@ -86,7 +85,8 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val node = do
   let children tgt node = do
         tgt_arr <- node |> arrow tgt
         return $ edges (target tgt_arr) |> fmap snd |> fmap (tgt_arr,) |> sortOn symbol2
-  src_inedges <- node |> parents src |> fmap (fmap (fmap snd))
+  let parents src = findUnder src (\a _ _ -> not a) .> fmap (fmap (fmap snd))
+  src_inedges <- node |> parents src
   tgt_outedges <- node |> children tgt
   src_outedges' <- src_alts |> traverse (`arrow2` node)
   tgt_inedges' <- tgt_alts |> traverse (`arrow2` node)
@@ -168,12 +168,14 @@ partitionMorphism tgt node = do
     |> fmap sort
     |> sort
   where
+  parents :: Symbol -> Node e -> Maybe [(Arrow e, Arrow e)]
+  parents sym = findUnder sym (\a _ _ -> not a) .> fmap (fmap (fmap snd))
   find3Chains :: Arrow e -> [(Arrow e, Arrow e, Arrow e)]
   find3Chains arr =
     dict arr
     |> Map.filter (== tgt)
     |> Map.keys
-    |> mapMaybe (\sym -> target arr |> parents sym |> fmap (fmap (fmap snd)))
+    |> mapMaybe (\sym -> target arr |> parents sym)
     |> concat
     |> fmap (\(b, c) -> (arr, b, c))
   symbol3 :: (Arrow e, Arrow e, Arrow e) -> ((Symbol, Symbol), (Symbol, Symbol))
@@ -306,7 +308,7 @@ mergeMorphisms src tgts node = do
   guard $
     src /= base
     || (tgt_arrs |> fmap (target .> edges .> fmap snd .> fmap dict) |> allSame)
-  pars <- node |> parents src |> fmap (fmap (fmap snd))
+  pars <- node |> findUnder src (\a _ _ -> not a) |> fmap (fmap (fmap snd))
   pars |> traverse_ \(_, arr) ->
     guard $ tgts |> fmap (dict arr !) |> allSame
 
@@ -327,7 +329,7 @@ mergeMorphisms src tgts node = do
 mergeObjects :: [Symbol] -> Node e -> Maybe (Node e)
 mergeObjects tgts node = do
   tgt_pars <- tgts |> traverse \tgt -> do
-    pars <- node |> parents tgt |> fmap (fmap (fmap snd))
+    pars <- node |> findUnder tgt (\a _ _ -> not a) |> fmap (fmap (fmap snd))
     return $
       pars
       |> filter (\(arr, arr') -> symbol arr' |> nondecomposable (target arr))

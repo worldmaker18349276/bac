@@ -355,34 +355,37 @@ map f = modify \(curr, (value, arr)) res ->
   return (f (curr, arr) value, arr {target = res})
 
 -- | Map stored data of BAC under a node.
-mapUnder :: Symbol -> ((Arrow e, Arrow e) -> Bool -> e -> e) -> Node e -> Maybe (Node e)
+mapUnder :: Symbol -> (Bool -> (Arrow e, Arrow e) -> e -> e) -> Node e -> Maybe (Node e)
 mapUnder sym f node = do
   curr <- node |> arrow sym
   let res0 = target curr
   fromReachable res0 $ node |> modifyUnder sym \(curr, (value, arr)) -> \case
     AtOuter     -> return (value, arr)
-    AtBoundary  -> return (f (curr, arr) False value, arr {target = res0})
-    AtInner res -> return (f (curr, arr) True value, arr {target = res})
+    AtBoundary  -> return (f False (curr, arr) value, arr {target = res0})
+    AtInner res -> return (f True (curr, arr) value, arr {target = res})
 
 -- | Find edges of BAC.
-find :: ((Arrow e, Edge e) -> Bool) -> Node e -> [(Arrow e, Edge e)]
+find :: ((Arrow e, Arrow e) -> e -> Bool) -> Node e -> [(Arrow e, Edge e)]
 find f = concat . Map.elems . fold \curr results ->
     results |> Map.unions |> Map.insert (symbol curr) do
-      edge <- edges (target curr)
-      if f (curr, edge) then return (curr, edge) else mzero
+      edge@(value, arr) <- edges (target curr)
+      if f (curr, arr) value then return (curr, edge) else mzero
 
 -- | Find edges of BAC under a node.
 findUnder ::
-  Symbol -> ((Arrow e, Edge e) -> Bool -> Bool) -> Node e -> Maybe [(Arrow e, Edge e)]
+  Symbol
+  -> (Bool -> (Arrow e, Arrow e) -> e -> Bool)
+  -> Node e
+  -> Maybe [(Arrow e, Edge e)]
 findUnder sym f =
   fromReachable [] . fmap (concat . Map.elems) .
     foldUnder sym \curr results ->
       results |> mapMaybe fromInner |> Map.unions |> Map.insert (symbol curr) do
-        (res, edge) <- results `zip` edges (target curr)
+        (res, edge@(value, arr)) <- results `zip` edges (target curr)
         let matched = case res of
               AtOuter -> False
-              AtBoundary -> f (curr, edge) False
-              AtInner _ -> f (curr, edge) True
+              AtBoundary -> f False (curr, arr) value
+              AtInner _ -> f True (curr, arr) value
         if matched then return (curr, edge) else mzero
 
 -- * Non-Categorical Operations #operations#
