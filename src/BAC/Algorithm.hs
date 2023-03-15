@@ -54,7 +54,7 @@ removeMorphism (src, tgt) node = do
                 where
                 filtered_dict = dict arr |> Map.delete tgt
       guard $ symbols node == symbols (target curr)
-      Just node
+      return node
 
   fromReachable res0 located_res
 
@@ -85,7 +85,7 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val node = do
 
   let children tgt node = do
         tgt_arr <- node |> arrow tgt
-        Just $ edges (target tgt_arr) |> fmap snd |> fmap (tgt_arr,) |> sortOn symbol2
+        return $ edges (target tgt_arr) |> fmap snd |> fmap (tgt_arr,) |> sortOn symbol2
   src_inedges <- node |> parents src |> fmap (fmap (fmap snd))
   tgt_outedges <- node |> children tgt
   src_outedges' <- src_alts |> traverse (`arrow2` node)
@@ -137,7 +137,7 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val node = do
 
     pairs |> sort |> nub |> filterMaybe (fmap fst .> distinct)
 
-  Just (new_edge, new_wires)
+  return (new_edge, new_wires)
 
 addMorphism ::
   Symbol
@@ -158,7 +158,7 @@ addMorphism src new_edge new_wires node = do
 partitionMorphism :: Symbol -> Node e -> Maybe [[(Symbol, Symbol)]]
 partitionMorphism tgt node = do
   guard $ root node |> locate tgt |> (== Inner)
-  Just $
+  return $
     edges node
     |> fmap snd
     |> concatMap find3Chains
@@ -290,7 +290,7 @@ splitCategory splittable_keys node = do
         |> fmap (`elemIndices` splittable_keys)
         |> fmap (concatMap (splittable_groups !!))
 
-  Just do
+  return do
     group <- splitted_groups
     let splitted_edges =
           edges node |> filter (\(_, arr) -> symbol arr `elem` group)
@@ -328,7 +328,7 @@ mergeObjects :: [Symbol] -> Node e -> Maybe (Node e)
 mergeObjects tgts node = do
   tgt_pars <- tgts |> traverse \tgt -> do
     pars <- node |> parents tgt |> fmap (fmap (fmap snd))
-    Just $
+    return $
       pars
       |> filter (\(arr, arr') -> symbol arr' |> nondecomposable (target arr))
       |> nubOn symbol2
@@ -401,7 +401,7 @@ mergeObjects tgts node = do
 
             return (value, arr {dict = collapsed_dict, target = collapsed_node})
 
-      Just (Node collapsed_edges, collapse)
+      return (Node collapsed_edges, collapse)
 
   fromReachable node $ fmap fst located_res
 
@@ -445,9 +445,9 @@ insertMorphism (src, tgt) (val1, val2) node = do
       let new_outedge = (val2, Arrow {dict = new_outdict, target = target tgt_arr})
       let new_node = Node {edges = [new_outedge]}
       let new_indict = dict tgt_arr |> Map.mapKeys (+ 1) |> Map.insert base new_sym
-      Just (val1, Arrow {dict = new_indict, target = new_node})
+      return (val1, Arrow {dict = new_indict, target = new_node})
     Nothing ->
-      Just (val1, Arrow {dict = Map.singleton base new_sym, target = empty})
+      return (val1, Arrow {dict = Map.singleton base new_sym, target = empty})
 
   let res0 = Node $ edges (target src_arr) ++ [new_inedge]
 
@@ -519,7 +519,7 @@ mergeMorphismsAggressively src tgts node = do
             case fromReachable res0 res of
               Nothing -> return (value, arr {dict = merged_dict})
               Just (res, _) -> return (value, arr {dict = merged_dict, target = res})
-      Just (merged_node, merging_lists)
+      return (merged_node, merging_lists)
 
   fromReachable merged_node $ fmap fst located_res
 

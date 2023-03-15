@@ -165,7 +165,7 @@ arrow2 :: (Symbol, Symbol) -> Node e -> Maybe (Arrow e, Arrow e)
 arrow2 (src, tgt) node = do
   src_arr <- node |> arrow src
   tgt_subarr <- target src_arr |> arrow tgt
-  Just (src_arr, tgt_subarr)
+  return (src_arr, tgt_subarr)
 
 -- | Find the symbol referencing to the given arrow.
 --   It is the inverse of `arrow`:
@@ -360,7 +360,7 @@ findUnder sym f =
 parents :: Symbol -> Node e -> Maybe [(Arrow e, Edge e)]
 parents tgt node = do
   arrs <- findUnder tgt is_parent node
-  Just $
+  return $
     arrs
     |> fmap (target .> edges)
     |> zip arrs
