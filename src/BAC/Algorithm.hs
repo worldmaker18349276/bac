@@ -18,9 +18,35 @@ import Utils.Utils ((|>), (.>), both, nubOn, groupOn, filterMaybe, distinct, all
 import Utils.DisjointSet (bipartiteEqclass)
 import BAC.Base
 
+-- $setup
+-- The example code below runs with the following settings:
+--
+-- >>> import BAC.YAML
+-- >>> import BAC.Examples (cone, torus, crescent)
+
+-- * Empty/Singleton
+
+{- |
+An empty node.
+
+Examples:
+
+>>> putStrLn $ encodeNode' empty
+<BLANKLINE>
+-}
 empty :: Node e
 empty = Node {edges = []}
 
+{- |
+An singleton node.
+
+Examples:
+
+>>> putStrLn $ encodeNode' (singleton ())
+- dict: '0->1'
+  node: []
+<BLANKLINE>
+-}
 singleton :: e -> Node e
 singleton val = Node {edges = [(val, new_arr)]}
   where
@@ -28,6 +54,8 @@ singleton val = Node {edges = [(val, new_arr)]}
   new_dict = Map.singleton base new_sym
   new_node = empty
   new_arr = Arrow {dict = new_dict, target = new_node}
+
+-- * Remove Morphism/Object
 
 removeMorphism :: (Symbol, Symbol) -> Node e -> Maybe (Node e)
 removeMorphism (src, tgt) node = do
@@ -69,6 +97,8 @@ removeObject tgt node = do
     AtInner res -> return (value, arr {dict = filtered_dict, target = res})
       where
       filtered_dict = dict arr |> Map.filter (\s -> dict curr ! s /= tgt)
+
+-- * Add Morphism/Object
 
 prepareForAddingMorphism ::
   Symbol -> Symbol
@@ -154,6 +184,8 @@ addMorphism src new_edge new_wires node = do
       where
       new_wire = new_wires ! symbol2 (curr, arr)
       new_dict = dict arr |> uncurry Map.insert new_wire
+
+-- * Split Morphism/Object/Category
 
 partitionMorphism :: Symbol -> Node e -> Maybe [[(Symbol, Symbol)]]
 partitionMorphism tgt node = do
@@ -298,6 +330,8 @@ splitCategory splittable_keys node = do
           edges node |> filter (\(_, arr) -> symbol arr `elem` group)
     return $ Node splitted_edges
 
+-- * Merge Morphisms/Objects/Categories
+
 mergeMorphisms :: Symbol -> [Symbol] -> Node e -> Maybe (Node e)
 mergeMorphisms src tgts node = do
   src_arr <- node |> arrow src
@@ -407,6 +441,39 @@ mergeObjects tgts node = do
 
   fromReachable node $ fmap fst located_res
 
+{- |
+Merge multiple nodes.
+
+Examples:
+
+>>> putStrLn $ encodeNode' (mergeCategories [singleton (), singleton (), empty, singleton ()])
+- dict: '0->1'
+  node: []
+- dict: '0->2'
+  node: []
+- dict: '0->3'
+  node: []
+<BLANKLINE>
+
+>>> putStrLn $ encodeNode' (mergeCategories [singleton (), crescent])
+- dict: '0->1'
+  node: []
+- dict: '0->2; 1->3; 2->4; 3->3; 5->7; 6->4; 7->7'
+  node:
+    - dict: '0->1; 1->2'
+      node: &0
+        - dict: '0->1'
+          node: &1 []
+    - dict: '0->3; 1->2'
+      node: *0
+    - dict: '0->5; 1->6'
+      node: &2
+        - dict: '0->1'
+          node: *1
+    - dict: '0->7; 1->6'
+      node: *2
+<BLANKLINE>
+-}
 mergeCategories :: [Node e] -> Node e
 mergeCategories nodes = Node {edges = merged_edges}
   where
@@ -416,6 +483,8 @@ mergeCategories nodes = Node {edges = merged_edges}
     (value, arr) <- edges node
     let dict' = dict arr |> fmap (+ num)
     return (value, arr {dict = dict'})
+
+-- * Advanced Operations
 
 trimObject :: Symbol -> Node e -> Maybe (Node e)
 trimObject tgt node = do
