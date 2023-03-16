@@ -24,6 +24,7 @@ import Utils.Utils (groupOn, (.>), (|>), filterMaybe, toMaybe, nubOn)
 --
 -- >>> import BAC.Serialize
 -- >>> import BAC.Examples (cone, torus, crescent)
+-- >>> import Data.Map (fromList)
 
 -- * Basic #basic#
 
@@ -426,6 +427,9 @@ Examples:
     *1
   - 0->3
     *2
+
+>>> rewireEdges 3 [((), 1), ((), 5), ((), 3)] cone
+Nothing
 -}
 rewireEdges ::
   Symbol             -- ^ The symbol referencing to the node to rewire.
@@ -451,20 +455,28 @@ Relabel a given node.
 
 Examples:
 
->>> printNode' $ fromJust $ rewireEdges 0 [((), 1), ((), 2), ((), 3)] cone
+>>> let remap = fromList [(0,0), (1,4), (2,1), (3,2), (4,3)] :: Dict
+>>> printNode' $ fromJust $ relabelObject 3 remap cone
 - 0->1; 1->2
   - 0->1
     &0
-- 0->2
-  *0
-- 0->3; 1->4; 2->2; 3->6; 4->4
-  - 0->1; 1->2; 2->3
+- 0->3; 1->2; 2->6; 3->4; 4->4
+  - 0->4; 1->1; 2->2
     &1
     - 0->1
       *0
     - 0->2
-  - 0->4; 1->2; 2->3
+  - 0->3; 1->1; 2->2
     *1
+
+>>> relabelObject 3 (fromList [(0,0), (1,4), (2,1), (3,2)]) cone
+Nothing
+
+>>> relabelObject 3 (fromList [(0,0), (1,4), (2,1), (3,2), (4,4)]) cone
+Nothing
+
+>>> relabelObject 3 (fromList [(0,3), (1,4), (2,1), (3,2), (4,0)]) cone
+Nothing
 -}
 relabelObject ::
   Symbol             -- ^ The symbol referencing to the node to relabel.

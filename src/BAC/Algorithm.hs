@@ -59,19 +59,18 @@ Remove a morphism.
 
 Examples:
 
->>> let cone' = fromJust $ rewireEdges 0 [((), 1), ((), 2), ((), 3)] cone
->>> printNode' $ fromJust $ removeMorphism (1, 1) cone'
+>>> printNode' $ fromJust $ removeMorphism (1, 1) cone
 - 0->1
-- 0->2
-  &0
 - 0->3; 1->4; 2->2; 3->6; 4->4
   - 0->1; 1->2; 2->3
-    &1
+    &0
     - 0->1
-      *0
     - 0->2
   - 0->4; 1->2; 2->3
-    *1
+    *0
+
+>>> removeMorphism (4, 2) cone
+Nothing
 -}
 removeMorphism :: (Symbol, Symbol) -> Node e -> Maybe (Node e)
 removeMorphism (src, tgt) node = do
@@ -105,6 +104,14 @@ removeMorphism (src, tgt) node = do
 Extend a morphism specified by two symbols to the right by joining to the outgoing
 edges of the target node.
 Return empty if the given morphism is invalid or no valid extended morphism.
+
+Examples:
+
+>>> rightExtend (1, 1) cone
+[]
+
+>>> rightExtend (3, 1) cone
+[(3,2),(3,3)]
 -}
 rightExtend :: (Symbol, Symbol) -> Node e -> [(Symbol, Symbol)]
 rightExtend (sym01, sym12) node = nub $ sort do
@@ -117,6 +124,14 @@ rightExtend (sym01, sym12) node = nub $ sort do
 Extend a morphism specified by two symbols to the left by joining to the incoming
 edges of the source node.
 Return empty if the given morphism is invalid or no valid extended morphism.
+
+Examples:
+
+>>> leftExtend (1, 1) cone
+[(0,2)]
+
+>>> leftExtend (2, 2) torus
+[(1,3),(1,6)]
 -}
 leftExtend :: (Symbol, Symbol) -> Node e -> [(Symbol, Symbol)]
 leftExtend (sym02, sym23) node = nub $ sort do
