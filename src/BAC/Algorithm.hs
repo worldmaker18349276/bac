@@ -21,7 +21,7 @@ import BAC.Base
 -- $setup
 -- The example code below runs with the following settings:
 --
--- >>> import BAC.YAML
+-- >>> import BAC.Serialize
 -- >>> import BAC.Examples (cone, torus, crescent)
 
 -- * Empty/Singleton
@@ -31,8 +31,7 @@ An empty node.
 
 Examples:
 
->>> putStrLn $ encodeNode' empty
-<BLANKLINE>
+>>> printNode' empty
 -}
 empty :: Node e
 empty = Node {edges = []}
@@ -42,10 +41,8 @@ An singleton node.
 
 Examples:
 
->>> putStrLn $ encodeNode' (singleton ())
-- dict: '0->1'
-  node: []
-<BLANKLINE>
+>>> printNode' (singleton ())
+- 0->1
 -}
 singleton :: e -> Node e
 singleton val = Node {edges = [(val, new_arr)]}
@@ -63,22 +60,18 @@ Remove a morphism.
 Examples:
 
 >>> let cone' = fromJust $ rewireEdges 0 [((), 1), ((), 2), ((), 3)] cone
->>> putStrLn $ encodeNode' $ fromJust $ removeMorphism (1, 1) cone'
-- dict: '0->1'
-  node: []
-- dict: '0->2'
-  node: &0 []
-- dict: '0->3; 1->4; 2->2; 3->6; 4->4'
-  node:
-    - dict: '0->1; 1->2; 2->3'
-      node: &1
-        - dict: '0->1'
-          node: *0
-        - dict: '0->2'
-          node: []
-    - dict: '0->4; 1->2; 2->3'
-      node: *1
-<BLANKLINE>
+>>> printNode' $ fromJust $ removeMorphism (1, 1) cone'
+- 0->1
+- 0->2
+  &0
+- 0->3; 1->4; 2->2; 3->6; 4->4
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+  - 0->4; 1->2; 2->3
+    *1
 -}
 removeMorphism :: (Symbol, Symbol) -> Node e -> Maybe (Node e)
 removeMorphism (src, tgt) node = do
@@ -139,20 +132,17 @@ Remove a leaf node.
 
 Examples:
 
->>> putStrLn $ encodeNode' $ fromJust $ removeObject 6 cone
-- dict: '0->1; 1->2'
-  node:
-    - dict: '0->1'
-      node: &0 []
-- dict: '0->3; 1->4; 2->2; 4->4'
-  node:
-    - dict: '0->1; 1->2'
-      node: &1
-        - dict: '0->1'
-          node: *0
-    - dict: '0->4; 1->2'
-      node: *1
-<BLANKLINE>
+>>> printNode' $ fromJust $ removeObject 6 cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 4->4
+  - 0->1; 1->2
+    &1
+    - 0->1
+      *0
+  - 0->4; 1->2
+    *1
 
 >>> removeObject 5 cone
 Nothing
@@ -515,33 +505,26 @@ Merge multiple nodes.
 
 Examples:
 
->>> putStrLn $ encodeNode' (mergeCategories [singleton (), singleton (), empty, singleton ()])
-- dict: '0->1'
-  node: []
-- dict: '0->2'
-  node: []
-- dict: '0->3'
-  node: []
-<BLANKLINE>
+>>> printNode' (mergeCategories [singleton (), singleton (), empty, singleton ()])
+- 0->1
+- 0->2
+- 0->3
 
->>> putStrLn $ encodeNode' (mergeCategories [singleton (), crescent])
-- dict: '0->1'
-  node: []
-- dict: '0->2; 1->3; 2->4; 3->3; 5->7; 6->4; 7->7'
-  node:
-    - dict: '0->1; 1->2'
-      node: &0
-        - dict: '0->1'
-          node: &1 []
-    - dict: '0->3; 1->2'
-      node: *0
-    - dict: '0->5; 1->6'
-      node: &2
-        - dict: '0->1'
-          node: *1
-    - dict: '0->7; 1->6'
-      node: *2
-<BLANKLINE>
+>>> printNode' (mergeCategories [singleton (), crescent])
+- 0->1
+- 0->2; 1->3; 2->4; 3->3; 5->7; 6->4; 7->7
+  - 0->1; 1->2
+    &0
+    - 0->1
+      &1
+  - 0->3; 1->2
+    *0
+  - 0->5; 1->6
+    &2
+    - 0->1
+      *1
+  - 0->7; 1->6
+    *2
 -}
 mergeCategories :: [Node e] -> Node e
 mergeCategories nodes = Node {edges = merged_edges}

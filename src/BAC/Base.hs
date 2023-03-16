@@ -22,7 +22,7 @@ import Utils.Utils (groupOn, (.>), (|>), filterMaybe, toMaybe, nubOn)
 -- $setup
 -- The example code below runs with the following settings:
 --
--- >>> import BAC.YAML
+-- >>> import BAC.Serialize
 -- >>> import BAC.Examples (cone, torus, crescent)
 
 -- * Basic #basic#
@@ -396,24 +396,36 @@ Rewire edges of a given node.
 
 Examples:
 
->>> putStrLn $ encodeNode' $ fromJust $ rewireEdges 0 [((), 1), ((), 2), ((), 3)] cone
-- dict: '0->1; 1->2'
-  node:
-    - dict: '0->1'
-      node: &0 []
-- dict: '0->2'
-  node: *0
-- dict: '0->3; 1->4; 2->2; 3->6; 4->4'
-  node:
-    - dict: '0->1; 1->2; 2->3'
-      node: &1
-        - dict: '0->1'
-          node: *0
-        - dict: '0->2'
-          node: []
-    - dict: '0->4; 1->2; 2->3'
-      node: *1
-<BLANKLINE>
+>>> printNode' $ fromJust $ rewireEdges 0 [((), 1), ((), 2), ((), 3)] cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->2
+  *0
+- 0->3; 1->4; 2->2; 3->6; 4->4
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+  - 0->4; 1->2; 2->3
+    *1
+
+>>> printNode' $ fromJust $ rewireEdges 3 [((), 1), ((), 4), ((), 3)] cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+      &2
+  - 0->4; 1->2; 2->3
+    *1
+  - 0->3
+    *2
 -}
 rewireEdges ::
   Symbol             -- ^ The symbol referencing to the node to rewire.
@@ -434,7 +446,26 @@ rewireEdges src tgts node = do
     AtInner res -> return (value, arr {target = res})
     AtBoundary -> return (value, arr {target = res0})
 
--- | Relabel a given node.
+{- |
+Relabel a given node.
+
+Examples:
+
+>>> printNode' $ fromJust $ rewireEdges 0 [((), 1), ((), 2), ((), 3)] cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->2
+  *0
+- 0->3; 1->4; 2->2; 3->6; 4->4
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+  - 0->4; 1->2; 2->3
+    *1
+-}
 relabelObject ::
   Symbol             -- ^ The symbol referencing to the node to relabel.
   -> Dict            -- ^ The dictionary to relabel the symbols of the node.

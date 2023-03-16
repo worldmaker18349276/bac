@@ -3,29 +3,26 @@ module BAC.Examples where
 import BAC.Base
 import BAC.Braider
 import Data.Maybe (fromJust)
+import Data.Map (Map, fromList)
 
 -- $setup
 -- The examples run with the following settings:
 --
--- >>> import BAC.YAML
+-- >>> import BAC.Serialize
 
 {- |
->>> putStrLn $ encodeNode' cone
-- dict: '0->1; 1->2'
-  node:
-    - dict: '0->1'
-      node: &0 []
-- dict: '0->3; 1->4; 2->2; 3->6; 4->4'
-  node:
-    - dict: '0->1; 1->2; 2->3'
-      node: &1
-        - dict: '0->1'
-          node: *0
-        - dict: '0->2'
-          node: []
-    - dict: '0->4; 1->2; 2->3'
-      node: *1
-<BLANKLINE>
+>>> printNode' cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+  - 0->4; 1->2; 2->3
+    *1
 -}
 cone :: Node ()
 cone = fromJust $ braid $ do
@@ -36,27 +33,36 @@ cone = fromJust $ braid $ do
   v <- knot' [c, c] // [[0,0], [1,0]] // [[0,1], [1,1]]
   knot' [p, v] // [[1,0], [1,1]] // [[0,0], [1,0,0]]
 
+coneNames :: Map Symbol String
+coneNames = fromList
+  [
+    (0, "void"),
+    (1, "tip"),
+    (2, "side"),
+    (3, "point"),
+    (4, "circle"),
+    (6, "bottom")
+  ]
+
 {- |
->>> putStrLn $ encodeNode' torus
-- dict: '0->1; 1->2; 2->3; 3->3; 4->5; 6->3; 7->2; 8->3; 10->5'
-  node:
-    - dict: '0->1; 1->2; 2->3'
-      node: &0
-        - dict: '0->1'
-          node: &1 []
-        - dict: '0->2'
-          node: *1
-    - dict: '0->4; 1->3; 2->6'
-      node: &2
-        - dict: '0->1'
-          node: *1
-        - dict: '0->2'
-          node: *1
-    - dict: '0->7; 1->8; 2->6'
-      node: *0
-    - dict: '0->10; 1->2; 2->8'
-      node: *2
-<BLANKLINE>
+>>> printNode' torus
+- 0->1; 1->2; 2->3; 3->3; 4->5; 6->3; 7->2; 8->3; 10->5
+  - 0->1; 1->2; 2->3
+    &0
+    - 0->1
+      &1
+    - 0->2
+      *1
+  - 0->4; 1->3; 2->6
+    &2
+    - 0->1
+      *1
+    - 0->2
+      *1
+  - 0->7; 1->8; 2->6
+    *0
+  - 0->10; 1->2; 2->8
+    *2
 -}
 torus :: Node ()
 torus = fromJust $ braid $ do
@@ -72,23 +78,31 @@ torus = fromJust $ braid $ do
     // [[0,0], [0,2]]
     // [[0,1], [0,3]]
 
+torusNames :: Map Symbol String
+torusNames = fromList
+  [
+    (0, "void"),
+    (1, "point"),
+    (2, "circle"),
+    (3, "torus"),
+    (5, "circle'")
+  ]
+
 {- |
->>> putStrLn $ encodeNode' crescent
-- dict: '0->1; 1->2; 2->3; 3->2; 5->6; 6->3; 7->6'
-  node:
-    - dict: '0->1; 1->2'
-      node: &0
-        - dict: '0->1'
-          node: &1 []
-    - dict: '0->3; 1->2'
-      node: *0
-    - dict: '0->5; 1->6'
-      node: &2
-        - dict: '0->1'
-          node: *1
-    - dict: '0->7; 1->6'
-      node: *2
-<BLANKLINE>
+>>> printNode' crescent
+- 0->1; 1->2; 2->3; 3->2; 5->6; 6->3; 7->6
+  - 0->1; 1->2
+    &0
+    - 0->1
+      &1
+  - 0->3; 1->2
+    *0
+  - 0->5; 1->6
+    &2
+    - 0->1
+      *1
+  - 0->7; 1->6
+    *2
 -}
 crescent :: Node ()
 crescent = fromJust $ braid $ do
@@ -102,3 +116,13 @@ crescent = fromJust $ braid $ do
     // [[0,0,0], [0,2,0]]
     // [[0,0], [0,1]]
     // [[0,2], [0,3]]
+
+crescentNames :: Map Symbol String
+crescentNames = fromList
+  [
+    (0, "void"),
+    (1, "point"),
+    (2, "circle"),
+    (3, "crescent"),
+    (6, "circle'")
+  ]
