@@ -57,6 +57,29 @@ singleton val = Node {edges = [(val, new_arr)]}
 
 -- * Remove Morphism/Object
 
+{- |
+Remove a morphism.
+
+Examples:
+
+>>> let cone' = fromJust $ rewireEdges 0 [((), 1), ((), 2), ((), 3)] cone
+>>> putStrLn $ encodeNode' $ fromJust $ removeMorphism (1, 1) cone'
+- dict: '0->1'
+  node: []
+- dict: '0->2'
+  node: &0 []
+- dict: '0->3; 1->4; 2->2; 3->6; 4->4'
+  node:
+    - dict: '0->1; 1->2; 2->3'
+      node: &1
+        - dict: '0->1'
+          node: *0
+        - dict: '0->2'
+          node: []
+    - dict: '0->4; 1->2; 2->3'
+      node: *1
+<BLANKLINE>
+-}
 removeMorphism :: (Symbol, Symbol) -> Node e -> Maybe (Node e)
 removeMorphism (src, tgt) node = do
   src_arr <- node |> arrow src
@@ -85,9 +108,11 @@ removeMorphism (src, tgt) node = do
 
   fromReachable res0 located_res
 
--- | Extend a morphism specified by two symbols to the right by joining to the outgoing
---   edges of the target node.
---   Return empty if the given morphism is invalid or no valid extended morphism.
+{- |
+Extend a morphism specified by two symbols to the right by joining to the outgoing
+edges of the target node.
+Return empty if the given morphism is invalid or no valid extended morphism.
+-}
 rightExtend :: (Symbol, Symbol) -> Node e -> [(Symbol, Symbol)]
 rightExtend (sym01, sym12) node = nub $ sort do
   arr01 <- node |> arrow sym01 |> maybeToList
@@ -95,9 +120,11 @@ rightExtend (sym01, sym12) node = nub $ sort do
   sym13 <- arr12 |> extend |> fmap symbol
   return (sym01, sym13)
 
--- | Extend a morphism specified by two symbols to the left by joining to the incoming
---   edges of the source node.
---   Return empty if the given morphism is invalid or no valid extended morphism.
+{- |
+Extend a morphism specified by two symbols to the left by joining to the incoming
+edges of the source node.
+Return empty if the given morphism is invalid or no valid extended morphism.
+-}
 leftExtend :: (Symbol, Symbol) -> Node e -> [(Symbol, Symbol)]
 leftExtend (sym02, sym23) node = nub $ sort do
   arr02 <- node |> arrow sym02 |> maybeToList
@@ -107,6 +134,29 @@ leftExtend (sym02, sym23) node = nub $ sort do
   let sym13 = symbol (arr12 `join` arr23)
   return (sym01, sym13)
 
+{- |
+Remove a leaf node.
+
+Examples:
+
+>>> putStrLn $ encodeNode' $ fromJust $ removeObject 6 cone
+- dict: '0->1; 1->2'
+  node:
+    - dict: '0->1'
+      node: &0 []
+- dict: '0->3; 1->4; 2->2; 4->4'
+  node:
+    - dict: '0->1; 1->2'
+      node: &1
+        - dict: '0->1'
+          node: *0
+    - dict: '0->4; 1->2'
+      node: *1
+<BLANKLINE>
+
+>>> removeObject 5 cone
+Nothing
+-}
 removeObject :: Symbol -> Node e -> Maybe (Node e)
 removeObject tgt node = do
   guard $ root node |> locate tgt |> (== Inner)

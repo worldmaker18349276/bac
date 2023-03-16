@@ -391,7 +391,30 @@ parents sym =
 
 -- * Non-Categorical Operations #operations#
 
--- | Rewire edges of a given node.
+{- |
+Rewire edges of a given node.
+
+Examples:
+
+>>> putStrLn $ encodeNode' $ fromJust $ rewireEdges 0 [((), 1), ((), 2), ((), 3)] cone
+- dict: '0->1; 1->2'
+  node:
+    - dict: '0->1'
+      node: &0 []
+- dict: '0->2'
+  node: *0
+- dict: '0->3; 1->4; 2->2; 3->6; 4->4'
+  node:
+    - dict: '0->1; 1->2; 2->3'
+      node: &1
+        - dict: '0->1'
+          node: *0
+        - dict: '0->2'
+          node: []
+    - dict: '0->4; 1->2; 2->3'
+      node: *1
+<BLANKLINE>
+-}
 rewireEdges ::
   Symbol             -- ^ The symbol referencing to the node to rewire.
   -> [(e, Symbol)]   -- ^ The list of values and symbols of rewired edges.
