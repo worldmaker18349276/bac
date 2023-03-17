@@ -10,11 +10,11 @@ import Control.Monad (guard, MonadPlus (mzero))
 import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable (traverse_)
 import Data.List (delete, elemIndices, findIndex, nub, sort, sortOn, transpose)
-import Data.Map.Strict (Map, (!))
+import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust, fromMaybe, maybeToList)
 
-import Utils.Utils ((|>), (.>), both, nubOn, groupOn, filterMaybe, distinct, allSame, allSameBy, label)
+import Utils.Utils ((|>), (.>), both, nubOn, groupOn, ensure, distinct, allSame, allSameBy, label, (!!?))
 import Utils.DisjointSet (bipartiteEqclass)
 import BAC.Base
 
@@ -177,57 +177,52 @@ removeObject tgt node = do
 
 -- * Add Morphism/Object
 
-prepareForAddingMorphism ::
-  Symbol -> Symbol
-  -> [(Symbol, Symbol)] -> [(Symbol, Symbol)]
-  -> e
-  -> Node e -> Maybe (Edge e, Map (Symbol, Symbol) (Symbol, Symbol))
-prepareForAddingMorphism src tgt src_alts tgt_alts val node = do
+addMorphism :: Symbol -> Symbol -> [Int] -> [Int] -> e -> Node e -> Maybe (Node e)
+addMorphism src tgt src_alts tgt_alts val node = do
   src_arr <- node |> arrow src
   tgt_arr <- node |> arrow tgt
   guard $ tgt_arr |> locate src |> (== Outer)
 
-  let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
-
-  let children tgt node = do
-        tgt_arr <- node |> arrow tgt
-        return $ edges (target tgt_arr) |> fmap snd |> fmap (tgt_arr,) |> sortOn symbol2
   src_inedges <- node |> parents src
+  src_outedges <- node |> children src
+  tgt_inedges <- node |> parents tgt
   tgt_outedges <- node |> children tgt
-  src_outedges' <- src_alts |> traverse (`arrow2` node)
-  tgt_inedges' <- tgt_alts |> traverse (`arrow2` node)
 
-  guard $ length src_inedges == length tgt_inedges'
-  guard $ length tgt_outedges == length src_outedges'
+  guard $ length src_inedges == length tgt_alts
+  guard $ length tgt_outedges == length src_alts
+  src_outedges' <- src_alts |> traverse (src_outedges !!?)
+  tgt_inedges' <- tgt_alts |> traverse (tgt_inedges !!?)
 
-  src_outedges' `zip` tgt_outedges |> traverse_ \((arr1', edge1'), (arr1, edge1)) -> do
-    guard $ dict arr1 == dict tgt_arr
-    guard $ dict arr1' == dict src_arr
-    guard $ dict arr1' `cat` dict edge1' == dict arr1 `cat` dict edge1
-  src_inedges `zip` tgt_inedges' |> traverse_ \((arr2, edge2), (arr2', edge2')) -> do
-    guard $ dict arr2' == dict arr2
-    guard $ dict arr2 `cat` dict edge2 == dict tgt_arr
-    guard $ dict arr2' `cat` dict edge2' == dict tgt_arr
-  src_outedges' `zip` tgt_outedges |> traverse_ \((arr1', edge1'), (arr1, edge1)) -> do
-    src_inedges `zip` tgt_inedges' |> traverse_ \((arr2, edge2), (arr2', edge2')) -> do
-      guard $ dict edge2 `cat` dict edge1' == dict edge2' `cat` dict edge1
+  guard $
+    src_outedges' `zip` tgt_outedges
+    |> fmap (both (uncurry join .> symbol))
+    |> all (uncurry (==))
+  guard $
+    src_inedges `zip` tgt_inedges'
+    |> fmap (both (fst .> symbol))
+    |> all (uncurry (==))
 
+  let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
   new_dict <-
-    tgt_outedges
-    |> (`zip` src_outedges')
+    tgt_outedges `zip` src_outedges'
     |> concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
     |> sort
     |> nub
     |> ((base, new_sym) :)
-    |> filterMaybe (fmap fst .> distinct)
+    |> ensure (fmap fst .> distinct)
     |> fmap Map.fromList
   let new_edge = (val, Arrow {dict = new_dict, target = target tgt_arr})
 
+  guard $
+    src_inedges `zip` tgt_inedges'
+    |> fmap (both (snd .> dict))
+    |> all \(dict2, dict2') ->
+      dict2 `cat` Map.delete base new_dict == Map.delete base dict2'
+
   let new_wires =
-        src_inedges
-        |> (`zip` tgt_inedges')
-        |> fmap (both symbol2)
-        |> fmap (second $ snd .> (new_sym,))
+        tgt_inedges'
+        |> fmap (snd .> symbol .> (new_sym,))
+        |> zip (src_inedges |> fmap symbol2)
         |> Map.fromList
 
   sequence_ $ node |> foldUnder src \curr results -> do
@@ -241,18 +236,9 @@ prepareForAddingMorphism src tgt src_alts tgt_alts val node = do
               where
               new_wire = new_wires ! symbol2 (curr, arr)
 
-    pairs |> sort |> nub |> filterMaybe (fmap fst .> distinct)
+    pairs |> sort |> nub |> ensure (fmap fst .> distinct)
 
-  return (new_edge, new_wires)
-
-addMorphism ::
-  Symbol
-  -> Edge e -> Map (Symbol, Symbol) (Symbol, Symbol)
-  -> Node e -> Maybe (Node e)
-addMorphism src new_edge new_wires node = do
-  src_arr <- node |> arrow src
-  let new_edges = edges (target src_arr) |> (++ [new_edge])
-  let res0 = Node new_edges
+  let res0 = edges (target src_arr) |> (++ [new_edge]) |> Node
   fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
     AtOuter -> return (value, arr)
     AtInner res -> return (value, arr {target = res})

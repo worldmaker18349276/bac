@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BlockArguments #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE TupleSections #-}
 
 module BAC.Base where
 
@@ -17,7 +18,7 @@ import Numeric.Natural (Natural)
 import GHC.Stack (HasCallStack)
 
 import Utils.Memoize (unsafeMemoizeWithKey)
-import Utils.Utils (groupOn, (.>), (|>), filterMaybe, toMaybe, nubOn)
+import Utils.Utils (groupOn, (.>), (|>), ensure, toMaybe, nubOn)
 
 -- $setup
 -- The example code below runs with the following settings:
@@ -267,11 +268,11 @@ validateAll arr = validateChildren && validate arr
 
 -- | Make a node with validation.
 makeNode :: [Edge e] -> Maybe (Node e)
-makeNode edges = filterMaybe (root .> validate) (Node {edges = edges})
+makeNode edges = ensure (root .> validate) (Node {edges = edges})
 
 -- | Make an arrow with validation.
 makeArrow :: Dict -> Node e -> Maybe (Arrow e)
-makeArrow dict target = filterMaybe validate (Arrow {dict = dict, target = target})
+makeArrow dict target = ensure validate (Arrow {dict = dict, target = target})
 
 -- * Folding #folding#
 
@@ -388,6 +389,12 @@ findMapUnder sym f =
 parents :: Symbol -> Node e -> Maybe [(Arrow e, Arrow e)]
 parents sym =
   findMapUnder sym (\b r _ -> toMaybe (not b) r)
+  .> fmap (sortOn symbol2 .> nubOn symbol2)
+
+children :: Symbol -> Node e -> Maybe [(Arrow e, Arrow e)]
+children sym =
+  arrow sym
+  .> fmap (\arr -> edges (target arr) |> fmap snd |> fmap (arr,))
   .> fmap (sortOn symbol2 .> nubOn symbol2)
 
 -- * Non-Categorical Operations #operations#
