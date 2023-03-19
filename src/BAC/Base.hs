@@ -111,6 +111,22 @@ root node = Arrow {dict = id_dict, target = node}
 join :: HasCallStack => Arrow e -> Arrow e -> Arrow e
 join arr1 arr2 = arr2 {dict = dict arr1 `cat` dict arr2}
 
+-- | Divide two arrows.  The first is divisor and the second is the dividend, and they
+--   should start at the same node.
+--   It obeys the following law:
+--
+--   > arr23 `elem` divide arr12 arr13  ->  arr12 `join` arr23 == arr13
+divide :: Arrow e -> Arrow e -> [Arrow e]
+divide arr12 arr13 =
+  arr12
+  |> dict
+  |> Map.toList
+  |> filter (snd .> (== symbol arr13))
+  |> fmap fst
+  |> sort
+  |> nub
+  |> fmap ((`arrow` target arr12) .> fromJust)
+
 -- | Extend an arrow by joining to the edges of the target node.
 extend :: Arrow e -> [Arrow e]
 extend arr = edges (target arr) |> fmap snd |> fmap (join arr)
