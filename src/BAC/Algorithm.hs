@@ -24,7 +24,7 @@ import BAC.Base
 -- >>> import BAC.Serialize
 -- >>> import BAC.Examples (cone, torus, crescent)
 
--- * Empty/Singleton
+-- * Empty, Singleton
 
 {- |
 An empty node.
@@ -52,7 +52,7 @@ singleton val = Node {edges = [(val, new_arr)]}
   new_node = empty
   new_arr = Arrow {dict = new_dict, target = new_node}
 
--- * Remove Morphism/Object
+-- * Remove Morphism, Object
 
 {- |
 Remove a morphism.
@@ -175,7 +175,7 @@ removeObject tgt node = do
       where
       filtered_dict = dict arr |> Map.filter (\s -> dict curr ! s /= tgt)
 
--- * Add Morphism/Object
+-- * Add Morphism
 
 addMorphism :: Symbol -> Symbol -> [Int] -> [Int] -> e -> Node e -> Maybe (Node e)
 addMorphism src tgt src_alts tgt_alts val node = do
@@ -247,7 +247,7 @@ addMorphism src tgt src_alts tgt_alts val node = do
       new_wire = new_wires ! symbol2 (curr, arr)
       new_dict = dict arr |> uncurry Map.insert new_wire
 
--- * Split Morphism/Object/Category
+-- * Split Morphism, Object, Category
 
 partitionMorphism :: Symbol -> Node e -> Maybe [[(Symbol, Symbol)]]
 partitionMorphism tgt node = do
@@ -390,7 +390,7 @@ splitCategory splittable_keys node = do
           edges node |> filter (\(_, arr) -> symbol arr `elem` group)
     return $ Node splitted_edges
 
--- * Merge Morphisms/Objects/Categories
+-- * Merge Morphisms, Objects, Categories
 
 mergeMorphisms :: Symbol -> [Symbol] -> Node e -> Maybe (Node e)
 mergeMorphisms src tgts node = do
