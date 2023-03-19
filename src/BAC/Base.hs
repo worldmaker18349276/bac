@@ -383,6 +383,21 @@ mapUnder sym f node = do
     AtBoundary  -> return (f False (curr, arr) value, arr {target = res0})
     AtInner res -> return (f True (curr, arr) value, arr {target = res})
 
+-- | Map and find nodes of BAC.
+findMapNode :: (Arrow e -> Maybe a) -> Node e -> [a]
+findMapNode f = Map.elems . fold \curr results ->
+  results |> Map.unions |> case f curr of
+    Just res -> Map.insert (symbol curr) res
+    Nothing -> id
+
+-- | Map and find nodes of BAC under a node.
+findMapNodeUnder :: Symbol -> (Arrow e -> Maybe a) -> Node e -> Maybe [a]
+findMapNodeUnder sym f =
+  fromReachable [] . fmap Map.elems . foldUnder sym \curr results ->
+    results |> mapMaybe fromInner |> Map.unions |> case f curr of
+      Just res -> Map.insert (symbol curr) res
+      Nothing -> id
+
 -- | Map and find edges of BAC.
 findMap :: ((Arrow e, Arrow e) -> e -> Maybe a) -> Node e -> [a]
 findMap f = concat . Map.elems . fold \curr results ->
