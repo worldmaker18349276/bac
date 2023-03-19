@@ -220,13 +220,13 @@ symbol2 = symbol `bimap` symbol
 --
 --   Examples:
 --
---   >>> nondecomposable cone 3
+--   >>> nondecomposable 3 cone
 --   True
 --
---   >>> nondecomposable cone 4
+--   >>> nondecomposable 4 cone
 --   False
-nondecomposable :: Node e -> Symbol -> Bool
-nondecomposable node sym =
+nondecomposable :: Symbol -> Node e -> Bool
+nondecomposable sym node =
   (root node |> locate sym |> (/= Outer))
   && (edges node |> fmap snd |> all (locate sym .> (/= Inner)))
 
@@ -465,7 +465,7 @@ rewireEdges src tgts node = do
   src_edges' <- tgts |> traverse (traverse (`arrow` target src_arr))
   let res0 = Node src_edges'
 
-  let nd_symbols = fmap (snd .> symbol) .> filter (nondecomposable (target src_arr))
+  let nd_symbols = fmap (snd .> symbol) .> filter (`nondecomposable` target src_arr)
   guard $ nd_symbols src_edges == nd_symbols src_edges'
 
   fromReachable res0 $ node |> modifyUnder src \(_, (value, arr)) -> \case

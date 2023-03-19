@@ -76,7 +76,7 @@ removeMorphism :: (Symbol, Symbol) -> Node e -> Maybe (Node e)
 removeMorphism (src, tgt) node = do
   src_arr <- node |> arrow src
   guard $ tgt /= base
-  guard $ nondecomposable (target src_arr) tgt
+  guard $ tgt `nondecomposable` target src_arr
 
   let filtered_edges =
         edges (target src_arr) |> filter (\(_, arr) -> symbol arr /= tgt)
@@ -426,7 +426,7 @@ mergeObjects tgts node = do
     pars <- node |> parents tgt
     return $
       pars
-      |> filter (\(arr, arr') -> symbol arr' |> nondecomposable (target arr))
+      |> filter (\(arr, arr') -> symbol arr' |> (`nondecomposable` target arr))
       |> nubOn symbol2
 
   guard $ not (null tgt_pars)
