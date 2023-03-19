@@ -11,6 +11,15 @@
                 "reveal": "silent"
             },
             "problemMatcher": []
+        },
+        {
+            "label": "test",
+            "type": "shell",
+            "command": "cabal repl --with-ghc=doctest",
+            "presentation": {
+                "reveal": "silent"
+            },
+            "problemMatcher": []
         }
     ]
 }
