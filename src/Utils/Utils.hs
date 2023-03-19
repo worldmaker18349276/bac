@@ -13,7 +13,7 @@ a .> b = b . a
 
 infixl 9 !!?
 (!!?) :: [a] -> Int -> Maybe a
-list !!? index = take index list |> listToMaybe
+list !!? index = drop index list |> listToMaybe
 
 both :: (a -> b) -> (a, a) -> (b, b)
 both f (a, a') = (f a, f a')
