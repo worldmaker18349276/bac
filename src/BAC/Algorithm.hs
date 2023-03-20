@@ -14,7 +14,7 @@ import Data.List (delete, elemIndices, findIndex, sort, transpose)
 import Data.List.Extra (nubSort, groupSortOn, allSame, nubSortOn, anySame, (!?))
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe, fromJust, fromMaybe)
+import Data.Maybe (mapMaybe, fromJust, fromMaybe, isJust)
 
 import Utils.Utils ((|>), (.>), both, ensure, allSameBy, label)
 import Utils.DisjointSet (bipartiteEqclass)
@@ -56,6 +56,31 @@ singleton val = Node {edges = [(val, new_arr)]}
 
 -- * Remove Morphism, Object
 
+data LeftAngle e = LeftAngle (Arrow e, Arrow e) (Arrow e, Arrow e)
+data RightAngle e = RightAngle (Arrow e, Arrow e) (Arrow e, Arrow e)
+
+validateLeftAngle :: Node e -> LeftAngle e -> Bool
+validateLeftAngle node (LeftAngle (arr1, arr2) (arr1', arr2')) = isJust do
+  guard $ symbol arr1 == symbol arr1'
+  arrs <- parents node (symbol arr1)
+  guard $
+    arrs
+    |> filter (\(a1, a2) -> nondecomposable (target a1) (symbol a2))
+    |> groupSortOn (\(a1, a2) -> symbol2 (a1, a2 `join` arr2))
+    |> fmap (fmap \(a1, a2) -> symbol2 (a1, a2 `join` arr2'))
+    |> all allSame
+
+validateRightAngle :: RightAngle e -> Bool
+validateRightAngle (RightAngle (arr1, arr2) (arr1', arr2')) = isJust do
+  guard $ symbol (arr1 `join` arr2) == symbol (arr1' `join` arr2')
+  let arrs = edges (target arr2) |> fmap snd
+  guard $
+    arrs
+    |> filter (symbol .> nondecomposable (target arr2))
+    |> groupSortOn (\a -> symbol (arr2 `join` a))
+    |> fmap (fmap \a -> symbol (arr2' `join` a))
+    |> all allSame
+
 hasAltPaths :: (Arrow e, Arrow e) -> Node e -> Bool
 hasAltPaths (arr1, arr2) node =
   root node |> extend |> any \arr ->
@@ -72,7 +97,7 @@ hasAltPaths (arr1, arr2) node =
   sym3 = symbol (arr1 `join` arr2)
 
 prepareForRemoveMorphism ::
-  (Symbol, Symbol) -> Node e -> Maybe ([(Arrow e, Arrow e)], [(Arrow e, Arrow e)])
+  (Symbol, Symbol) -> Node e -> Maybe ([LeftAngle e], [RightAngle e])
 prepareForRemoveMorphism (src, tgt) node = do
   (src_arr, tgt_arr) <- arrow2 (src, tgt) node
   guard $ nondecomposable (target src_arr) tgt
@@ -80,17 +105,16 @@ prepareForRemoveMorphism (src, tgt) node = do
         (arr1, arr2) <- fromJust $ parents node src
         guard $ nondecomposable (target arr1) (symbol arr2)
         guard $ not $ hasAltPaths (arr2, tgt_arr) (target arr1)
-        return (arr1, arr2 `join` tgt_arr)
+        return $ LeftAngle (arr1, arr2) (arr1, arr2 `join` tgt_arr)
   let tgt_alts = do
         (_, arr) <- edges (target tgt_arr)
         guard $ nondecomposable (target tgt_arr) (symbol arr)
         guard $ not $ hasAltPaths (tgt_arr, arr) (target src_arr)
-        return (src_arr, tgt_arr `join` arr)
+        return $ RightAngle (src_arr `join` tgt_arr, arr) (src_arr, tgt_arr `join` arr)
   return (src_alts, tgt_alts)
 
 prepareForAddMorphism ::
-  Symbol -> Symbol -> Node e
-  -> Maybe ([((Arrow e, Arrow e), (Arrow e, [Arrow e]))], [((Arrow e, Arrow e), (Arrow e, [Arrow e]))])
+  Symbol -> Symbol -> Node e -> Maybe ([LeftAngle e], [RightAngle e])
 prepareForAddMorphism src tgt node = do
   src_arr <- arrow src node
   tgt_arr <- arrow tgt node
@@ -98,32 +122,18 @@ prepareForAddMorphism src tgt node = do
   let src_alts = do
         (arr1, arr2) <- fromJust $ parents node src
         guard $ nondecomposable (target arr1) (symbol arr2)
-        let arrs2' = do
-              arr2' <- arr1 `divide` tgt_arr
-              guard $
-                parents node (symbol arr1)
-                |> fromJust
-                |> groupSortOn (\(a1, a2) -> symbol2 (a1, a2 `join` arr2))
-                |> fmap (fmap \(a1, a2) -> symbol2 (a1, a2 `join` arr2'))
-                |> all allSame
-              return arr2'
-        return ((arr1, arr2), (arr1, arrs2'))
-  guard $ src_alts |> all (snd .> snd .> notNull)
+        return do
+          arr2' <- arr1 `divide` tgt_arr
+          ensure (validateLeftAngle node) $ LeftAngle (arr1, arr2) (arr1, arr2')
+  guard $ src_alts |> all notNull
   let tgt_alts = do
         (_, arr) <- edges (target tgt_arr)
         guard $ nondecomposable (target tgt_arr) (symbol arr)
-        let arrs' = do
-              arr' <- src_arr `divide` (tgt_arr `join` arr)
-              guard $
-                edges (target arr)
-                |> fmap snd
-                |> groupSortOn (\a -> symbol (arr `join` a))
-                |> fmap (fmap \a -> symbol (arr' `join` a))
-                |> all allSame
-              return arr'
-        return ((tgt_arr, arr), (src_arr, arrs'))
-  guard $ tgt_alts |> all (snd .> snd .> notNull)
-  return (src_alts, tgt_alts)
+        return do
+          arr' <- src_arr `divide` (tgt_arr `join` arr)
+          ensure validateRightAngle $ RightAngle (tgt_arr, arr) (src_arr, arr')
+  guard $ tgt_alts |> all notNull
+  return (concat src_alts, concat tgt_alts)
 
 {- |
 Remove a morphism.
