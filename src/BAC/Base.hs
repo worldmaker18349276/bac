@@ -19,7 +19,7 @@ import Numeric.Natural (Natural)
 import GHC.Stack (HasCallStack)
 
 import Utils.Memoize (unsafeMemoizeWithKey)
-import Utils.Utils ((.>), (|>), ensure, toMaybe)
+import Utils.Utils ((.>), (|>), guarded, orEmpty)
 
 -- $setup
 -- The example code below runs with the following settings:
@@ -283,11 +283,11 @@ validateAll arr = validateChildren && validate arr
 
 -- | Make a node with validation.
 makeNode :: [Edge e] -> Maybe (Node e)
-makeNode edges = ensure (root .> validate) (Node {edges = edges})
+makeNode edges = guarded (root .> validate) (Node {edges = edges})
 
 -- | Make an arrow with validation.
 makeArrow :: Dict -> Node e -> Maybe (Arrow e)
-makeArrow dict target = ensure validate (Arrow {dict = dict, target = target})
+makeArrow dict target = guarded validate (Arrow {dict = dict, target = target})
 
 -- * Folding #folding#
 
@@ -419,7 +419,7 @@ findMapUnder sym f =
 parents :: Node e -> Symbol -> Maybe [(Arrow e, Arrow e)]
 parents node sym =
   node
-  |> findMapUnder sym (\b r _ -> toMaybe (not b) r)
+  |> findMapUnder sym (\b r _ -> orEmpty (not b) r)
   |> fmap (nubSortOn symbol2)
 
 children :: Arrow e -> [(Arrow e, Arrow e)]

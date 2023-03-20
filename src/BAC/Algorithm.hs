@@ -16,7 +16,7 @@ import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust, fromMaybe, isJust)
 
-import Utils.Utils ((|>), (.>), both, ensure, allSameBy, label)
+import Utils.Utils ((|>), (.>), both, guarded, allSameBy, label)
 import Utils.DisjointSet (bipartiteEqclass)
 import BAC.Base
 
@@ -124,14 +124,14 @@ prepareForAddMorphism src tgt node = do
         guard $ nondecomposable (target arr1) (symbol arr2)
         return do
           arr2' <- arr1 `divide` tgt_arr
-          ensure (validateLeftAngle node) $ LeftAngle (arr1, arr2) (arr1, arr2')
+          guarded (validateLeftAngle node) $ LeftAngle (arr1, arr2) (arr1, arr2')
   guard $ src_alts |> all notNull
   let tgt_alts = do
         (_, arr) <- edges (target tgt_arr)
         guard $ nondecomposable (target tgt_arr) (symbol arr)
         return do
           arr' <- src_arr `divide` (tgt_arr `join` arr)
-          ensure validateRightAngle $ RightAngle (tgt_arr, arr) (src_arr, arr')
+          guarded validateRightAngle $ RightAngle (tgt_arr, arr) (src_arr, arr')
   guard $ tgt_alts |> all notNull
   return (concat src_alts, concat tgt_alts)
 
@@ -268,7 +268,7 @@ addMorphism src tgt src_alts tgt_alts val node = do
     |> concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
     |> nubSort
     |> ((base, new_sym) :)
-    |> ensure (fmap fst .> anySame .> not)
+    |> guarded (fmap fst .> anySame .> not)
     |> fmap Map.fromList
   let new_edge = (val, Arrow {dict = new_dict, target = target tgt_arr})
 
@@ -295,7 +295,7 @@ addMorphism src tgt src_alts tgt_alts val node = do
               where
               new_wire = new_wires ! symbol2 (curr, arr)
 
-    pairs |> nubSort |> ensure (fmap fst .> anySame .> not)
+    pairs |> nubSort |> guarded (fmap fst .> anySame .> not)
 
   let res0 = edges (target src_arr) |> (++ [new_edge]) |> Node
   fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case

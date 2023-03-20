@@ -15,11 +15,11 @@ a .> b = b . a
 both :: (a -> b) -> (a, a) -> (b, b)
 both f (a, a') = (f a, f a')
 
-toMaybe :: Bool -> a -> Maybe a
-toMaybe b a = if b then Just a else Nothing
+orEmpty :: Alternative f => Bool -> a -> f a
+orEmpty b a = if b then pure a else empty
 
-ensure :: Alternative f => (a -> Bool) -> a -> f a
-ensure f a = if f a then pure a else empty
+guarded :: Alternative f => (a -> Bool) -> a -> f a
+guarded f a = if f a then pure a else empty
 
 allSameBy :: (a -> a -> Bool) -> [a] -> Bool
 allSameBy f = nubBy f .> length .> (<= 1)
