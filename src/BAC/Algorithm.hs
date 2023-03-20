@@ -54,6 +54,77 @@ singleton val = Node {edges = [(val, new_arr)]}
 
 -- * Remove Morphism, Object
 
+hasAltPaths :: (Arrow e, Arrow e) -> Node e -> Bool
+hasAltPaths (arr1, arr2) node =
+  root node |> extend |> any \arr ->
+    case (locate sym3 arr, locate sym1 arr) of
+      (Outer, _) -> False
+      (Boundary, _) -> True
+      (Inner, Boundary) -> False
+      (Inner, Outer) -> True
+      (Inner, Inner) ->
+        arr `divide` arr1 |> any \arr1' ->
+          hasAltPaths (arr1', arr2) (target arr)
+  where
+  sym1 = symbol arr1
+  sym3 = symbol (arr1 `join` arr2)
+
+prepareForRemoveMorphism ::
+  (Symbol, Symbol) -> Node e -> Maybe ([(Arrow e, Arrow e)], [(Arrow e, Arrow e)])
+prepareForRemoveMorphism (src, tgt) node = do
+  (src_arr, tgt_arr) <- arrow2 (src, tgt) node
+  guard $ nondecomposable (target src_arr) tgt
+  let src_alts = do
+        (arr1, arr2) <- fromJust $ parents node src
+        guard $ nondecomposable (target arr1) (symbol arr2)
+        guard $ not $ hasAltPaths (arr2, tgt_arr) (target arr1)
+        return (arr1, arr2 `join` tgt_arr)
+  let tgt_alts = do
+        (_, arr) <- edges (target tgt_arr)
+        guard $ nondecomposable (target tgt_arr) (symbol arr)
+        guard $ not $ hasAltPaths (tgt_arr, arr) (target src_arr)
+        return (src_arr, tgt_arr `join` arr)
+  return (src_alts, tgt_alts)
+
+prepareForAddMorphism ::
+  Symbol -> Symbol -> Node e
+  -> Maybe ([((Arrow e, Arrow e), (Arrow e, [Arrow e]))], [((Arrow e, Arrow e), (Arrow e, [Arrow e]))])
+prepareForAddMorphism src tgt node = do
+  src_arr <- arrow src node
+  tgt_arr <- arrow tgt node
+  guard $ locate src tgt_arr == Outer
+  let src_alts = do
+        (arr1, arr2) <- fromJust $ parents node src
+        guard $ nondecomposable (target arr1) (symbol arr2)
+        let arrs2' = do
+              arr2' <- arr1 `divide` tgt_arr
+              guard $
+                parents node (symbol arr1)
+                |> fromJust
+                |> sortOn (\(a1, a2) -> symbol2 (a1, a2 `join` arr2))
+                |> groupOn (\(a1, a2) -> symbol2 (a1, a2 `join` arr2))
+                |> fmap (fmap \(a1, a2) -> symbol2 (a1, a2 `join` arr2'))
+                |> all allSame
+              return arr2'
+        return ((arr1, arr2), (arr1, arrs2'))
+  guard $ src_alts |> all (snd .> snd .> null .> not)
+  let tgt_alts = do
+        (_, arr) <- edges (target tgt_arr)
+        guard $ nondecomposable (target tgt_arr) (symbol arr)
+        let arrs' = do
+              arr' <- src_arr `divide` (tgt_arr `join` arr)
+              guard $
+                edges (target arr)
+                |> fmap snd
+                |> sortOn (\a -> symbol (arr `join` a))
+                |> groupOn (\a -> symbol (arr `join` a))
+                |> fmap (fmap \a -> symbol (arr' `join` a))
+                |> all allSame
+              return arr'
+        return ((tgt_arr, arr), (src_arr, arrs'))
+  guard $ tgt_alts |> all (snd .> snd .> null .> not)
+  return (src_alts, tgt_alts)
+
 {- |
 Remove a morphism.
 
@@ -140,7 +211,7 @@ Add a symbol in a node.
 
 Examples:
 
->>> printNode' $ fromJust $ addMorphism 1 6 [] [0] () cone
+>>> printNode' $ fromJust $ addMorphism 1 6 [0] [] () cone
 -- - 0->1; 1->2; 2->6
 --   - 0->1
 --     &1
@@ -167,10 +238,10 @@ addMorphism src tgt src_alts tgt_alts val node = do
   tgt_inedges <- parents node tgt
   let tgt_outedges = children tgt_arr
 
-  guard $ length src_inedges == length tgt_alts
-  guard $ length tgt_outedges == length src_alts
-  src_outedges' <- src_alts |> traverse (src_outedges !!?)
-  tgt_inedges' <- tgt_alts |> traverse (tgt_inedges !!?)
+  guard $ length src_inedges == length src_alts
+  guard $ length tgt_outedges == length tgt_alts
+  src_outedges' <- tgt_alts |> traverse (src_outedges !!?)
+  tgt_inedges' <- src_alts |> traverse (tgt_inedges !!?)
 
   guard $
     src_outedges' `zip` tgt_outedges
