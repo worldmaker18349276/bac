@@ -71,7 +71,8 @@ library
         base ^>=4.14.3.0,
         containers ^>=0.6.7,
         transformers ^>=0.6.1,
-        mtl ^>=2.3.1
+        mtl ^>=2.3.1,
+        extra ^>=1.7.12,
 
     -- Directories containing source files.
     hs-source-dirs:   src

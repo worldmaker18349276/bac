@@ -9,7 +9,8 @@ module BAC.Base where
 import Control.Monad (guard)
 import Data.Bifunctor (bimap, Bifunctor (second))
 import Data.Foldable (toList)
-import Data.List (nub, nubBy, sort, sortOn)
+import Data.List (nubBy, sortOn)
+import Data.List.Extra (groupSortOn, nubSortOn, nubSort)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe)
@@ -18,7 +19,7 @@ import Numeric.Natural (Natural)
 import GHC.Stack (HasCallStack)
 
 import Utils.Memoize (unsafeMemoizeWithKey)
-import Utils.Utils (groupOn, (.>), (|>), ensure, toMaybe, nubOn)
+import Utils.Utils ((.>), (|>), ensure, toMaybe)
 
 -- $setup
 -- The example code below runs with the following settings:
@@ -85,7 +86,7 @@ base = 0
 --   >>> symbols crescent
 --   [0,1,2,3,6]
 symbols :: Node e -> [Symbol]
-symbols = edges .> fmap snd .> concatMap (dict .> Map.elems) .> (base :) .> sort .> nub
+symbols = edges .> fmap snd .> concatMap (dict .> Map.elems) .> (base :) .> nubSort
 
 -- | Concatenate two dictionaries:
 --
@@ -123,8 +124,7 @@ divide arr12 arr13 =
   |> Map.toList
   |> filter (snd .> (== symbol arr13))
   |> fmap fst
-  |> sort
-  |> nub
+  |> nubSort
   |> fmap ((`arrow` target arr12) .> fromJust)
 
 -- | Extend an arrow by joining to the edges of the target node.
@@ -257,8 +257,7 @@ validate arr = validateDicts && validateSup
     |> concatMap sequence
     |> fmap (uncurry join)
     |> (arr :)
-    |> sortOn symbol
-    |> groupOn symbol
+    |> groupSortOn symbol
     |> all (nubBy sameStruct .> length .> (== 1))
   descendants node = symbols node |> fmap (`arrow` node) |> fmap fromJust
 
@@ -421,15 +420,14 @@ parents :: Node e -> Symbol -> Maybe [(Arrow e, Arrow e)]
 parents node sym =
   node
   |> findMapUnder sym (\b r _ -> toMaybe (not b) r)
-  |> fmap (sortOn symbol2 .> nubOn symbol2)
+  |> fmap (nubSortOn symbol2)
 
 children :: Arrow e -> [(Arrow e, Arrow e)]
 children arr =
   target arr
   |> edges
   |> fmap (snd .> (arr,))
-  |> sortOn symbol2
-  |> nubOn symbol2
+  |> nubSortOn symbol2
 
 siblings :: Symbol -> Symbol -> Node e -> Maybe [(Arrow e, Arrow e)]
 siblings sym1 sym2 node = do

@@ -9,12 +9,14 @@ module BAC.Algorithm where
 import Control.Monad (guard, MonadPlus (mzero))
 import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable (traverse_)
-import Data.List (delete, elemIndices, findIndex, nub, sort, sortOn, transpose)
+import Data.Foldable.Extra (notNull)
+import Data.List (delete, elemIndices, findIndex, sort, transpose)
+import Data.List.Extra (nubSort, groupSortOn, allSame, nubSortOn, anySame, (!?))
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust, fromMaybe)
 
-import Utils.Utils ((|>), (.>), both, nubOn, groupOn, ensure, distinct, allSame, allSameBy, label, (!!?))
+import Utils.Utils ((|>), (.>), both, ensure, allSameBy, label)
 import Utils.DisjointSet (bipartiteEqclass)
 import BAC.Base
 
@@ -101,13 +103,12 @@ prepareForAddMorphism src tgt node = do
               guard $
                 parents node (symbol arr1)
                 |> fromJust
-                |> sortOn (\(a1, a2) -> symbol2 (a1, a2 `join` arr2))
-                |> groupOn (\(a1, a2) -> symbol2 (a1, a2 `join` arr2))
+                |> groupSortOn (\(a1, a2) -> symbol2 (a1, a2 `join` arr2))
                 |> fmap (fmap \(a1, a2) -> symbol2 (a1, a2 `join` arr2'))
                 |> all allSame
               return arr2'
         return ((arr1, arr2), (arr1, arrs2'))
-  guard $ src_alts |> all (snd .> snd .> null .> not)
+  guard $ src_alts |> all (snd .> snd .> notNull)
   let tgt_alts = do
         (_, arr) <- edges (target tgt_arr)
         guard $ nondecomposable (target tgt_arr) (symbol arr)
@@ -116,13 +117,12 @@ prepareForAddMorphism src tgt node = do
               guard $
                 edges (target arr)
                 |> fmap snd
-                |> sortOn (\a -> symbol (arr `join` a))
-                |> groupOn (\a -> symbol (arr `join` a))
+                |> groupSortOn (\a -> symbol (arr `join` a))
                 |> fmap (fmap \a -> symbol (arr' `join` a))
                 |> all allSame
               return arr'
         return ((tgt_arr, arr), (src_arr, arrs'))
-  guard $ tgt_alts |> all (snd .> snd .> null .> not)
+  guard $ tgt_alts |> all (snd .> snd .> notNull)
   return (src_alts, tgt_alts)
 
 {- |
@@ -240,8 +240,8 @@ addMorphism src tgt src_alts tgt_alts val node = do
 
   guard $ length src_inedges == length src_alts
   guard $ length tgt_outedges == length tgt_alts
-  src_outedges' <- tgt_alts |> traverse (src_outedges !!?)
-  tgt_inedges' <- src_alts |> traverse (tgt_inedges !!?)
+  src_outedges' <- tgt_alts |> traverse (src_outedges !?)
+  tgt_inedges' <- src_alts |> traverse (tgt_inedges !?)
 
   guard $
     src_outedges' `zip` tgt_outedges
@@ -256,10 +256,9 @@ addMorphism src tgt src_alts tgt_alts val node = do
   new_dict <-
     tgt_outedges `zip` src_outedges'
     |> concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
-    |> sort
-    |> nub
+    |> nubSort
     |> ((base, new_sym) :)
-    |> ensure (fmap fst .> distinct)
+    |> ensure (fmap fst .> anySame .> not)
     |> fmap Map.fromList
   let new_edge = (val, Arrow {dict = new_dict, target = target tgt_arr})
 
@@ -286,7 +285,7 @@ addMorphism src tgt src_alts tgt_alts val node = do
               where
               new_wire = new_wires ! symbol2 (curr, arr)
 
-    pairs |> sort |> nub |> ensure (fmap fst .> distinct)
+    pairs |> nubSort |> ensure (fmap fst .> anySame .> not)
 
   let res0 = edges (target src_arr) |> (++ [new_edge]) |> Node
   fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
@@ -386,8 +385,7 @@ splitObject tgt splittable_keys node = do
 
   let splitted_groups =
         splittable_keys
-        |> sort
-        |> nub
+        |> nubSort
         |> fmap (`elemIndices` splittable_keys)
         |> fmap (concatMap (splittable_groups !!))
   let splitSym syms s =
@@ -429,8 +427,7 @@ splitCategory splittable_keys node = do
 
   let splitted_groups =
         splittable_keys
-        |> sort
-        |> nub
+        |> nubSort
         |> fmap (`elemIndices` splittable_keys)
         |> fmap (concatMap (splittable_groups !!))
 
@@ -447,7 +444,7 @@ mergeMorphisms src tgts node = do
   src_arr <- node |> arrow src
 
   tgt_arrs <- tgts |> traverse \tgt -> target src_arr |> arrow tgt
-  guard $ not (null tgt_arrs)
+  guard $ notNull tgt_arrs
   guard $ tgt_arrs |> fmap (dict .> Map.delete base) |> allSame
   guard $
     src /= base
@@ -477,9 +474,9 @@ mergeObjects tgts node = do
     return $
       pars
       |> filter (\(arr, arr') -> symbol arr' |> nondecomposable (target arr))
-      |> nubOn symbol2
+      |> nubSortOn symbol2
 
-  guard $ not (null tgt_pars)
+  guard $ notNull tgt_pars
   guard $ tgt_pars |> fmap length |> allSame
   guard $ transpose tgt_pars |> all (fmap (fst .> symbol) .> allSame)
 
@@ -518,12 +515,11 @@ mergeObjects tgts node = do
             |> fmap snd
             |> fmap ((curr,) .> symbol2)
             |> filter (`Map.member` merged_dicts)
-            |> sortOn (merged_dicts !)
-            |> groupOn (merged_dicts !)
+            |> groupSortOn (merged_dicts !)
             |> fmap (fmap snd)
       let collapse =
-            (collapse1 ++ collapse2) |> fmap sort |> sort |> nub
-      guard $ collapse |> concat |> distinct
+            (collapse1 ++ collapse2) |> fmap sort |> nubSort
+      guard $ collapse |> concat |> anySame |> not
 
       let collapsed_edges = do
             ((res_node, collapse'), (value, arr)) <- results' `zip` edges (target curr)
