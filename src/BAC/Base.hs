@@ -220,13 +220,13 @@ symbol2 = symbol `bimap` symbol
 --
 --   Examples:
 --
---   >>> nondecomposable 3 cone
+--   >>> nondecomposable cone 3
 --   True
 --
---   >>> nondecomposable 4 cone
+--   >>> nondecomposable cone 4
 --   False
-nondecomposable :: Symbol -> Node e -> Bool
-nondecomposable sym node =
+nondecomposable :: Node e -> Symbol -> Bool
+nondecomposable node sym =
   (root node |> locate sym |> (/= Outer))
   && (edges node |> fmap snd |> all (locate sym .> (/= Inner)))
 
@@ -417,16 +417,31 @@ findMapUnder sym f =
         AtBoundary -> f False (curr, arr) value
         AtInner _ -> f True (curr, arr) value
 
-parents :: Symbol -> Node e -> Maybe [(Arrow e, Arrow e)]
-parents sym =
-  findMapUnder sym (\b r _ -> toMaybe (not b) r)
-  .> fmap (sortOn symbol2 .> nubOn symbol2)
+parents :: Node e -> Symbol -> Maybe [(Arrow e, Arrow e)]
+parents node sym =
+  node
+  |> findMapUnder sym (\b r _ -> toMaybe (not b) r)
+  |> fmap (sortOn symbol2 .> nubOn symbol2)
 
-children :: Symbol -> Node e -> Maybe [(Arrow e, Arrow e)]
-children sym =
-  arrow sym
-  .> fmap (\arr -> edges (target arr) |> fmap snd |> fmap (arr,))
-  .> fmap (sortOn symbol2 .> nubOn symbol2)
+children :: Arrow e -> [(Arrow e, Arrow e)]
+children arr =
+  target arr
+  |> edges
+  |> fmap (snd .> (arr,))
+  |> sortOn symbol2
+  |> nubOn symbol2
+
+siblings :: Symbol -> Symbol -> Node e -> Maybe [(Arrow e, Arrow e)]
+siblings sym1 sym2 node = do
+  arr1 <- arrow sym1 node
+  guard $ locate sym2 arr1 /= Outer
+  arr2 <- arrow sym2 node
+  res <- node |> findMapNodeUnder sym2 \curr -> do
+    guard $
+      locate (symbol arr1) curr == Outer
+      && locate (symbol curr) arr1 == Outer
+    return [(curr, arr2') | arr2' <- curr `divide` arr2]
+  return $ sortOn symbol2 (concat res)
 
 -- * Non-Categorical Operations #operations#
 
@@ -480,7 +495,7 @@ rewireEdges src tgts node = do
   src_edges' <- tgts |> traverse (traverse (`arrow` target src_arr))
   let res0 = Node src_edges'
 
-  let nd_symbols = fmap (snd .> symbol) .> filter (`nondecomposable` target src_arr)
+  let nd_symbols = fmap (snd .> symbol) .> filter (nondecomposable (target src_arr))
   guard $ nd_symbols src_edges == nd_symbols src_edges'
 
   fromReachable res0 $ node |> modifyUnder src \(_, (value, arr)) -> \case

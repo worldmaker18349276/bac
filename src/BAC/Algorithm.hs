@@ -12,7 +12,7 @@ import Data.Foldable (traverse_)
 import Data.List (delete, elemIndices, findIndex, nub, sort, sortOn, transpose)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe, fromJust, fromMaybe, maybeToList)
+import Data.Maybe (mapMaybe, fromJust, fromMaybe)
 
 import Utils.Utils ((|>), (.>), both, nubOn, groupOn, ensure, distinct, allSame, allSameBy, label, (!!?))
 import Utils.DisjointSet (bipartiteEqclass)
@@ -76,7 +76,7 @@ removeMorphism :: (Symbol, Symbol) -> Node e -> Maybe (Node e)
 removeMorphism (src, tgt) node = do
   src_arr <- node |> arrow src
   guard $ tgt /= base
-  guard $ tgt `nondecomposable` target src_arr
+  guard $ nondecomposable (target src_arr) tgt
 
   let filtered_edges =
         edges (target src_arr) |> filter (\(_, arr) -> symbol arr /= tgt)
@@ -99,48 +99,6 @@ removeMorphism (src, tgt) node = do
       return node
 
   fromReachable res0 located_res
-
-{- |
-Extend a morphism specified by two symbols to the right by joining to the outgoing
-edges of the target node.
-Return empty if the given morphism is invalid or no valid extended morphism.
-
-Examples:
-
->>> rightExtend (1, 1) cone
-[]
-
->>> rightExtend (3, 1) cone
-[(3,2),(3,3)]
--}
-rightExtend :: (Symbol, Symbol) -> Node e -> [(Symbol, Symbol)]
-rightExtend (sym01, sym12) node = nub $ sort do
-  arr01 <- node |> arrow sym01 |> maybeToList
-  arr12 <- target arr01 |> arrow sym12 |> maybeToList
-  sym13 <- arr12 |> extend |> fmap symbol
-  return (sym01, sym13)
-
-{- |
-Extend a morphism specified by two symbols to the left by joining to the incoming
-edges of the source node.
-Return empty if the given morphism is invalid or no valid extended morphism.
-
-Examples:
-
->>> leftExtend (1, 1) cone
-[(0,2)]
-
->>> leftExtend (2, 2) torus
-[(1,3),(1,6)]
--}
-leftExtend :: (Symbol, Symbol) -> Node e -> [(Symbol, Symbol)]
-leftExtend (sym02, sym23) node = nub $ sort do
-  arr02 <- node |> arrow sym02 |> maybeToList
-  arr23 <- target arr02 |> arrow sym23 |> maybeToList
-  (arr01, arr12) <- node |> parents sym02 |> fromMaybe []
-  let sym01 = symbol arr01
-  let sym13 = symbol (arr12 `join` arr23)
-  return (sym01, sym13)
 
 {- |
 Remove a leaf node.
@@ -177,16 +135,37 @@ removeObject tgt node = do
 
 -- * Add Morphism
 
+{-
+Add a symbol in a node.
+
+Examples:
+
+>>> printNode' $ fromJust $ addMorphism 1 6 [] [0] () cone
+-- - 0->1; 1->2; 2->6
+--   - 0->1
+--     &1
+--   - 0->2
+--     &0
+-- - 0->3; 1->4; 2->2; 3->6; 4->4
+--   - 0->1; 1->2; 2->3
+--     &2
+--     - 0->1
+--       *1
+--     - 0->2
+--       *0
+--   - 0->4; 1->2; 2->3
+--     *2
+-}
 addMorphism :: Symbol -> Symbol -> [Int] -> [Int] -> e -> Node e -> Maybe (Node e)
 addMorphism src tgt src_alts tgt_alts val node = do
   src_arr <- node |> arrow src
   tgt_arr <- node |> arrow tgt
   guard $ tgt_arr |> locate src |> (== Outer)
 
-  src_inedges <- node |> parents src
-  src_outedges <- node |> children src
-  tgt_inedges <- node |> parents tgt
-  tgt_outedges <- node |> children tgt
+  src_inedges <- parents node src
+  let src_outedges = children src_arr
+  tgt_inedges <- parents node tgt
+  let tgt_outedges = children tgt_arr
 
   guard $ length src_inedges == length tgt_alts
   guard $ length tgt_outedges == length src_alts
@@ -267,7 +246,7 @@ partitionMorphism tgt node = do
     dict arr
     |> Map.filter (== tgt)
     |> Map.keys
-    |> mapMaybe (\sym -> target arr |> parents sym)
+    |> mapMaybe (parents (target arr))
     |> concat
     |> fmap (\(b, c) -> (arr, b, c))
   symbol3 :: (Arrow e, Arrow e, Arrow e) -> ((Symbol, Symbol), (Symbol, Symbol))
@@ -402,7 +381,7 @@ mergeMorphisms src tgts node = do
   guard $
     src /= base
     || (tgt_arrs |> fmap (target .> edges .> fmap snd .> fmap dict) |> allSame)
-  pars <- node |> parents src
+  pars <- parents node src
   pars |> traverse_ \(_, arr) ->
     guard $ tgts |> fmap (dict arr !) |> allSame
 
@@ -423,10 +402,10 @@ mergeMorphisms src tgts node = do
 mergeObjects :: [Symbol] -> Node e -> Maybe (Node e)
 mergeObjects tgts node = do
   tgt_pars <- tgts |> traverse \tgt -> do
-    pars <- node |> parents tgt
+    pars <- parents node tgt
     return $
       pars
-      |> filter (\(arr, arr') -> symbol arr' |> (`nondecomposable` target arr))
+      |> filter (\(arr, arr') -> symbol arr' |> nondecomposable (target arr))
       |> nubOn symbol2
 
   guard $ not (null tgt_pars)
