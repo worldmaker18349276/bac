@@ -9,13 +9,14 @@ module BAC.Base where
 import Control.Monad (guard)
 import Data.Bifunctor (bimap, Bifunctor (second))
 import Data.Foldable (toList)
-import Data.List (nubBy, sortOn)
-import Data.List.Extra (groupSortOn, nubSortOn, nubSort)
+import Data.List (sortOn)
+import Data.List.Extra (groupSortOn, nubSortOn, nubSort, allSame)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (dupe)
+import Data.Functor (void)
 import Numeric.Natural (Natural)
 import GHC.Stack (HasCallStack)
 
@@ -54,7 +55,7 @@ import Utils.Utils ((.>), (|>), guarded, orEmpty)
 -- | The node of the tree representation of a bounded acyclic category.
 --   The type variable `e` refers to the data carried by the edges.
 --   It should be validated by @validate . root@.
-newtype Node e = Node {edges :: [Edge e]} deriving (Eq, Ord, Show)
+newtype Node e = Node {edges :: [Edge e]} deriving (Eq, Ord, Show, Functor)
 
 -- | The edge of the tree representation of a bounded acyclic category.
 --   The type variable `e` refers to the data carried by the edges.
@@ -62,7 +63,7 @@ type Edge e = (e, Arrow e)
 
 -- | Arrow of a bounded acyclic category, representing a downward functor.
 --   It should be validated by `validate`.
-data Arrow e = Arrow {dict :: Dict, target :: Node e} deriving (Eq, Ord, Show)
+data Arrow e = Arrow {dict :: Dict, target :: Node e} deriving (Eq, Ord, Show, Functor)
 
 -- | Dictionary of an arrow, representing mapping between objects.
 type Dict = Map Symbol Symbol
@@ -233,18 +234,6 @@ nondecomposable node sym =
 
 -- ** Validation #validation#
 
--- | Check if two arrows have the same structure by ignoring the additional data they
---   stored.
-sameStruct :: Arrow e -> Arrow o -> Bool
-sameStruct arr1 arr2 =
-  dict arr1 == dict arr2
-  && length (edges (target arr1)) == length (edges (target arr2))
-  && (
-    edges (target arr1) `zip` edges (target arr2)
-    |> fmap (snd `bimap` snd)
-    |> all (uncurry sameStruct)
-  )
-
 -- | Check if an arrow is valid.  To validate a node, try @validate (root node)@.
 --   See [Types]("BAC.Base#g:types") for detail.
 validate :: Arrow e -> Bool
@@ -258,8 +247,9 @@ validate arr = validateDicts && validateSup
     |> concatMap sequence
     |> fmap (uncurry join)
     |> (arr :)
+    |> fmap void
     |> groupSortOn symbol
-    |> all (nubBy sameStruct .> length .> (== 1))
+    |> all allSame
   descendants node = symbols node |> fmap (`arrow` node) |> fmap fromJust
 
 -- | Check if an arrow is valid in depth.  All descendant nodes will be checked.

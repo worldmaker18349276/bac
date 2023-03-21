@@ -1,6 +1,6 @@
 module Utils.Utils where
 
-import Data.List (nub, nubBy)
+import Data.List (nub)
 import Data.Maybe (fromJust)
 import Control.Applicative (Alternative (empty))
 
@@ -17,9 +17,6 @@ orEmpty b a = if b then pure a else empty
 
 guarded :: Alternative f => (a -> Bool) -> a -> f a
 guarded f a = if f a then pure a else empty
-
-allSameBy :: (a -> a -> Bool) -> [a] -> Bool
-allSameBy f = nubBy f .> length .> (<= 1)
 
 label :: (Eq a, Enum e) => e -> [a] -> [e]
 label e a = a |> fmap (`lookup` labels) |> fmap fromJust

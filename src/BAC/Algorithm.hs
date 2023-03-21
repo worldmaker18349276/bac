@@ -6,7 +6,7 @@
 
 module BAC.Algorithm where
 
-import Control.Monad (guard, MonadPlus (mzero))
+import Control.Monad (guard, MonadPlus (mzero), void)
 import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable (traverse_)
 import Data.Foldable.Extra (notNull)
@@ -17,7 +17,7 @@ import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust, fromMaybe, isJust)
 
-import Utils.Utils ((|>), (.>), guarded, allSameBy, label)
+import Utils.Utils ((|>), (.>), guarded, label)
 import Utils.DisjointSet (bipartiteEqclass)
 import BAC.Base
 
@@ -670,7 +670,7 @@ mergeMorphismsAggressively src tgts node = do
   src_arr <- node |> arrow src
 
   tgt_arrs <- tgts |> traverse (traverse (`arrow` target src_arr))
-  guard $ tgt_arrs |> all (fmap target .> fmap root .> allSameBy sameStruct)
+  guard $ tgt_arrs |> all (fmap target .> fmap root .> void .> allSame)
 
   let mergeSymbol tgts' s = tgts' |> filter (elem s) |> (++ [[s]]) |> head |> head
 
