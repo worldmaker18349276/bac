@@ -12,11 +12,12 @@ import Data.Foldable (traverse_)
 import Data.Foldable.Extra (notNull)
 import Data.List (delete, elemIndices, findIndex, sort, transpose)
 import Data.List.Extra (nubSort, groupSortOn, allSame, nubSortOn, anySame, (!?))
+import Data.Tuple.Extra (both)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust, fromMaybe, isJust)
 
-import Utils.Utils ((|>), (.>), both, guarded, allSameBy, label)
+import Utils.Utils ((|>), (.>), guarded, allSameBy, label)
 import Utils.DisjointSet (bipartiteEqclass)
 import BAC.Base
 

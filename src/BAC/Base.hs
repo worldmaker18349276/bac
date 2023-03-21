@@ -15,6 +15,7 @@ import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe)
 import Data.Tuple (swap)
+import Data.Tuple.Extra (dupe)
 import Numeric.Natural (Natural)
 import GHC.Stack (HasCallStack)
 
@@ -105,7 +106,7 @@ data Location = Inner | Boundary | Outer deriving (Eq, Ord, Show)
 root :: Node e -> Arrow e
 root node = Arrow {dict = id_dict, target = node}
   where
-  id_dict = node |> symbols |> fmap (\a -> (a, a)) |> Map.fromList
+  id_dict = node |> symbols |> fmap dupe |> Map.fromList
 
 -- | Join two arrows into one arrow.
 --   It may crashes if two arrows are not composable.
@@ -252,7 +253,7 @@ validate arr = validateDicts && validateSup
   validateDicts = Map.keys (dict arr) == symbols (target arr)
   validateSup =
     extend arr
-    |> fmap (\a -> (a, a))
+    |> fmap dupe
     |> fmap (second (target .> descendants))
     |> concatMap sequence
     |> fmap (uncurry join)

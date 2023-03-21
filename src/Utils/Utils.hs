@@ -12,9 +12,6 @@ infixl 9 .>
 (.>) :: (a -> b) -> (b -> c) -> (a -> c)
 a .> b = b . a
 
-both :: (a -> b) -> (a, a) -> (b, b)
-both f (a, a') = (f a, f a')
-
 orEmpty :: Alternative f => Bool -> a -> f a
 orEmpty b a = if b then pure a else empty
 
