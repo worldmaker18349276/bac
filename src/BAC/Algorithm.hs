@@ -291,16 +291,16 @@ Examples:
   - 0->1
     &0
   - 0->2
-    &2
+    &1
 - 0->3; 1->4; 2->2; 3->6; 4->4
   - 0->1; 1->2; 2->3
-    &1
+    &2
     - 0->1
       *0
     - 0->2
-      *2
+      *1
   - 0->4; 1->2; 2->3
-    *1
+    *2
 -}
 addMorphism :: Symbol -> Symbol -> [Int] -> [Int] -> e -> Node e -> Maybe (Node e)
 addMorphism src tgt src_alts tgt_alts val node = do

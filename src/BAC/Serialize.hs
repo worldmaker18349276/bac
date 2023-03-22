@@ -8,11 +8,10 @@ import Utils.Utils ((|>), (.>))
 
 import Data.List (intercalate)
 import Control.Monad.State (State, execState, modify, MonadState (get, put))
-import Data.Map (Map, toList, lookup, fromList, unionWith)
+import Data.Map (Map, toList, lookup, fromList)
 import Data.Foldable (traverse_)
-import Data.Monoid (Sum)
 import Prelude hiding (lookup)
-import Data.Maybe (isNothing, fromMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Tuple.Extra (both)
 import Control.Monad (when)
 
@@ -23,21 +22,24 @@ encodeDict =
   .> fmap (\(k, v) -> k ++ "->" ++ v)
   .> intercalate "; "
 
-countStruct :: Arrow e -> State (Map Symbol (Sum Int)) ()
+countStruct :: Arrow e -> State [(Symbol, Int)] ()
 countStruct curr =
   extend curr |> traverse_ \arr -> do
     let sym = symbol arr
     state <- get
-    let is_new = isNothing (lookup sym state)
-    modify $ unionWith (<>) (fromList [(sym, 1)])
+    let is_new = state |> all (fst .> (/= sym))
+    modify $ incre sym
     when is_new $ countStruct arr
+  where
+  incre :: Eq a => a -> [(a, Int)] -> [(a, Int)]
+  incre a [] = [(a, 1)]
+  incre a ((a', n) : res) = if a == a' then (a', n+1) : res else (a', n) : incre a res
 
 makePointers :: Enum p => Node e -> p -> Map Symbol p
 makePointers node p =
   root node
   |> countStruct
   |> (`execState` mempty)
-  |> toList
   |> filter (snd .> (> 1))
   |> fmap fst
   |> (`zip` [p..])
