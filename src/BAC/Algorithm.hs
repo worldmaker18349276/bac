@@ -15,7 +15,7 @@ import Data.List.Extra (nubSort, groupSortOn, allSame, nubSortOn, anySame, (!?))
 import Data.Tuple.Extra (both)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe, fromJust, fromMaybe)
+import Data.Maybe (mapMaybe, fromJust, fromMaybe, isJust)
 
 import Utils.Utils ((|>), (.>), guarded, label)
 import Utils.DisjointSet (bipartiteEqclass)
@@ -186,6 +186,47 @@ validateRightAngle ((arr1, arr2), (arr1', arr2')) =
     |> all allSame
   )
 
+validateRightAngles :: [RightAngle e] -> Bool
+validateRightAngles =
+  concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
+  .> nubSort
+  .> fmap fst
+  .> anySame
+  .> not
+
+validateLeftAngles :: Node e -> [LeftAngle e] -> Bool
+validateLeftAngles _ [] = True
+validateLeftAngles node angs =
+  isJust $ sequence_ $ node |> foldUnder sym0 \curr results -> do
+    results' <- traverse sequence results
+    let pairs = do
+          (res, (value, arr)) <- results' `zip` edges (target curr)
+          case res of
+            AtOuter -> mzero
+            AtInner res -> res |> fmap (both (dict arr !))
+            AtBoundary ->
+              angs
+              |> find (fst .> symbol2 .> (== symbol2 (curr, arr)))
+              |> fmap (both (snd .> symbol))
+              |> maybe mzero return
+    pairs |> nubSort |> guarded (fmap fst .> anySame .> not)
+  where
+  sym0 = angs |> head |> fst |> fst |> symbol
+
+validateLeftRightAngles :: [LeftAngle e] -> [RightAngle e] -> Bool
+validateLeftRightAngles leftangs rightangs =
+  rightangs |> all \(_, (arr1, arr2)) ->
+    let
+      sym1 = dict arr1 ! base
+      sym2 = dict arr2 ! base
+    in
+      leftangs |> all \(_, (arr2', arr1')) ->
+        dict arr1' ! sym1 == dict arr2' ! sym2
+  -- -- is equivalent to
+  -- rightangs |> all \(_, (arr1, arr2)) ->
+  --   leftangs |> all \(_, (arr2', arr1')) ->
+  --     symbol (arr1' `join` arr1) == symbol (arr2' `join` arr2)
+
 prepareForAddMorphism ::
   Symbol -> Symbol -> Node e -> Maybe ([[LeftAngle e]], [[RightAngle e]])
 prepareForAddMorphism src tgt node = do
@@ -245,21 +286,18 @@ addMorphism src tgt src_alts tgt_alts val node = do
   leftangs' <- leftangs `zip` src_alts |> traverse (uncurry (!?))
   rightangs' <- rightangs `zip` tgt_alts |> traverse (uncurry (!?))
 
-  let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
-  new_dict <-
-    rightangs'
-    |> concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
-    |> ((base, new_sym) :)
-    |> nubSort
-    |> guarded (fmap fst .> anySame .> not)
-    |> fmap Map.fromList
-  let new_edge = (val, Arrow {dict = new_dict, target = target tgt_arr})
+  guard $ validateRightAngles rightangs'
+  guard $ validateLeftRightAngles leftangs' rightangs'
+  guard $ validateLeftAngles node leftangs'
 
-  guard $
-    leftangs'
-    |> fmap (both (snd .> dict))
-    |> all \(dict2, dict2') ->
-      dict2 `cat` Map.delete base new_dict == Map.delete base dict2'
+  let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
+  let new_dict =
+        rightangs'
+        |> concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
+        |> ((base, new_sym) :)
+        |> nubSort
+        |> Map.fromList
+  let new_edge = (val, Arrow {dict = new_dict, target = target tgt_arr})
 
   let find_new_wire (arr1, arr2) =
         leftangs'
@@ -273,19 +311,6 @@ addMorphism src tgt src_alts tgt_alts val node = do
             find_new_wire (arr1 `join` arr, arr2')
             |> both (dict arr !)
         )
-
-  sequence_ $ node |> foldUnder src \curr results -> do
-    results' <- traverse sequence results
-    let pairs = do
-          (res, (value, arr)) <- results' `zip` edges (target curr)
-          case res of
-            AtOuter -> mzero
-            AtInner res -> res |> fmap (both (dict arr !))
-            AtBoundary -> return (symbol arr, snd new_wire)
-              where
-              new_wire = find_new_wire (curr, arr)
-
-    pairs |> nubSort |> guarded (fmap fst .> anySame .> not)
 
   let res0 = edges (target src_arr) |> (++ [new_edge]) |> Node
   fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
