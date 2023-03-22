@@ -8,14 +8,14 @@ module BAC.Algorithm where
 
 import Control.Monad (guard, MonadPlus (mzero), void)
 import Data.Bifunctor (Bifunctor (first, second))
-import Data.Foldable (traverse_)
+import Data.Foldable (traverse_, find)
 import Data.Foldable.Extra (notNull)
-import Data.List (delete, elemIndices, findIndex, sort, transpose)
+import Data.List (elemIndices, findIndex, sort, transpose)
 import Data.List.Extra (nubSort, groupSortOn, allSame, nubSortOn, anySame, (!?))
 import Data.Tuple.Extra (both)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe, fromJust, fromMaybe, isJust)
+import Data.Maybe (mapMaybe, fromJust, fromMaybe)
 
 import Utils.Utils ((|>), (.>), guarded, label)
 import Utils.DisjointSet (bipartiteEqclass)
@@ -57,31 +57,6 @@ singleton val = Node {edges = [(val, new_arr)]}
 
 -- * Remove Morphism, Object
 
-data LeftAngle e = LeftAngle (Arrow e, Arrow e) (Arrow e, Arrow e)
-data RightAngle e = RightAngle (Arrow e, Arrow e) (Arrow e, Arrow e)
-
-validateLeftAngle :: Node e -> LeftAngle e -> Bool
-validateLeftAngle node (LeftAngle (arr1, arr2) (arr1', arr2')) = isJust do
-  guard $ symbol arr1 == symbol arr1'
-  arrs <- parents node (symbol arr1)
-  guard $
-    arrs
-    |> filter (\(a1, a2) -> nondecomposable (target a1) (symbol a2))
-    |> groupSortOn (\(a1, a2) -> symbol2 (a1, a2 `join` arr2))
-    |> fmap (fmap \(a1, a2) -> symbol2 (a1, a2 `join` arr2'))
-    |> all allSame
-
-validateRightAngle :: RightAngle e -> Bool
-validateRightAngle (RightAngle (arr1, arr2) (arr1', arr2')) = isJust do
-  guard $ symbol (arr1 `join` arr2) == symbol (arr1' `join` arr2')
-  let arrs = edges (target arr2) |> fmap snd
-  guard $
-    arrs
-    |> filter (symbol .> nondecomposable (target arr2))
-    |> groupSortOn (\a -> symbol (arr2 `join` a))
-    |> fmap (fmap \a -> symbol (arr2' `join` a))
-    |> all allSame
-
 hasAltPaths :: (Arrow e, Arrow e) -> Node e -> Bool
 hasAltPaths (arr1, arr2) node =
   root node |> extend |> any \arr ->
@@ -98,43 +73,22 @@ hasAltPaths (arr1, arr2) node =
   sym3 = symbol (arr1 `join` arr2)
 
 prepareForRemoveMorphism ::
-  (Symbol, Symbol) -> Node e -> Maybe ([LeftAngle e], [RightAngle e])
+  (Symbol, Symbol) -> Node e -> Maybe ([(Arrow e, Arrow e)], [(Arrow e, Arrow e)])
 prepareForRemoveMorphism (src, tgt) node = do
+  guard $ tgt /= base
   (src_arr, tgt_arr) <- arrow2 (src, tgt) node
   guard $ nondecomposable (target src_arr) tgt
   let src_alts = do
-        (arr1, arr2) <- fromJust $ parents node src
+        (arr1, arr2) <- suffix node src |> nubSortOn symbol2
         guard $ nondecomposable (target arr1) (symbol arr2)
         guard $ not $ hasAltPaths (arr2, tgt_arr) (target arr1)
-        return $ LeftAngle (arr1, arr2) (arr1, arr2 `join` tgt_arr)
+        return (arr1, arr2 `join` tgt_arr)
   let tgt_alts = do
-        (_, arr) <- edges (target tgt_arr)
+        arr <- edges (target tgt_arr) |> fmap snd |> nubSortOn symbol
         guard $ nondecomposable (target tgt_arr) (symbol arr)
         guard $ not $ hasAltPaths (tgt_arr, arr) (target src_arr)
-        return $ RightAngle (src_arr `join` tgt_arr, arr) (src_arr, tgt_arr `join` arr)
+        return (src_arr, tgt_arr `join` arr)
   return (src_alts, tgt_alts)
-
-prepareForAddMorphism ::
-  Symbol -> Symbol -> Node e -> Maybe ([LeftAngle e], [RightAngle e])
-prepareForAddMorphism src tgt node = do
-  src_arr <- arrow src node
-  tgt_arr <- arrow tgt node
-  guard $ locate src tgt_arr == Outer
-  let src_alts = do
-        (arr1, arr2) <- fromJust $ parents node src
-        guard $ nondecomposable (target arr1) (symbol arr2)
-        return do
-          arr2' <- arr1 `divide` tgt_arr
-          guarded (validateLeftAngle node) $ LeftAngle (arr1, arr2) (arr1, arr2')
-  guard $ src_alts |> all notNull
-  let tgt_alts = do
-        (_, arr) <- edges (target tgt_arr)
-        guard $ nondecomposable (target tgt_arr) (symbol arr)
-        return do
-          arr' <- src_arr `divide` (tgt_arr `join` arr)
-          guarded validateRightAngle $ RightAngle (tgt_arr, arr) (src_arr, arr')
-  guard $ tgt_alts |> all notNull
-  return (concat src_alts, concat tgt_alts)
 
 {- |
 Remove a morphism.
@@ -156,31 +110,18 @@ Nothing
 -}
 removeMorphism :: (Symbol, Symbol) -> Node e -> Maybe (Node e)
 removeMorphism (src, tgt) node = do
-  src_arr <- node |> arrow src
-  guard $ tgt /= base
-  guard $ nondecomposable (target src_arr) tgt
+  guard $
+    prepareForRemoveMorphism (src, tgt) node
+    |> maybe False \(l, r) -> null l && null r
 
-  let filtered_edges =
-        edges (target src_arr) |> filter (\(_, arr) -> symbol arr /= tgt)
-  let res0 = Node filtered_edges
-  guard $ symbols res0 == (symbols (target src_arr) |> delete tgt)
-
-  located_res <- sequence $
-    node |> foldUnder src \curr results -> do
-      results' <- traverse sequence results
-
-      let node = Node do
-            (res, (value, arr)) <- results' `zip` edges (target curr)
-            case res of
-              AtOuter -> return (value, arr)
-              AtInner res -> return (value, arr {target = res})
-              AtBoundary -> return (value, arr {dict = filtered_dict, target = res0})
-                where
-                filtered_dict = dict arr |> Map.delete tgt
-      guard $ symbols node == symbols (target curr)
-      return node
-
-  fromReachable res0 located_res
+  let src_node = node |> arrow src |> fromJust |> target
+  let res0 = src_node |> edges |> filter (\(_, arr) -> symbol arr /= tgt) |> Node
+  fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
+    AtOuter -> return (value, arr)
+    AtInner res -> return (value, arr {target = res})
+    AtBoundary -> return (value, arr {dict = filtered_dict, target = res0})
+      where
+      filtered_dict = dict arr |> Map.delete tgt
 
 {- |
 Remove a leaf node.
@@ -217,6 +158,60 @@ removeObject tgt node = do
 
 -- * Add Morphism
 
+type LeftAngle e = ((Arrow e, Arrow e), (Arrow e, Arrow e))
+type RightAngle e = ((Arrow e, Arrow e), (Arrow e, Arrow e))
+
+validateLeftAngle :: Node e -> LeftAngle e -> Bool
+validateLeftAngle node ((arr1, arr2), (arr1', arr2')) =
+  symbol arr1 == symbol arr1'
+  && (
+    suffix node (symbol arr1)
+    |> nubSortOn symbol2
+    |> filter (\(a1, a2) -> nondecomposable (target a1) (symbol a2))
+    |> groupSortOn (\(a1, a2) -> symbol2 (a1, a2 `join` arr2))
+    |> fmap (fmap \(a1, a2) -> symbol2 (a1, a2 `join` arr2'))
+    |> all allSame
+  )
+
+validateRightAngle :: RightAngle e -> Bool
+validateRightAngle ((arr1, arr2), (arr1', arr2')) =
+  symbol (arr1 `join` arr2) == symbol (arr1' `join` arr2')
+  && (
+    edges (target arr2)
+    |> fmap snd
+    |> nubSortOn symbol
+    |> filter (symbol .> nondecomposable (target arr2))
+    |> groupSortOn (\a -> symbol (arr2 `join` a))
+    |> fmap (fmap \a -> symbol (arr2' `join` a))
+    |> all allSame
+  )
+
+prepareForAddMorphism ::
+  Symbol -> Symbol -> Node e -> Maybe ([[LeftAngle e]], [[RightAngle e]])
+prepareForAddMorphism src tgt node = do
+  src_arr <- arrow src node
+  tgt_arr <- arrow tgt node
+  guard $ locate src tgt_arr == Outer
+  let src_alts = do
+        (arr1, arr2) <- suffix node src |> nubSortOn symbol2
+        guard $ nondecomposable (target arr1) (symbol arr2)
+        return do
+          arr2' <- arr1 `divide` tgt_arr
+          let ang = ((arr1, arr2), (arr1, arr2'))
+          guard $ validateLeftAngle node ang
+          return ang
+  guard $ src_alts |> all notNull
+  let tgt_alts = do
+        arr <- edges (target tgt_arr) |> fmap snd |> nubSortOn symbol
+        guard $ nondecomposable (target tgt_arr) (symbol arr)
+        return do
+          arr' <- src_arr `divide` (tgt_arr `join` arr)
+          let ang = ((tgt_arr, arr), (src_arr, arr'))
+          guard $ validateRightAngle ang
+          return ang
+  guard $ tgt_alts |> all notNull
+  return (src_alts, tgt_alts)
+
 {-
 Add a symbol in a node.
 
@@ -244,46 +239,40 @@ addMorphism src tgt src_alts tgt_alts val node = do
   tgt_arr <- node |> arrow tgt
   guard $ tgt_arr |> locate src |> (== Outer)
 
-  src_inedges <- parents node src
-  let src_outedges = children src_arr
-  tgt_inedges <- parents node tgt
-  let tgt_outedges = children tgt_arr
-
-  guard $ length src_inedges == length src_alts
-  guard $ length tgt_outedges == length tgt_alts
-  src_outedges' <- tgt_alts |> traverse (src_outedges !?)
-  tgt_inedges' <- src_alts |> traverse (tgt_inedges !?)
-
-  guard $
-    src_outedges' `zip` tgt_outedges
-    |> fmap (both (uncurry join .> symbol))
-    |> all (uncurry (==))
-  guard $
-    src_inedges `zip` tgt_inedges'
-    |> fmap (both (fst .> symbol))
-    |> all (uncurry (==))
+  (leftangs, rightangs) <- prepareForAddMorphism src tgt node
+  guard $ length leftangs == length src_alts
+  guard $ length rightangs == length tgt_alts
+  leftangs' <- leftangs `zip` src_alts |> traverse (uncurry (!?))
+  rightangs' <- rightangs `zip` tgt_alts |> traverse (uncurry (!?))
 
   let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
   new_dict <-
-    tgt_outedges `zip` src_outedges'
+    rightangs'
     |> concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
-    |> nubSort
     |> ((base, new_sym) :)
+    |> nubSort
     |> guarded (fmap fst .> anySame .> not)
     |> fmap Map.fromList
   let new_edge = (val, Arrow {dict = new_dict, target = target tgt_arr})
 
   guard $
-    src_inedges `zip` tgt_inedges'
+    leftangs'
     |> fmap (both (snd .> dict))
     |> all \(dict2, dict2') ->
       dict2 `cat` Map.delete base new_dict == Map.delete base dict2'
 
-  let new_wires =
-        tgt_inedges'
-        |> fmap (snd .> symbol .> (new_sym,))
-        |> zip (src_inedges |> fmap symbol2)
-        |> Map.fromList
+  let find_new_wire (arr1, arr2) =
+        leftangs'
+        |> find (fst .> symbol2 .> (== symbol2 (arr1, arr2)))
+        |> fmap snd
+        |> fmap (\(_, arr) -> (new_sym, symbol arr))
+        |> fromMaybe (
+          prefix (target arr1) (symbol arr2)
+          |> head
+          |> \(arr, arr2') ->
+            find_new_wire (arr1 `join` arr, arr2')
+            |> both (dict arr !)
+        )
 
   sequence_ $ node |> foldUnder src \curr results -> do
     results' <- traverse sequence results
@@ -294,7 +283,7 @@ addMorphism src tgt src_alts tgt_alts val node = do
             AtInner res -> res |> fmap (both (dict arr !))
             AtBoundary -> return (symbol arr, snd new_wire)
               where
-              new_wire = new_wires ! symbol2 (curr, arr)
+              new_wire = find_new_wire (curr, arr)
 
     pairs |> nubSort |> guarded (fmap fst .> anySame .> not)
 
@@ -304,7 +293,7 @@ addMorphism src tgt src_alts tgt_alts val node = do
     AtInner res -> return (value, arr {target = res})
     AtBoundary -> return (value, arr {dict = new_dict, target = res0})
       where
-      new_wire = new_wires ! symbol2 (curr, arr)
+      new_wire = find_new_wire (curr, arr)
       new_dict = dict arr |> uncurry Map.insert new_wire
 
 -- * Split Morphism, Object, Category
@@ -327,8 +316,7 @@ partitionMorphism tgt node = do
     dict arr
     |> Map.filter (== tgt)
     |> Map.keys
-    |> mapMaybe (parents (target arr))
-    |> concat
+    |> concatMap (suffix (target arr) .> nubSortOn symbol2)
     |> fmap (\(b, c) -> (arr, b, c))
   symbol3 :: (Arrow e, Arrow e, Arrow e) -> ((Symbol, Symbol), (Symbol, Symbol))
   symbol3 (arr1, arr2, arr3) = ((sym1, sym23), (sym12, sym3))
@@ -460,8 +448,7 @@ mergeMorphisms src tgts node = do
   guard $
     src /= base
     || (tgt_arrs |> fmap (target .> edges .> fmap snd .> fmap dict) |> allSame)
-  pars <- parents node src
-  pars |> traverse_ \(_, arr) ->
+  suffix node src |> traverse_ \(_, arr) ->
     guard $ tgts |> fmap (dict arr !) |> allSame
 
   let merge s = if s `elem` tgts then head tgts else s
@@ -480,12 +467,12 @@ mergeMorphisms src tgts node = do
 
 mergeObjects :: [Symbol] -> Node e -> Maybe (Node e)
 mergeObjects tgts node = do
-  tgt_pars <- tgts |> traverse \tgt -> do
-    pars <- parents node tgt
-    return $
-      pars
-      |> filter (\(arr, arr') -> symbol arr' |> nondecomposable (target arr))
-      |> nubSortOn symbol2
+  let tgt_pars =
+        tgts |> fmap (
+          suffix node
+          .> filter (\(arr, arr') -> symbol arr' |> nondecomposable (target arr))
+          .> nubSortOn symbol2
+        )
 
   guard $ notNull tgt_pars
   guard $ tgt_pars |> fmap length |> allSame

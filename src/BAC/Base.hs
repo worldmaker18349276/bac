@@ -9,11 +9,10 @@ module BAC.Base where
 import Control.Monad (guard)
 import Data.Bifunctor (bimap, Bifunctor (second))
 import Data.Foldable (toList)
-import Data.List (sortOn)
-import Data.List.Extra (groupSortOn, nubSortOn, nubSort, allSame)
+import Data.List.Extra (groupSortOn, nubSort, allSame)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromJust, mapMaybe)
+import Data.Maybe (fromJust, mapMaybe, listToMaybe, fromMaybe)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (dupe)
 import Data.Functor (void)
@@ -170,6 +169,21 @@ arrow sym = root .> go
     Boundary -> Just arr
     Inner    -> Just $ arr |> extend |> mapMaybe go |> head
 
+-- | Find the symbol referencing to the given arrow.
+--   It is the inverse of `arrow`:
+--
+--   > fmap symbol (arrow sym node) = Just sym
+--
+--   Examples:
+--
+--   >>> fmap symbol (arrow 3 cone)
+--   Just 3
+--
+--   >>> fmap symbol (arrow 5 cone)
+--   Nothing
+symbol :: Arrow e -> Symbol
+symbol = dict .> (! base)
+
 -- | Make a 2-chain by given pair of symbols.
 --
 --   Examples:
@@ -188,21 +202,6 @@ arrow2 (src, tgt) node = do
   tgt_subarr <- target src_arr |> arrow tgt
   return (src_arr, tgt_subarr)
 
--- | Find the symbol referencing to the given arrow.
---   It is the inverse of `arrow`:
---
---   > fmap symbol (arrow sym node) = Just sym
---
---   Examples:
---
---   >>> fmap symbol (arrow 3 cone)
---   Just 3
---
---   >>> fmap symbol (arrow 5 cone)
---   Nothing
-symbol :: Arrow e -> Symbol
-symbol = dict .> (! base)
-
 -- | Find the pair of symbols referencing to the given 2-chain.
 --   It is the inverse of `arrow2`:
 --
@@ -217,6 +216,31 @@ symbol = dict .> (! base)
 --   Nothing
 symbol2 :: (Arrow e, Arrow e) -> (Symbol, Symbol)
 symbol2 = symbol `bimap` symbol
+
+divide2 :: (Arrow e, Arrow e) -> (Arrow e, Arrow e) -> [Arrow e]
+divide2 (arr12, arr24) (arr13, arr34) =
+  arr12 `divide` arr13 |> filter (\arr23 -> symbol (arr23 `join` arr34) == symbol arr24)
+
+extend2 :: (Arrow e, Arrow e) -> [(Arrow e, Arrow e)]
+extend2 (arr1, arr2) =
+  edges (target arr1)
+  |> filter (snd .> locate (symbol arr2) .> (/= Outer))
+  |> fmap snd
+  |> concatMap (\arr -> arr `divide` arr2 |> fmap (arr1 `join` arr,))
+
+prefix :: Node e -> Symbol -> [(Arrow e, Arrow e)]
+prefix node sym =
+  arrow sym node
+  |> maybe [] \tgt_arr ->
+    edges node
+    |> fmap snd
+    |> mapMaybe (\arr -> divide arr tgt_arr |> listToMaybe |> fmap (arr,))
+
+suffix :: Node e -> Symbol -> [(Arrow e, Arrow e)]
+suffix node sym =
+  node
+  |> findMapUnder sym (\b r _ -> orEmpty (not b) r)
+  |> fromMaybe [] 
 
 -- | Check if the given symbol reference to a nondecomposable initial morphism.
 --
@@ -406,31 +430,6 @@ findMapUnder sym f =
         AtOuter -> Nothing
         AtBoundary -> f False (curr, arr) value
         AtInner _ -> f True (curr, arr) value
-
-parents :: Node e -> Symbol -> Maybe [(Arrow e, Arrow e)]
-parents node sym =
-  node
-  |> findMapUnder sym (\b r _ -> orEmpty (not b) r)
-  |> fmap (nubSortOn symbol2)
-
-children :: Arrow e -> [(Arrow e, Arrow e)]
-children arr =
-  target arr
-  |> edges
-  |> fmap (snd .> (arr,))
-  |> nubSortOn symbol2
-
-siblings :: Symbol -> Symbol -> Node e -> Maybe [(Arrow e, Arrow e)]
-siblings sym1 sym2 node = do
-  arr1 <- arrow sym1 node
-  guard $ locate sym2 arr1 /= Outer
-  arr2 <- arrow sym2 node
-  res <- node |> findMapNodeUnder sym2 \curr -> do
-    guard $
-      locate (symbol arr1) curr == Outer
-      && locate (symbol curr) arr1 == Outer
-    return [(curr, arr2') | arr2' <- curr `divide` arr2]
-  return $ sortOn symbol2 (concat res)
 
 -- * Non-Categorical Operations #operations#
 
