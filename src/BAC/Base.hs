@@ -97,7 +97,7 @@ symbols = edges .> fmap snd .> concatMap (dict .> Map.elems) .> (base :) .> nubS
 cat :: HasCallStack => Dict -> Dict -> Dict
 cat = fmap . (!)
 
--- ** Traversing #traversing#
+-- ** Arrow #arrow#
 
 -- | The relative location between nodes.
 data Location = Inner | Boundary | Outer deriving (Eq, Ord, Show)
@@ -184,6 +184,8 @@ arrow sym = root .> go
 symbol :: Arrow e -> Symbol
 symbol = dict .> (! base)
 
+-- ** Tuple of Arrows
+
 -- | Make a 2-chain by given pair of symbols.
 --
 --   Examples:
@@ -217,10 +219,24 @@ arrow2 (src, tgt) node = do
 symbol2 :: (Arrow e, Arrow e) -> (Symbol, Symbol)
 symbol2 = symbol `bimap` symbol
 
+-- | Divide two tuples of arrows.  The first is divisor and the second is the dividend,
+--   and they should start and end at the same node.
+--   It obeys the following laws:
+--
+--   > arr12 `join` arr24  ==  arr13 `join` arr34
+--   > arr23 `elem` divide2 (arr12, arr24) (arr13, arr34)
+--   > ->  arr12 `join` arr23 == arr13
+--   > &&  arr23 `join` arr34 == arr34
 divide2 :: (Arrow e, Arrow e) -> (Arrow e, Arrow e) -> [Arrow e]
 divide2 (arr12, arr24) (arr13, arr34) =
   arr12 `divide` arr13 |> filter (\arr23 -> symbol (arr23 `join` arr34) == symbol arr24)
 
+-- | Extend a tuple of arrows.
+--   It obeys the following law:
+--
+--   > (arr13, arr34) `elem` extend2 (arr12, arr24)
+--   > ->  arr13 `elem` extend arr12
+--   > &&  arr12 `join` arr24 == arr13 `join` arr34
 extend2 :: (Arrow e, Arrow e) -> [(Arrow e, Arrow e)]
 extend2 (arr1, arr2) =
   edges (target arr1)
@@ -228,6 +244,12 @@ extend2 (arr1, arr2) =
   |> fmap snd
   |> concatMap (\arr -> arr `divide` arr2 |> fmap (arr1 `join` arr,))
 
+-- | Find prefix edges of a node under a given symbol.
+--   It obeys the following law:
+--
+--   > (arr1, arr2) `elem` prefix node sym
+--   > ->  symbol (arr1 `join` arr2) == sym
+--   > &&  (_, arr1) `elem` edges node
 prefix :: Node e -> Symbol -> [(Arrow e, Arrow e)]
 prefix node sym =
   arrow sym node
@@ -236,6 +258,12 @@ prefix node sym =
     |> fmap snd
     |> mapMaybe (\arr -> divide arr tgt_arr |> listToMaybe |> fmap (arr,))
 
+-- | Find suffix edges of a node under a given symbol.
+--   It obeys the following law:
+--
+--   > (arr1, arr2) `elem` suffix node sym
+--   > ->  symbol (arr1 `join` arr2) == sym
+--   > &&  (_, arr2) `elem` edges (target arr1)
 suffix :: Node e -> Symbol -> [(Arrow e, Arrow e)]
 suffix node sym =
   node
