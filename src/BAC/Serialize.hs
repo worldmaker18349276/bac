@@ -4,7 +4,7 @@ module BAC.Serialize (encodeDict, encodeAsYAMLBy, encodeAsYAML, encodeAsYAML', e
   encode, encode', printNode, printNode') where
 
 import BAC.Base hiding (modify)
-import Utils.Utils ((|>), (.>), both)
+import Utils.Utils ((|>), (.>))
 
 import Data.List (intercalate)
 import Control.Monad.State (State, execState, modify, MonadState (get, put))
@@ -13,6 +13,7 @@ import Data.Foldable (traverse_)
 import Data.Monoid (Sum)
 import Prelude hiding (lookup)
 import Data.Maybe (isNothing, fromMaybe)
+import Data.Tuple.Extra (both)
 import Control.Monad (when)
 
 encodeDict :: Dict -> String
