@@ -57,21 +57,6 @@ singleton val = Node {edges = [(val, new_arr)]}
 
 -- * Remove Morphism, Object
 
-hasAltPaths :: (Arrow e, Arrow e) -> Node e -> Bool
-hasAltPaths (arr1, arr2) node =
-  root node |> extend |> any \arr ->
-    case (locate sym3 arr, locate sym1 arr) of
-      (Outer, _) -> False
-      (Boundary, _) -> True
-      (Inner, Boundary) -> False
-      (Inner, Outer) -> True
-      (Inner, Inner) ->
-        arr `divide` arr1 |> any \arr1' ->
-          hasAltPaths (arr1', arr2) (target arr)
-  where
-  sym1 = symbol arr1
-  sym3 = symbol (arr1 `join` arr2)
-
 prepareForRemoveMorphism ::
   (Symbol, Symbol) -> Node e -> Maybe ([(Arrow e, Arrow e)], [(Arrow e, Arrow e)])
 prepareForRemoveMorphism (src, tgt) node = do
@@ -81,14 +66,19 @@ prepareForRemoveMorphism (src, tgt) node = do
   let src_alts = do
         (arr1, arr2) <- suffix node src |> nubSortOn symbol2
         guard $ nondecomposable (target arr1) (symbol arr2)
-        guard $ not $ hasAltPaths (arr2, tgt_arr) (target arr1)
+        guard $ not $ hasAltPaths (arr1, arr2, tgt_arr)
         return (arr1, arr2 `join` tgt_arr)
   let tgt_alts = do
         arr <- edges (target tgt_arr) |> fmap snd |> nubSortOn symbol
         guard $ nondecomposable (target tgt_arr) (symbol arr)
-        guard $ not $ hasAltPaths (tgt_arr, arr) (target src_arr)
+        guard $ not $ hasAltPaths (src_arr, tgt_arr, arr)
         return (src_arr, tgt_arr `join` arr)
   return (src_alts, tgt_alts)
+  where
+  hasAltPaths (arr1, arr2, arr3) =
+    prefix (target arr1) (symbol (arr2 `join` arr3))
+    |> fmap (fst .> join arr1 .> symbol)
+    |> any (/= symbol (arr1 `join` arr2))
 
 {- |
 Remove a morphism.
