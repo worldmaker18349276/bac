@@ -10,7 +10,7 @@ import Control.Monad (guard, MonadPlus (mzero), void)
 import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable (traverse_, find)
 import Data.Foldable.Extra (notNull)
-import Data.List (elemIndices, findIndex, sort, transpose, sortOn)
+import Data.List (elemIndices, findIndex, sort, transpose, sortOn, nub)
 import Data.List.Extra (nubSort, groupSortOn, allSame, nubSortOn, anySame, (!?))
 import Data.Tuple.Extra (both)
 import Data.Map.Strict ((!))
@@ -18,7 +18,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust, fromMaybe, isJust)
 
 import Utils.Utils ((|>), (.>), guarded, label)
-import Utils.DisjointSet (bipartiteEqclass)
+import Utils.DisjointSet (bipartiteEqclass, bipartiteEqclassOn)
 import BAC.Base
 
 -- $setup
@@ -373,38 +373,66 @@ addMorphism src tgt src_alts tgt_alts val node = do
 
 -- * Split Morphism, Object, Category
 
-partitionMorphism :: Symbol -> Node e -> Maybe [[(Symbol, Symbol)]]
-partitionMorphism tgt node = do
-  guard $ root node |> locate tgt |> (== Inner)
-  return $
-    edges node
-    |> fmap snd
-    |> concatMap find3Chains
-    |> fmap symbol3
-    |> bipartiteEqclass
-    |> fmap fst
-    |> fmap sort
-    |> sort
-  where
-  find3Chains :: Arrow e -> [(Arrow e, Arrow e, Arrow e)]
-  find3Chains arr =
-    dict arr
-    |> Map.filter (== tgt)
-    |> Map.keys
-    |> concatMap (suffix (target arr) .> nubSortOn symbol2)
-    |> fmap (\(b, c) -> (arr, b, c))
-  symbol3 :: (Arrow e, Arrow e, Arrow e) -> ((Symbol, Symbol), (Symbol, Symbol))
-  symbol3 (arr1, arr2, arr3) = ((sym1, sym23), (sym12, sym3))
-    where
-    sym1  = dict arr1                                 ! base
-    sym23 =                 dict arr2 `cat` dict arr3 ! base
-    sym12 = dict arr1 `cat` dict arr2                 ! base
-    sym3  =                                 dict arr3 ! base
+{- |
+Partition a morphism.
+It returns a partition of `prefix` of the given symbol, where the objects represented by
+the elements in each group are unsplittable in the section category of the arrow specified
+by `tgt`.
 
-splitMorphism :: Ord k => (Symbol, Symbol) -> [k] -> Node e -> Maybe (Node e)
+Examples:
+
+>>> fmap (fmap symbol2) (partitionPrefix cone 2)
+[[(1,1)],[(3,2)]]
+-}
+partitionPrefix :: Node e -> Symbol -> [[(Arrow e, Arrow e)]]
+partitionPrefix node tgt =
+  prefix node tgt
+  |> concatMap (\(arr1, arr23) -> suffix (target arr1) (symbol arr23) |> fmap (arr1,))
+  |> fmap (\(arr1, (arr2, arr3)) -> ((arr1, arr2 `join` arr3), (arr1 `join` arr2, arr3)))
+  |> bipartiteEqclassOn symbol2 symbol2
+  |> fmap fst
+  |> fmap (sortOn symbol2)
+  |> sortOn (fmap symbol2)
+
+{- |
+Split a symbol on a node.
+
+Examples:
+
+>>> printNode' $ fromJust $ splitMorphism (0,2) [0,1::Int] cone
+- 0->1; 1->2
+  - 0->1
+- 0->3; 1->4; 2->8; 3->6; 4->4
+  - 0->1; 1->2; 2->3
+    &0
+    - 0->1
+    - 0->2
+  - 0->4; 1->2; 2->3
+    *0
+
+>>> printNode' $ fromJust $ splitMorphism (3,2) [0,1::Int] cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4; 6->2
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+  - 0->4; 1->6; 2->3
+    *1
+-}
+splitMorphism ::
+  Eq k
+  => (Symbol, Symbol)  -- ^ The symbols reference to the morphism to split.
+  -> [k]               -- ^ The keys to classify splittable groups given by `partitionPrefix`.
+  -> Node e            -- ^ The root node of BAC.
+  -> Maybe (Node e)    -- ^ The result.
 splitMorphism (src, tgt) splittable_keys node = do
   src_arr <- node |> arrow src
-  splittable_groups <- partitionMorphism tgt (target src_arr)
+  guard $ root node |> locate tgt |> (== Inner)
+  let splittable_groups = partitionPrefix (target src_arr) tgt |> fmap (fmap symbol2)
   guard $ length splittable_groups == length splittable_keys
 
   let src_syms = target src_arr |> symbols
@@ -450,7 +478,7 @@ partitionObject node = links |> bipartiteEqclass |> fmap (snd .> sort) |> sort
     sym <- dict arr |> Map.elems
     return (sym0, sym)
 
-splitObject :: Ord k => Symbol -> [k] -> Node e -> Maybe (Node e)
+splitObject :: Eq k => Symbol -> [k] -> Node e -> Maybe (Node e)
 splitObject tgt splittable_keys node = do
   guard $ root node |> locate tgt |> (== Inner)
   tgt_arr <- node |> arrow tgt
@@ -459,7 +487,7 @@ splitObject tgt splittable_keys node = do
 
   let splitted_groups =
         splittable_keys
-        |> nubSort
+        |> nub
         |> fmap (`elemIndices` splittable_keys)
         |> fmap (concatMap (splittable_groups !!))
   let splitSym syms s =
@@ -494,14 +522,14 @@ splitObject tgt splittable_keys node = do
             dict arr |> Map.toList |> mapMaybe split |> Map.fromList
       return (value, arr {dict = splitted_dict, target = res})
 
-splitCategory :: Ord k => [k] -> Node e -> Maybe [Node e]
+splitCategory :: Eq k => [k] -> Node e -> Maybe [Node e]
 splitCategory splittable_keys node = do
   let splittable_groups = partitionObject node
   guard $ length splittable_groups == length splittable_keys
 
   let splitted_groups =
         splittable_keys
-        |> nubSort
+        |> nub
         |> fmap (`elemIndices` splittable_keys)
         |> fmap (concatMap (splittable_groups !!))
 
@@ -673,10 +701,7 @@ trimObject tgt node = do
       where
       filtered_dict = dict arr |> Map.filter (\s -> dict curr ! s /= tgt)
 
-insertMorphism ::
-  (Symbol, Maybe Symbol)
-  -> (e, e)
-  -> Node e -> Maybe (Node e)
+insertMorphism :: (Symbol, Maybe Symbol) -> (e, e) -> Node e -> Maybe (Node e)
 insertMorphism (src, tgt) (val1, val2) node = do
   src_arr <- node |> arrow src
   let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
