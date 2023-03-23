@@ -286,7 +286,6 @@ prepareForAddMorphism src tgt node = do
           let ang = ((arr1, arr2), (arr1, arr2'))
           guard $ validateCoangle node ang
           return ang
-  guard $ src_alts |> all notNull
   let tgt_alts = sortOn (fmap (both symbol2)) do
         arr <- edges (target tgt_arr) |> fmap snd |> nubSortOn symbol
         guard $ nondecomposable (target tgt_arr) (symbol arr)
@@ -295,7 +294,6 @@ prepareForAddMorphism src tgt node = do
           let ang = ((tgt_arr, arr), (src_arr, arr'))
           guard $ validateAngle ang
           return ang
-  guard $ tgt_alts |> all notNull
   return (src_alts, tgt_alts)
 
 {- |
