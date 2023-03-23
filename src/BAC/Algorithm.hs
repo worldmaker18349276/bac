@@ -48,7 +48,9 @@ Examples:
 >>> printNode' (singleton ())
 - 0->1
 -}
-singleton :: e -> Node e
+singleton ::
+  e           -- ^ The data of the only edge.
+  -> Node e   -- ^ The result.
 singleton val = Node {edges = [(val, new_arr)]}
   where
   new_sym = base + 1
@@ -59,8 +61,7 @@ singleton val = Node {edges = [(val, new_arr)]}
 -- * Remove Morphism, Object
 
 {- |
-Prepare for removing a morphism.  The results are the edges need to be added, or Nothing
-if it is invalid.
+Prepare for removing a morphism.
 
 Examples:
 
@@ -74,7 +75,12 @@ Just ([(3,3)],[])
 Just ([],[(0,4)])
 -}
 prepareForRemoveMorphism ::
-  (Symbol, Symbol) -> Node e -> Maybe ([(Arrow e, Arrow e)], [(Arrow e, Arrow e)])
+  (Symbol, Symbol)  -- ^ The tuple of symbols indicating the morphism to be removed.
+  -> Node e         -- ^ The root node of BAC.
+  -> Maybe ([(Arrow e, Arrow e)], [(Arrow e, Arrow e)])
+                    -- ^ Tuples of arrows indicating the edges need to be added.
+                    --   The first list is the edges skipping the source object, and the
+                    --   second list is the edges skipping the target object.
 prepareForRemoveMorphism (src, tgt) node = do
   guard $ tgt /= base
   (src_arr, tgt_arr) <- arrow2 (src, tgt) node
@@ -113,7 +119,10 @@ Examples:
 >>> removeMorphism (4, 2) cone
 Nothing
 -}
-removeMorphism :: (Symbol, Symbol) -> Node e -> Maybe (Node e)
+removeMorphism ::
+  (Symbol, Symbol)   -- ^ The tuple of symbols indicate the morphism to be removed.
+  -> Node e          -- ^ The root node of BAC.
+  -> Maybe (Node e)  -- ^ The result.
 removeMorphism (src, tgt) node = do
   guard $
     prepareForRemoveMorphism (src, tgt) node
@@ -148,7 +157,10 @@ Examples:
 >>> removeObject 4 cone
 Nothing
 -}
-removeObject :: Symbol -> Node e -> Maybe (Node e)
+removeObject ::
+  Symbol             -- ^ The symbol indicates the object to be removed.
+  -> Node e          -- ^ The root node of BAC.
+  -> Maybe (Node e)  -- ^ The result.
 removeObject tgt node = do
   guard $ root node |> locate tgt |> (== Inner)
   tgt_arr <- node |> arrow tgt
@@ -163,21 +175,21 @@ removeObject tgt node = do
 
 -- * Add Morphism
 
--- | Two morphisms where forks of the first morphism are also forks of the second morphism.
---   A fork of a morphism `f` is a pair of distinct morphisms `g`, 'g'' such that @f . g = f . g'@.
---   It indicates a possible option to determine the added edge between there target
---   objects of the second arrows.
-type Angle e = ((Arrow e, Arrow e), (Arrow e, Arrow e))
-
--- | Two morphisms where coforks of the first morphism are also coforks of the second morphism.
---   A cofork of a morphism `f` is a pair of distinct morphisms `g`, 'g'' such that @g . f = g' . f@.
---   It indicates a possible option to determine the added edge between there source
---   object of the second arrow.
+-- | Two tuples of arrows representing two morphisms where coforks of the first morphism
+--   are also coforks of the second morphism.  A cofork of a morphism `f` is a pair of
+--   distinct morphisms `g`, 'g'' such that @f . g = f . g'@.  This constraint shows the
+--   possibility to add an edge between them.
 type Coangle e = ((Arrow e, Arrow e), (Arrow e, Arrow e))
 
--- | Check whether a given value is a valid angle.
-validateAngle :: Node e -> Angle e -> Bool
-validateAngle node ((arr1, arr2), (arr1', arr2')) =
+-- | Two tuples of arrows representing two morphisms where forks of the first morphism are
+--   also forks of the second morphism.  A fork of a morphism `f` is a pair of distinct
+--   morphisms `g`, 'g'' such that @g . f = g' . f@.  This constraint shows the
+--   possibility to add an edge between them.
+type Angle e = ((Arrow e, Arrow e), (Arrow e, Arrow e))
+
+-- | Check whether a given value is a valid coangle.
+validateCoangle :: Node e -> Coangle e -> Bool
+validateCoangle node ((arr1, arr2), (arr1', arr2')) =
   symbol arr1 == symbol arr1'
   && (
     suffix node (symbol arr1)
@@ -188,9 +200,9 @@ validateAngle node ((arr1, arr2), (arr1', arr2')) =
     |> all allSame
   )
 
--- | Check whether a given value is a valid coangle.
-validateCoangle :: Coangle e -> Bool
-validateCoangle ((arr1, arr2), (arr1', arr2')) =
+-- | Check whether a given value is a valid angle.
+validateAngle :: Angle e -> Bool
+validateAngle ((arr1, arr2), (arr1', arr2')) =
   symbol (arr1 `join` arr2) == symbol (arr1' `join` arr2')
   && (
     edges (target arr2)
@@ -202,23 +214,23 @@ validateCoangle ((arr1, arr2), (arr1', arr2')) =
     |> all allSame
   )
 
--- | Check whether a list of coangles are compatible.
---   Coangle @(f, g)@ and coangle @(f', g')@ are compatible if @h . f = h . f'@ implies
+-- | Check whether a list of angles are compatible.
+--   Angle @(f, g)@ and angle @(f', g')@ are compatible if @h . f = h . f'@ implies
 --   @h . g = h . g'@ for all `h`.
-compatibleCoangles :: [Coangle e] -> Bool
-compatibleCoangles =
+compatibleAngles :: [Angle e] -> Bool
+compatibleAngles =
   concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
   .> nubSort
   .> fmap fst
   .> anySame
   .> not
 
--- | Check whether a list of angles are compatible.
---   Angle @(f, g)@ and angle @(f', g')@ are compatible if @f . h = f' . h@ implies
+-- | Check whether a list of coangles are compatible.
+--   Coangle @(f, g)@ and coangle @(f', g')@ are compatible if @f . h = f' . h@ implies
 --   @g . h = g' . h@ for all `h`.
-compatibleAngles :: Node e -> [Angle e] -> Bool
-compatibleAngles _ [] = True
-compatibleAngles node angs =
+compatibleCoangles :: Node e -> [Coangle e] -> Bool
+compatibleCoangles _ [] = True
+compatibleCoangles node angs =
   isJust $ sequence_ $ node |> foldUnder sym0 \curr results -> do
     results' <- traverse sequence results
     let pairs = do
@@ -235,10 +247,10 @@ compatibleAngles node angs =
   where
   sym0 = angs |> head |> fst |> fst |> symbol
 
--- | Check whether angles and coangles are compatible each others.
---   Angle @(f, g)@ and coangle @(g', f')@ are compatible if @f' . f = g' . g@.
-compatibleAnglesCoangles :: [Angle e] -> [Coangle e] -> Bool
-compatibleAnglesCoangles src_angs tgt_angs =
+-- | Check whether coangles and angles are compatible each others.
+--   Coangle @(f, g)@ and angle @(g', f')@ are compatible if @f' . f = g' . g@.
+compatibleCoanglesAngles :: [Coangle e] -> [Angle e] -> Bool
+compatibleCoanglesAngles src_angs tgt_angs =
   tgt_angs |> all \(_, (arr1, arr2)) ->
     let
       sym1 = dict arr1 ! base
@@ -252,11 +264,16 @@ Prepare for adding a morphism.  The results are the angles and coangles need to 
 selected, or Nothing if it is invalid.
 
 Examples:
+
 >>> both (fmap (fmap (both symbol2))) $ fromJust $ prepareForAddMorphism 1 6 cone
 ([[((0,1),(0,6))]],[])
 -}
 prepareForAddMorphism ::
-  Symbol -> Symbol -> Node e -> Maybe ([[Angle e]], [[Coangle e]])
+  Symbol      -- ^ The symbol indicating the source object of the morphism to be added.
+  -> Symbol   -- ^ The symbol indicating the target object of the morphism to be added.
+  -> Node e   -- ^ The root node of BAC.
+  -> Maybe ([[Coangle e]], [[Angle e]])
+              -- ^ The coangles and angles need to be selected, or Nothing if it is invalid.
 prepareForAddMorphism src tgt node = do
   src_arr <- arrow src node
   tgt_arr <- arrow tgt node
@@ -267,7 +284,7 @@ prepareForAddMorphism src tgt node = do
         return $ sortOn (both symbol2) do
           arr2' <- arr1 `divide` tgt_arr
           let ang = ((arr1, arr2), (arr1, arr2'))
-          guard $ validateAngle node ang
+          guard $ validateCoangle node ang
           return ang
   guard $ src_alts |> all notNull
   let tgt_alts = sortOn (fmap (both symbol2)) do
@@ -276,7 +293,7 @@ prepareForAddMorphism src tgt node = do
         return $ sortOn (both symbol2) do
           arr' <- src_arr `divide` (tgt_arr `join` arr)
           let ang = ((tgt_arr, arr), (src_arr, arr'))
-          guard $ validateCoangle ang
+          guard $ validateAngle ang
           return ang
   guard $ tgt_alts |> all notNull
   return (src_alts, tgt_alts)
@@ -302,7 +319,14 @@ Examples:
   - 0->4; 1->2; 2->3
     *2
 -}
-addMorphism :: Symbol -> Symbol -> [Int] -> [Int] -> e -> Node e -> Maybe (Node e)
+addMorphism ::
+  Symbol             -- ^ The symbol indicating the source object of the morphism to be added.
+  -> Symbol          -- ^ The symbol indicating the target object of the morphism to be added.
+  -> [Int]           -- ^ The indices of coangles given by `prepareForAddMorphism`.
+  -> [Int]           -- ^ The indices of angles given by `prepareForAddMorphism`.
+  -> e               -- ^ The value of the edge to be added.
+  -> Node e          -- ^ The root node of BAC.
+  -> Maybe (Node e)  -- ^ The result.
 addMorphism src tgt src_alts tgt_alts val node = do
   src_arr <- node |> arrow src
   tgt_arr <- node |> arrow tgt
@@ -314,9 +338,9 @@ addMorphism src tgt src_alts tgt_alts val node = do
   src_angs' <- src_angs `zip` src_alts |> traverse (uncurry (!?))
   tgt_angs' <- tgt_angs `zip` tgt_alts |> traverse (uncurry (!?))
 
-  guard $ compatibleCoangles tgt_angs'
-  guard $ compatibleAnglesCoangles src_angs' tgt_angs'
-  guard $ compatibleAngles node src_angs'
+  guard $ compatibleAngles tgt_angs'
+  guard $ compatibleCoanglesAngles src_angs' tgt_angs'
+  guard $ compatibleCoangles node src_angs'
 
   let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
   let new_dict =
