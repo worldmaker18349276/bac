@@ -374,7 +374,7 @@ addMorphism src tgt src_alts tgt_alts val node = do
 -- * Split Morphism, Object, Category
 
 {- |
-Partition a morphism.
+Partition the prefixes of a morphism.
 It returns a partition of `prefix` of the given symbol, where the objects represented by
 the elements in each group are unsplittable in the section category of the arrow specified
 by `tgt`.
@@ -469,35 +469,64 @@ splitMorphism (src, tgt) splittable_keys node = do
         | otherwise = [(s, r)]
       merged_dict = dict arr |> Map.toList |> concatMap merge |> Map.fromList
 
-partitionObject :: Node e -> [[Symbol]]
-partitionObject node = links |> bipartiteEqclass |> fmap (snd .> sort) |> sort
-  where
-  links = do
-    (_, arr) <- edges node
-    let sym0 = symbol arr
-    sym <- dict arr |> Map.elems
-    return (sym0, sym)
+{- |
+Partition symbols of a object.
+It returns a partition of `symbols` of the given node, where the objects represented by
+the elements in each group are unsplittable in the given bounded acyclic category.
 
-splitObject :: Eq k => Symbol -> [k] -> Node e -> Maybe (Node e)
+Examples:
+
+>>> partitionSymbols $ cone
+[[1,2,3,4,6]]
+
+>>> partitionSymbols $ target $ fromJust $ arrow 1 crescent
+[[1,2,3],[5,6,7]]
+-}
+partitionSymbols :: Node e -> [[Symbol]]
+partitionSymbols =
+  edges
+  .> fmap (snd .> dict .> Map.elems)
+  .> zip [0 :: Int ..]
+  .> concatMap sequence
+  .> bipartiteEqclass
+  .> fmap (snd .> sort)
+  .> sort
+
+{- |
+Split a node referenced by a symbol.
+
+Examples:
+
+>>> printNode' $ fromJust $ splitObject 1 [0,1::Int] crescent
+- 0->1; 1->2; 2->3; 3->2
+  - 0->1; 1->2
+    &0
+    - 0->1
+      &1
+  - 0->3; 1->2
+    *0
+- 0->7; 5->6; 6->3; 7->6
+  - 0->5; 1->6
+    &2
+    - 0->1
+      *1
+  - 0->7; 1->6
+    *2
+-}
+splitObject ::
+  Eq k
+  => Symbol          -- ^ The symbol referencing the node to be splitted.
+  -> [k]             -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
+  -> Node e          -- ^ The root node of BAC.
+  -> Maybe (Node e)  -- ^ The result.
 splitObject tgt splittable_keys node = do
   guard $ root node |> locate tgt |> (== Inner)
   tgt_arr <- node |> arrow tgt
-  let splittable_groups = partitionObject (target tgt_arr)
-  guard $ length splittable_groups == length splittable_keys
+  res0 <- splitCategory splittable_keys (target tgt_arr)
 
-  let splitted_groups =
-        splittable_keys
-        |> nub
-        |> fmap (`elemIndices` splittable_keys)
-        |> fmap (concatMap (splittable_groups !!))
-  let splitSym syms s =
+  let splitSym :: [Symbol] -> Symbol -> [Symbol]
+      splitSym syms s =
         splittable_keys |> label 0 |> fmap (\i -> maximum syms * i + s)
-
-  let splitted_res = do
-        group <- splitted_groups
-        let splitted_edges =
-              edges (target tgt_arr) |> filter (\(_, arr) -> symbol arr `elem` group)
-        return $ Node splitted_edges
 
   fromInner $ node |> modifyUnder tgt \(curr, (value, arr)) -> \case
     AtOuter -> return (value, arr)
@@ -513,18 +542,42 @@ splitObject tgt splittable_keys node = do
     AtBoundary -> do
       let r_syms = target curr |> symbols
       let splitted_syms = splitSym r_syms (symbol arr)
-      ((group, sym), res) <- splitted_groups `zip` splitted_syms `zip` splitted_res
+      (sym, res) <- splitted_syms `zip` res0
       let split (s, r)
-            | s == base      = Just (base, sym)
-            | s `elem` group = Just (s, r)
-            | otherwise      = Nothing
+            | s == base                    = Just (base, sym)
+            | locate s (root res) == Inner = Just (s, r)
+            | otherwise                    = Nothing
       let splitted_dict =
             dict arr |> Map.toList |> mapMaybe split |> Map.fromList
       return (value, arr {dict = splitted_dict, target = res})
 
-splitCategory :: Eq k => [k] -> Node e -> Maybe [Node e]
+{- |
+Split a root node.
+
+Examples:
+
+>>> let crescent_1 = target $ fromJust $ arrow 1 crescent
+>>> traverse_ printNode' $ fromJust $ splitCategory [0,1::Int] crescent_1
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->2
+  - 0->1
+    *0
+- 0->5; 1->6
+  - 0->1
+    &0
+- 0->7; 1->6
+  - 0->1
+    *0
+-}
+splitCategory ::
+  Eq k
+  => [k]             -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
+  -> Node e          -- ^ The root node of BAC.
+  -> Maybe [Node e]  -- ^ The list of the root nodes representing splitted categories.
 splitCategory splittable_keys node = do
-  let splittable_groups = partitionObject node
+  let splittable_groups = partitionSymbols node
   guard $ length splittable_groups == length splittable_keys
 
   let splitted_groups =
