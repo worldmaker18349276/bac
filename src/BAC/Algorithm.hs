@@ -8,7 +8,7 @@ module BAC.Algorithm where
 
 import Control.Monad (guard, MonadPlus (mzero), void)
 import Data.Bifunctor (Bifunctor (first, second))
-import Data.Foldable (traverse_, find)
+import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
 import Data.List (elemIndices, findIndex, sort, transpose, sortOn, nub)
 import Data.List.Extra (nubSort, groupSortOn, allSame, nubSortOn, anySame, (!?))
@@ -25,6 +25,7 @@ import BAC.Base
 -- The example code below runs with the following settings:
 --
 -- >>> import Data.Tuple.Extra (both)
+-- >>> import Data.Foldable (traverse_)
 -- >>> import BAC.Serialize
 -- >>> import BAC.Examples (cone, torus, crescent)
 
@@ -594,18 +595,39 @@ splitCategory splittable_keys node = do
 
 -- * Merge Morphisms, Objects, Categories
 
-mergeMorphisms :: Symbol -> [Symbol] -> Node e -> Maybe (Node e)
-mergeMorphisms src tgts node = do
-  src_arr <- node |> arrow src
+{- |
+Merge symbols on a node.
 
+Examples:
+
+>>> printNode' $ fromJust $ mergeMorphisms (1,[1,3]) crescent
+- 0->1; 1->2; 2->3; 5->6; 6->3; 7->6
+  - 0->1; 1->2
+    &0
+    - 0->1
+      &1
+  - 0->1; 1->2
+    *0
+  - 0->5; 1->6
+    &2
+    - 0->1
+      *1
+  - 0->7; 1->6
+    *2
+-}
+mergeMorphisms ::
+  (Symbol, [Symbol])  -- ^ The symbol referencing the node and symbols to be merged.
+  -> Node e           -- ^ The root node of BAC.
+  -> Maybe (Node e)   -- ^ The result.
+mergeMorphisms (src, tgts) node = do
+  guard $ notNull tgts
+  src_arr <- node |> arrow src
   tgt_arrs <- tgts |> traverse \tgt -> target src_arr |> arrow tgt
-  guard $ notNull tgt_arrs
   guard $ tgt_arrs |> fmap (dict .> Map.delete base) |> allSame
   guard $
     src /= base
     || (tgt_arrs |> fmap (target .> edges .> fmap snd .> fmap dict) |> allSame)
-  suffix node src |> traverse_ \(_, arr) ->
-    guard $ tgts |> fmap (dict arr !) |> allSame
+  guard $ suffix node src |> all \(_, arr) -> tgts |> fmap (dict arr !) |> allSame
 
   let merge s = if s `elem` tgts then head tgts else s
 
