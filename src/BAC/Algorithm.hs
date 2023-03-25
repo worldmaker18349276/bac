@@ -11,7 +11,7 @@ import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
 import Data.List (elemIndices, findIndex, sort, transpose, sortOn, nub)
-import Data.List.Extra (nubSort, groupSortOn, allSame, nubSortOn, anySame, (!?))
+import Data.List.Extra (nubSort, groupSortOn, allSame, nubSortOn, anySame, (!?), groupOnKey)
 import Data.Tuple.Extra (both)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
@@ -645,36 +645,44 @@ mergeMorphisms (src, tgts) node = do
 
 mergeObjects :: [Symbol] -> Node e -> Maybe (Node e)
 mergeObjects tgts node = do
+  guard $ notNull tgts
+  tgt_nodes <- tgts |> traverse (`arrow` node) |> fmap (fmap target)
+
   let tgt_pars =
-        tgts |> fmap (
+        tgts
+        |> fmap (
           suffix node
-          .> filter (\(arr, arr') -> symbol arr' |> nondecomposable (target arr))
+          .> filter (\(arr, arr') -> nondecomposable (target arr) (symbol arr'))
           .> nubSortOn symbol2
         )
 
-  guard $ notNull tgt_pars
   guard $ tgt_pars |> fmap length |> allSame
   guard $ transpose tgt_pars |> all (fmap (fst .> symbol) .> allSame)
+  let collapse0 =
+        transpose tgt_pars
+        |> fmap (fmap symbol2)
+        |> groupOnKey (head .> fst)
+        |> fmap (second (fmap (fmap snd))) -- :: [(a, [[(b, c)]])] -> [(a, [[c]])]
+        |> Map.fromList
 
-  let tgt_nodes = tgts |> fmap (`arrow` node) |> fmap (fromJust .> target)
   let merged_node = mergeCategories tgt_nodes
-  let merging_nums = tgt_nodes |> fmap (symbols .> maximum) |> scanl (+) 0
+  let merging_offsets = tgt_nodes |> fmap (symbols .> maximum) |> scanl (+) 0
 
   let merged_dicts = Map.fromList do
         arr_arrs <- transpose tgt_pars
         let merged_wire =
-              arr_arrs |> fmap (snd .> symbol) |> sort |> head |> (base,)
+              arr_arrs |> fmap (snd .> symbol) |> head |> (base,)
         let merged_dict =
               arr_arrs
               |> fmap (snd .> dict .> Map.delete base .> Map.toList)
-              |> zip merging_nums
-              |> concatMap (\(num, dict) -> dict |> fmap (first (+ num)))
+              |> zip merging_offsets
+              |> concatMap (\(offset, dict) -> dict |> fmap (first (+ offset)))
               |> (merged_wire :)
               |> Map.fromList
         key <- arr_arrs |> fmap symbol2
         return (key, merged_dict)
 
-  let placeholder = node
+  let placeholder = empty
   let tgt = head tgts
   located_res <- sequence $
     node |> foldUnder tgt \curr results -> do
@@ -683,18 +691,15 @@ mergeObjects tgts node = do
         |> traverse sequence
         |> fmap (fmap (fromInner .> fromMaybe (placeholder, [])))
 
-      let collapse1 =
-            results' `zip` edges (target curr)
-            |> concatMap (\((_, lists), (_, arr)) -> lists |> fmap (fmap (dict arr !)))
-      let collapse2 =
-            edges (target curr)
-            |> fmap snd
-            |> fmap ((curr,) .> symbol2)
-            |> filter (`Map.member` merged_dicts)
-            |> groupSortOn (merged_dicts !)
-            |> fmap (fmap snd)
       let collapse =
-            (collapse1 ++ collapse2) |> fmap sort |> nubSort
+            results'
+            |> fmap snd
+            |> zip (edges (target curr))
+            |> concatMap (\((_, arr), collapse') -> collapse' |> fmap (fmap (dict arr !)))
+            |> (++ fromMaybe [] (Map.lookup (symbol curr) collapse0))
+            |> fmap sort
+            |> nubSort
+
       guard $ collapse |> concat |> anySame |> not
 
       let collapsed_edges = do
@@ -752,11 +757,11 @@ Examples:
 mergeCategories :: [Node e] -> Node e
 mergeCategories nodes = Node {edges = merged_edges}
   where
-  nums = nodes |> fmap (symbols .> maximum) |> scanl (+) 0
+  offsets = nodes |> fmap (symbols .> maximum) |> scanl (+) 0
   merged_edges = do
-    (num, node) <- zip nums nodes
+    (offset, node) <- zip offsets nodes
     (value, arr) <- edges node
-    let dict' = dict arr |> fmap (+ num)
+    let dict' = dict arr |> fmap (+ offset)
     return (value, arr {dict = dict'})
 
 -- * Advanced Operations
