@@ -61,7 +61,7 @@ library
     exposed-modules:  BAC, BAC.Base, BAC.Algorithm, BAC.Braider, BAC.Serialize, BAC.Examples
 
     -- Modules included in this library but not exported.
-    other-modules:  Utils.DisjointSet, Utils.DAG, Utils.Memoize, Utils.Utils
+    other-modules:  Utils.DisjointSet, Utils.DAG, Utils.Memoize, Utils.Utils, Utils.EqlistSet
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

@@ -9,7 +9,7 @@ module BAC.Base where
 import Control.Monad (guard)
 import Data.Bifunctor (bimap, Bifunctor (second))
 import Data.Foldable (toList)
-import Data.List.Extra (groupSortOn, nubSort, allSame)
+import Data.List.Extra (groupSortOn, nubSort, allSame, nubSortOn)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe, listToMaybe, fromMaybe)
@@ -21,6 +21,7 @@ import GHC.Stack (HasCallStack)
 
 import Utils.Memoize (unsafeMemoizeWithKey)
 import Utils.Utils ((.>), (|>), guarded, orEmpty)
+import Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet)
 
 -- $setup
 -- The example code below runs with the following settings:
@@ -284,6 +285,13 @@ nondecomposable node sym =
   (root node |> locate sym |> (/= Outer))
   && (edges node |> fmap snd |> all (locate sym .> (/= Inner)))
 
+ndEdges :: Node e -> [Arrow e]
+ndEdges node =
+  edges node
+  |> fmap snd
+  |> filter (symbol .> nondecomposable node)
+  |> nubSortOn symbol
+
 -- ** Validation #validation#
 
 -- | Check if an arrow is valid.  To validate a node, try @validate (root node)@.
@@ -323,6 +331,30 @@ validateAll :: Arrow e -> Bool
 validateAll arr = validateChildren && validate arr
   where
   validateChildren = edges (target arr) |> fmap snd |> all validateAll
+
+-- | Check structural equality of nodes up to rewiring.
+--   The symbols of nodes should be the same, and equality of child nodes are not checked.
+sameStruct :: [Node e] -> Bool
+sameStruct = fmap ndEdges .> fmap (fmap dict) .> allSame
+
+canonicalize :: Node e -> [Dict]
+canonicalize =
+  ndEdges
+  .> fmap dict
+  .> fmap Map.elems
+  .> canonicalizeEqlistSet
+  .> fmap (base :)
+  .> fmap ((`zip` [base..]) .> Map.fromList)
+
+canonicalizeArrow :: Arrow e -> [Dict]
+canonicalizeArrow arr =
+  target arr
+  |> ndEdges
+  |> fmap dict
+  |> fmap Map.elems
+  |> canonicalizeGradedEqlistSet (dict arr !)
+  |> fmap (base :)
+  |> fmap ((`zip` [base..]) .> Map.fromList)
 
 -- | Make a node with validation.
 makeNode :: [Edge e] -> Maybe (Node e)
