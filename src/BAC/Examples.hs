@@ -11,6 +11,8 @@ import Data.Map (Map, fromList)
 -- >>> import BAC.Serialize
 
 {- |
+![cone](./pictures/cone-serialize.png)
+
 >>> printNode' cone
 - 0->1; 1->2
   - 0->1
@@ -45,6 +47,8 @@ coneNames = fromList
   ]
 
 {- |
+![torus](./pictures/torus-serialize.png)
+
 >>> printNode' torus
 - 0->1; 1->2; 2->3; 3->3; 4->5; 6->3; 7->2; 8->3; 10->5
   - 0->1; 1->2; 2->3
@@ -89,6 +93,9 @@ torusNames = fromList
   ]
 
 {- |
+
+![crescent](./pictures/crescent-serialize.png)
+
 >>> printNode' crescent
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4
   - 0->1; 1->2
