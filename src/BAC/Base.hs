@@ -185,6 +185,27 @@ arrow sym = root .> go
 symbol :: Arrow e -> Symbol
 symbol = dict .> (! base)
 
+-- | Check if the given symbol reference to a nondecomposable initial morphism.
+--
+--   Examples:
+--
+--   >>> nondecomposable cone 3
+--   True
+--
+--   >>> nondecomposable cone 4
+--   False
+nondecomposable :: Node e -> Symbol -> Bool
+nondecomposable node sym =
+  (root node |> locate sym |> (/= Outer))
+  && (edges node |> fmap snd |> all (locate sym .> (/= Inner)))
+
+ndEdges :: Node e -> [Arrow e]
+ndEdges node =
+  edges node
+  |> fmap snd
+  |> filter (symbol .> nondecomposable node)
+  |> nubSortOn symbol
+
 -- ** Tuple of Arrows
 
 -- | Make a 2-chain by given pair of symbols.
@@ -283,27 +304,6 @@ ndSuffix node sym =
   |> filter (\(arr1, arr2) -> nondecomposable (target arr1) (symbol arr2))
   |> nubSortOn symbol2
 
--- | Check if the given symbol reference to a nondecomposable initial morphism.
---
---   Examples:
---
---   >>> nondecomposable cone 3
---   True
---
---   >>> nondecomposable cone 4
---   False
-nondecomposable :: Node e -> Symbol -> Bool
-nondecomposable node sym =
-  (root node |> locate sym |> (/= Outer))
-  && (edges node |> fmap snd |> all (locate sym .> (/= Inner)))
-
-ndEdges :: Node e -> [Arrow e]
-ndEdges node =
-  edges node
-  |> fmap snd
-  |> filter (symbol .> nondecomposable node)
-  |> nubSortOn symbol
-
 -- ** Validation #validation#
 
 -- | Check if an arrow is valid.  To validate a node, try @validate (root node)@.
@@ -328,21 +328,31 @@ validate arr = validateDicts && validateSup
 --
 --   Examples:
 --
---   >>> validateAll (root cone)
+--   >>> validateAll $ root cone
 --   True
 --
---   >>> validateAll (root torus)
+--   >>> validateAll $ root torus
 --   True
 --
---   >>> validateAll (root crescent)
+--   >>> validateAll $ root crescent
 --   True
 --
---   >>> fmap validateAll (arrow 3 cone)
---   Just True
+--   >>> validateAll $ fromJust $ arrow 3 cone
+--   True
 validateAll :: Arrow e -> Bool
 validateAll arr = validateChildren && validate arr
   where
   validateChildren = edges (target arr) |> fmap snd |> all validateAll
+
+-- | Make a node with validation.
+makeNode :: [Edge e] -> Maybe (Node e)
+makeNode edges = guarded (root .> validate) (Node {edges = edges})
+
+-- | Make an arrow with validation.
+makeArrow :: Dict -> Node e -> Maybe (Arrow e)
+makeArrow dict target = guarded validate (Arrow {dict = dict, target = target})
+
+-- * Isomorphism #isomorphism#
 
 -- | Check structural equality of nodes up to rewiring.
 --   The symbols of nodes should be the same, and equality of child nodes are not checked.
@@ -385,14 +395,6 @@ canonicalizeArrow arr =
   |> canonicalizeGradedEqlistSet (dict arr !)
   |> fmap (base :)
   |> fmap ((`zip` [base..]) .> Map.fromList)
-
--- | Make a node with validation.
-makeNode :: [Edge e] -> Maybe (Node e)
-makeNode edges = guarded (root .> validate) (Node {edges = edges})
-
--- | Make an arrow with validation.
-makeArrow :: Dict -> Node e -> Maybe (Arrow e)
-makeArrow dict target = guarded validate (Arrow {dict = dict, target = target})
 
 -- * Folding #folding#
 
