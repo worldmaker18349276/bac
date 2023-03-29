@@ -90,17 +90,17 @@ torusNames = fromList
 
 {- |
 >>> printNode' crescent
-- 0->1; 1->2; 2->3; 3->2; 5->6; 6->3; 7->6
+- 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4
   - 0->1; 1->2
     &0
     - 0->1
       &1
   - 0->3; 1->2
-    *0
-  - 0->5; 1->6
     &2
     - 0->1
       *1
+  - 0->5; 1->6
+    *0
   - 0->7; 1->6
     *2
 -}
@@ -109,13 +109,13 @@ crescent = fromJust $ braid $ do
   s <- knot' []
   c <- knot' [s]
   c' <- knot' [s]
-  p <- knot' [c, c, c', c']
+  p <- knot' [c, c', c, c']
     // [[0,0], [1,0]]
     // [[2,0], [3,0]]
   knot' [p]
-    // [[0,0,0], [0,2,0]]
-    // [[0,0], [0,1]]
-    // [[0,2], [0,3]]
+    // [[0,0,0], [0,1,0]]
+    // [[0,0], [0,2]]
+    // [[0,1], [0,3]]
 
 crescentNames :: Map Symbol String
 crescentNames = fromList
@@ -124,5 +124,5 @@ crescentNames = fromList
     (1, "point"),
     (2, "circle"),
     (3, "crescent"),
-    (6, "circle'")
+    (4, "circle'")
   ]

@@ -86,7 +86,7 @@ base = 0
 --   [0,1,2,3,5]
 --
 --   >>> symbols crescent
---   [0,1,2,3,6]
+--   [0,1,2,3,4]
 symbols :: Node e -> [Symbol]
 symbols = edges .> fmap snd .> concatMap (dict .> Map.elems) .> (base :) .> nubSort
 
