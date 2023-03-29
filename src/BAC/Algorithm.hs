@@ -97,7 +97,7 @@ prepareForRemoveMorphism (src, tgt) node = do
         arr <- edges (target tgt_arr) |> fmap snd |> nubSortOn symbol
         guard $ nondecomposable (target tgt_arr) (symbol arr)
         guard $
-          prefix (target src_arr) (symbol (tgt_arr `join` tgt_arr))
+          prefix (target src_arr) (symbol (tgt_arr `join` arr))
           |> all (fst .> (src_arr,) .> symbol2 .> (== (src, tgt)))
         return (src_arr, tgt_arr `join` arr)
   return (src_alts, tgt_alts)
