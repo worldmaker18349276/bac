@@ -28,7 +28,7 @@ import Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet)
 --
 -- >>> import BAC.Serialize
 -- >>> import BAC.Examples (cone, torus, crescent)
--- >>> import Data.Map (fromList)
+-- >>> import Data.Map (fromList, elems)
 
 -- * Basic #basic#
 
@@ -346,9 +346,19 @@ validateAll arr = validateChildren && validate arr
 
 -- | Check structural equality of nodes up to rewiring.
 --   The symbols of nodes should be the same, and equality of child nodes are not checked.
+--   The node with the same structure can be unioned by merging their edges.
 sameStruct :: [Node e] -> Bool
 sameStruct = fmap ndEdges .> fmap (fmap dict) .> allSame
 
+-- | Find mappings to canonicalize the order of symbols of a node.  It will return
+--   multiple mappings if it possesses some symmetries.
+--   The absolute order has no meaning, but can be used to check the isomorphism between
+--   nodes.  The relative order between these mappings forms automorphism of this BAC.
+--
+--   Examples:
+--
+--   >>> fmap elems $ canonicalize $ target $ fromJust $ arrow 1 crescent
+--   [[0,1,2,3,4,5,6],[0,1,2,3,6,5,4],[0,3,2,1,4,5,6],[0,3,2,1,6,5,4],[0,4,5,6,1,2,3],[0,6,5,4,1,2,3],[0,4,5,6,3,2,1],[0,6,5,4,3,2,1]]
 canonicalize :: Node e -> [Dict]
 canonicalize =
   ndEdges
@@ -358,6 +368,14 @@ canonicalize =
   .> fmap (base :)
   .> fmap ((`zip` [base..]) .> Map.fromList)
 
+-- | Find mappings to canonicalize an arrow.
+--   The induced automorphisms are invariant under the mapping of the arrow.
+--   It can be used to check the isomorphism between arrows.
+--
+--   Examples:
+--
+--   >>> fmap elems $ canonicalizeArrow $ fromJust $ arrow 1 crescent
+--   [[0,1,2,5,3,4,6],[0,3,4,6,1,2,5]]
 canonicalizeArrow :: Arrow e -> [Dict]
 canonicalizeArrow arr =
   target arr
@@ -551,12 +569,12 @@ rewireEdges ::
   -> Maybe (Node e)  -- ^ The result.
 rewireEdges src tgts node = do
   src_arr <- node |> arrow src
-  let src_edges = edges (target src_arr)
+  let nd_syms = target src_arr |> ndEdges |> fmap symbol
   src_edges' <- tgts |> traverse (traverse (`arrow` target src_arr))
   let res0 = Node src_edges'
 
-  let nd_symbols = fmap (snd .> symbol) .> filter (nondecomposable (target src_arr))
-  guard $ nd_symbols src_edges == nd_symbols src_edges'
+  let nd_syms' = res0 |> ndEdges |> fmap symbol
+  guard $ nd_syms == nd_syms'
 
   fromReachable res0 $ node |> modifyUnder src \(_, (value, arr)) -> \case
     AtOuter -> return (value, arr)

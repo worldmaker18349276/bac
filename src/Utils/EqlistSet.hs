@@ -1,6 +1,6 @@
-module Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet, canonicalizeEqlistSetBruteForce) where
+module Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet, canonicalizeEqlistSetBruteForce, verify) where
 
-import Data.List.Extra (groupSortOn)
+import Data.List.Extra (groupSortOn, allSame)
 import Data.List (nub, elemIndex, sort, delete)
 import Data.Maybe (fromJust, fromMaybe)
 import Control.Arrow ((&&&))
@@ -8,7 +8,7 @@ import Control.Arrow ((&&&))
 
 type EqSet a = [a]
 
--- canonicalize a set of eqlists by relabeling.
+-- | Canonicalize a set of eqlists by relabeling.
 canonicalizeEqlistSetBruteForce :: Eq a => EqSet [a] -> [[a]]
 canonicalizeEqlistSetBruteForce eqlistset =
   head $ groupSortOn (`key` eqlistset) $ perms $ nub $ concat eqlistset
@@ -21,11 +21,38 @@ canonicalizeEqlistSetBruteForce eqlistset =
   inserts a [] = [[a]]
   inserts a (b:c) = (a:b:c) : ((b:) <$> inserts a c)
 
+-- | Verify the solution.
+--
+--   Examples:
+--
+--   >>> eqlistset = [[1,2], [2,3], [3,4], [4,1]] :: EqSet [Int]
+--   >>> verify eqlistset (canonicalizeEqlistSetBruteForce eqlistset)
+--   True
+--
+--   >>> eqlistset' = [[1,2,3], [3,2,1], [1,4,3], [3,4,1]] :: EqSet [Int]
+--   >>> verify eqlistset' (canonicalizeEqlistSetBruteForce eqlistset')
+--   True
+verify :: Eq a => EqSet [a] -> [[a]] -> Bool
+verify eqlistset orders = allSame $ fmap (`key` eqlistset) orders
+  where
+  key :: Eq a => [a] -> EqSet [a] -> [[Int]]
+  key order = sort . fmap (sort . fmap (fromJust . (`elemIndex` order)))
 
+-- | Canonicalize a set of eqlists by relabeling.
+--
+--   Examples:
+--
+--   >>> canonicalizeEqlistSet ([[1,2], [2,3], [3,4], [4,1]] :: EqSet [Int])
+--   [[1,2,4,3],[2,3,1,4],[3,4,2,1],[4,1,3,2]]
+--
+--   >>> canonicalizeEqlistSet ([[1,2,3], [3,2,1], [1,4,3], [3,4,1]] :: EqSet [Int])
+--   [[1,2,3,4],[3,2,1,4],[1,4,3,2],[3,4,1,2]]
 canonicalizeEqlistSet :: Eq a => EqSet [a] -> [[a]]
 canonicalizeEqlistSet = canonicalizeGradedEqlistSet (const ())
 
 -- TODO: further refine grades and groups by adjacent vertices
+
+-- | Canonicalize a set of graded eqlists by relabeling.
 canonicalizeGradedEqlistSet :: (Eq a, Ord g) => (a -> g) -> EqSet [a] -> [[a]]
 canonicalizeGradedEqlistSet grade =
   fmap fst . go . set . fmap (fmap nub) . groupSortOn (fmap grade &&& label)
