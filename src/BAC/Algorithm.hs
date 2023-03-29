@@ -87,15 +87,13 @@ prepareForRemoveMorphism (src, tgt) node = do
   (src_arr, tgt_arr) <- arrow2 (src, tgt) node
   guard $ nondecomposable (target src_arr) tgt
   let src_alts = nubSortOn symbol2 do
-        (arr1, arr2) <- suffix node src |> nubSortOn symbol2
-        guard $ nondecomposable (target arr1) (symbol arr2)
+        (arr1, arr2) <- src |> ndSuffix node
         guard $
           suffix (target arr1) (symbol (arr2 `join` tgt_arr))
           |> all (first (join arr1) .> symbol2 .> (== (src, tgt)))
         return (arr1, arr2 `join` tgt_arr)
   let tgt_alts = nubSortOn symbol2 do
-        arr <- edges (target tgt_arr) |> fmap snd |> nubSortOn symbol
-        guard $ nondecomposable (target tgt_arr) (symbol arr)
+        arr <- target tgt_arr |> ndEdges
         guard $
           prefix (target src_arr) (symbol (tgt_arr `join` arr))
           |> all (fst .> (src_arr,) .> symbol2 .> (== (src, tgt)))
@@ -193,9 +191,8 @@ validateCoangle :: Node e -> Coangle e -> Bool
 validateCoangle node ((arr1, arr2), (arr1', arr2')) =
   symbol arr1 == symbol arr1'
   && (
-    suffix node (symbol arr1)
-    |> nubSortOn symbol2
-    |> filter (\(a1, a2) -> nondecomposable (target a1) (symbol a2))
+    symbol arr1
+    |> ndSuffix node
     |> groupSortOn (\(a1, a2) -> symbol2 (a1, a2 `join` arr2))
     |> fmap (fmap \(a1, a2) -> symbol2 (a1, a2 `join` arr2'))
     |> all allSame
@@ -206,10 +203,8 @@ validateAngle :: Angle e -> Bool
 validateAngle ((arr1, arr2), (arr1', arr2')) =
   symbol (arr1 `join` arr2) == symbol (arr1' `join` arr2')
   && (
-    edges (target arr2)
-    |> fmap snd
-    |> nubSortOn symbol
-    |> filter (symbol .> nondecomposable (target arr2))
+    target arr2
+    |> ndEdges
     |> groupSortOn (\a -> symbol (arr2 `join` a))
     |> fmap (fmap \a -> symbol (arr2' `join` a))
     |> all allSame
@@ -280,16 +275,14 @@ prepareForAddMorphism src tgt node = do
   tgt_arr <- arrow tgt node
   guard $ locate src tgt_arr == Outer
   let src_alts = sortOn (fmap (both symbol2)) do
-        (arr1, arr2) <- suffix node src |> nubSortOn symbol2
-        guard $ nondecomposable (target arr1) (symbol arr2)
+        (arr1, arr2) <- src |> ndSuffix node
         return $ sortOn (both symbol2) do
           arr2' <- arr1 `divide` tgt_arr
           let ang = ((arr1, arr2), (arr1, arr2'))
           guard $ validateCoangle node ang
           return ang
   let tgt_alts = sortOn (fmap (both symbol2)) do
-        arr <- edges (target tgt_arr) |> fmap snd |> nubSortOn symbol
-        guard $ nondecomposable (target tgt_arr) (symbol arr)
+        arr <- target tgt_arr |> ndEdges
         return $ sortOn (both symbol2) do
           arr' <- src_arr `divide` (tgt_arr `join` arr)
           let ang = ((tgt_arr, arr), (src_arr, arr'))
@@ -652,13 +645,7 @@ mergeObjects tgts node = do
   guard $ notNull tgts
   tgt_nodes <- tgts |> traverse (`arrow` node) |> fmap (fmap target)
 
-  let tgt_pars =
-        tgts
-        |> fmap (
-          suffix node
-          .> filter (\(arr, arr') -> nondecomposable (target arr) (symbol arr'))
-          .> nubSortOn symbol2
-        )
+  let tgt_pars = tgts |> fmap (ndSuffix node)
 
   guard $ tgt_pars |> fmap length |> allSame
   guard $ transpose tgt_pars |> all (fmap (fst .> symbol) .> allSame)

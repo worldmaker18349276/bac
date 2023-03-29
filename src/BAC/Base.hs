@@ -259,6 +259,12 @@ prefix node sym =
     |> fmap snd
     |> mapMaybe (\arr -> divide arr tgt_arr |> listToMaybe |> fmap (arr,))
 
+ndPrefix :: Node e -> Symbol -> [(Arrow e, Arrow e)]
+ndPrefix node sym =
+  prefix node sym
+  |> filter (\(arr1, _) -> nondecomposable node (symbol arr1))
+  |> nubSortOn symbol2
+
 -- | Find suffix edges of a node under a given symbol.
 --   It obeys the following law:
 --
@@ -270,6 +276,12 @@ suffix node sym =
   node
   |> findMapUnder sym (\b r _ -> orEmpty (not b) r)
   |> fromMaybe [] 
+
+ndSuffix :: Node e -> Symbol -> [(Arrow e, Arrow e)]
+ndSuffix node sym =
+  suffix node sym
+  |> filter (\(arr1, arr2) -> nondecomposable (target arr1) (symbol arr2))
+  |> nubSortOn symbol2
 
 -- | Check if the given symbol reference to a nondecomposable initial morphism.
 --
