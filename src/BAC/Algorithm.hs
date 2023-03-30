@@ -11,7 +11,7 @@ import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
 import Data.List (elemIndices, findIndex, sort, transpose, sortOn, nub)
-import Data.List.Extra (nubSort, groupSortOn, allSame, nubSortOn, anySame, (!?), groupOnKey)
+import Data.List.Extra (nubSort, groupSortOn, allSame, nubSortOn, anySame, (!?))
 import Data.Tuple.Extra (both)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
@@ -343,18 +343,14 @@ addMorphism src tgt src_alts tgt_alts val node = do
         |> Map.fromList
   let new_edge = (val, Arrow {dict = new_dict, target = target tgt_arr})
 
-  let find_new_wire (arr1, arr2) =
-        src_angs'
-        |> find (fst .> symbol2 .> (== symbol2 (arr1, arr2)))
-        |> fmap snd
-        |> fmap (\(_, arr) -> (new_sym, symbol arr))
-        |> fromMaybe (
-          prefix (target arr1) (symbol arr2)
-          |> head
-          |> \(arr, arr2') ->
-            find_new_wire (arr1 `join` arr, arr2')
-            |> both (dict arr !)
-        )
+  let find_new_wire (arr1, arr23) =
+        ndSuffix (target arr1) (symbol arr23)
+        |> head
+        |> \(arr2, arr3) ->
+          src_angs'
+          |> find (fst .> symbol2 .> (== symbol2 (arr1 `join` arr2, arr3)))
+          |> fromJust
+          |> \(_, (_, arr)) -> (dict arr2 ! new_sym, dict arr2 ! symbol arr)
 
   let res0 = edges (target src_arr) |> (++ [new_edge]) |> Node
   fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
@@ -643,23 +639,36 @@ mergeMorphisms (src, tgts) node = do
 mergeObjects :: [Symbol] -> Node e -> Maybe (Node e)
 mergeObjects tgts node = do
   guard $ notNull tgts
+  let tgt = head tgts
   tgt_nodes <- tgts |> traverse (`arrow` node) |> fmap (fmap target)
 
   let tgt_pars = tgts |> fmap (ndSuffix node)
 
   guard $ tgt_pars |> fmap length |> allSame
   guard $ transpose tgt_pars |> all (fmap (fst .> symbol) .> allSame)
-  let collapse0 =
-        transpose tgt_pars
-        |> fmap (fmap symbol2)
-        |> groupOnKey (head .> fst)
-        |> fmap (second (fmap (fmap snd))) -- :: [(a, [[(b, c)]])] -> [(a, [[c]])]
-        |> Map.fromList
+
+  sequence_ $ node |> foldUnder tgt \curr results -> do
+    results' <- results |> traverse sequence
+
+    let collapse = nubSort $ fmap sort do
+          (lres, (_, arr)) <- results' `zip` edges (target curr)
+          case lres of
+            AtOuter -> mzero
+            AtInner res -> res |> fmap (fmap (dict arr !))
+            AtBoundary ->
+              transpose tgt_pars
+              |> fmap (fmap symbol2)
+              |> filter (head .> fst .> (== symbol curr))
+              |> fmap (fmap snd)
+
+    guard $ collapse |> concat |> anySame |> not
+
+    return collapse
 
   let merged_node = mergeCategories tgt_nodes
   let merging_offsets = tgt_nodes |> fmap (symbols .> maximum) |> scanl (+) 0
 
-  let merged_dicts = Map.fromList do
+  let nd_merged_dicts = Map.fromList do
         arr_arrs <- transpose tgt_pars
         let merged_wire =
               arr_arrs |> fmap (snd .> symbol) |> head |> (base,)
@@ -673,51 +682,32 @@ mergeObjects tgts node = do
         key <- arr_arrs |> fmap symbol2
         return (key, merged_dict)
 
-  let placeholder = empty
-  let tgt = head tgts
-  located_res <- sequence $
-    node |> foldUnder tgt \curr results -> do
-      results' <-
-        results
-        |> traverse sequence
-        |> fmap (fmap (fromInner .> fromMaybe (placeholder, [])))
+  let find_merged_dict (arr1, arr23) =
+        ndSuffix (target arr1) (symbol arr23)
+        |> head
+        |> \(arr2, arr3) ->
+          (arr1 `join` arr2, arr3)
+          |> symbol2
+          |> (`Map.lookup` nd_merged_dicts)
+          |> fromJust
+          |> cat (dict arr2)
 
-      let collapse =
-            results'
-            |> fmap snd
-            |> zip (edges (target curr))
-            |> concatMap (\((_, arr), collapse') -> collapse' |> fmap (fmap (dict arr !)))
-            |> (++ fromMaybe [] (Map.lookup (symbol curr) collapse0))
-            |> fmap sort
-            |> nubSort
-
-      guard $ collapse |> concat |> anySame |> not
-
+  fromReachable node $
+    node |> foldUnder tgt \curr results ->
       let collapsed_edges = do
-            ((res_node, collapse'), (value, arr)) <- results' `zip` edges (target curr)
-
+            (res, (value, arr)) <- results `zip` edges (target curr)
             let is_tgt = symbol (curr `join` arr) `elem` tgts
-            let collapsed_node = if is_tgt then merged_node else res_node
-            let collapsed_dict = case symbol2 (curr, arr) `Map.lookup` merged_dicts of
-                  Just dict -> dict
-                  Nothing | not is_tgt ->
-                    collapse' |> concatMap tail |> foldr Map.delete (dict arr)
-                  _ ->
-                    edges (target curr)
-                    |> fmap snd
-                    |> findIndex (locate (symbol arr) .> (== Inner))
-                    |> fromJust
-                    |> (collapsed_edges !!)
-                    |> (\edge -> Node [edge])
-                    |> arrow (symbol arr)
-                    |> fromJust
-                    |> dict
-
+            let collapsed_node =
+                  if is_tgt
+                  then merged_node
+                  else res |> fromInner |> fromMaybe (target arr)
+            let collapsed_dict =
+                  if is_tgt
+                  then find_merged_dict (curr, arr)
+                  else dict arr |> Map.filter (\sym -> dict curr ! sym `elem` tail tgts)
             return (value, arr {dict = collapsed_dict, target = collapsed_node})
 
-      return (Node collapsed_edges, collapse)
-
-  fromReachable node $ fmap fst located_res
+      in Node collapsed_edges
 
 {- |
 Merge multiple nodes.
