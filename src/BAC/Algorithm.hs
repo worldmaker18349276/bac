@@ -10,7 +10,7 @@ import Control.Monad (guard, MonadPlus (mzero), void)
 import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
-import Data.List (elemIndices, findIndex, sort, transpose, sortOn, nub)
+import Data.List (elemIndices, findIndex, sort, transpose, sortOn, nub, elemIndex)
 import Data.List.Extra (nubSort, groupSortOn, allSame, nubSortOn, anySame, (!?))
 import Data.Tuple.Extra (both)
 import Data.Map.Strict ((!))
@@ -636,16 +636,51 @@ mergeMorphisms (src, tgts) node = do
       where
       dict' = dict arr |> Map.toList |> fmap (first merge) |> Map.fromList
 
-mergeObjects :: [Symbol] -> Node e -> Maybe (Node e)
-mergeObjects tgts node = do
+{- |
+Merge nodes.
+
+Examples:
+
+>>> printNode' $ fromJust $ mergeObjects [2,4] [[0::Int,1], [0,1]] crescent
+- 0->1; 1->2; 2->3; 5->2; 6->3
+  - 0->1; 1->2; 2->2
+    &0
+    - 0->1
+      &1
+    - 0->2
+      *1
+  - 0->1; 1->2; 2->2
+    *0
+  - 0->5; 1->6; 2->6
+    *0
+  - 0->5; 1->6; 2->6
+    *0
+-}
+mergeObjects ::
+  Eq k
+  => [Symbol]   -- ^ The symbols referencing the nodes to be merged.
+  -> [[k]]      -- ^ The merging table of nondecomposable incoming morphisms of the nodes.
+                --   The arrows with the same key will be merged.
+  -> Node e
+  -> Maybe (Node e)
+mergeObjects tgts keys node = do
   guard $ notNull tgts
   let tgt = head tgts
   tgt_nodes <- tgts |> traverse (`arrow` node) |> fmap (fmap target)
 
   let tgt_pars = tgts |> fmap (suffixND node)
-
   guard $ tgt_pars |> fmap length |> allSame
-  guard $ transpose tgt_pars |> all (fmap (fst .> symbol) .> allSame)
+  guard $ keys |> fmap length |> allSame
+  guard $ length keys == length tgt_pars
+  guard $ length (head keys) == length (head tgt_pars)
+
+  guard $ keys |> all (anySame .> not)
+  indices <- keys |> traverse (traverse (`elemIndex` head keys))
+  let merging_arrs =
+        zip tgt_pars indices
+        |> fmap (uncurry zip .> sortOn snd .> fmap fst)
+        |> transpose
+  guard $ merging_arrs |> all (fmap (fst .> symbol) .> allSame)
 
   sequence_ $ node |> foldUnder tgt \curr results -> do
     results' <- results |> traverse sequence
@@ -656,7 +691,7 @@ mergeObjects tgts node = do
             AtOuter -> mzero
             AtInner res -> res |> fmap (fmap (dict arr !))
             AtBoundary ->
-              transpose tgt_pars
+              merging_arrs
               |> fmap (fmap symbol2)
               |> filter (head .> fst .> (== symbol curr))
               |> fmap (fmap snd)
@@ -669,9 +704,9 @@ mergeObjects tgts node = do
   let merging_offsets = tgt_nodes |> fmap (symbols .> maximum) |> scanl (+) 0
 
   let nd_merged_dicts = Map.fromList do
-        arr_arrs <- transpose tgt_pars
+        arr_arrs <- merging_arrs
         let merged_wire =
-              arr_arrs |> fmap (snd .> symbol) |> head |> (base,)
+              arr_arrs |> head |> snd |> symbol |> (base,)
         let merged_dict =
               arr_arrs
               |> fmap (snd .> dict .> Map.delete base .> Map.toList)
@@ -704,7 +739,7 @@ mergeObjects tgts node = do
             let collapsed_dict =
                   if is_tgt
                   then find_merged_dict (curr, arr)
-                  else dict arr |> Map.filter (\sym -> dict curr ! sym `elem` tail tgts)
+                  else dict arr |> Map.filter (\sym -> dict curr ! sym `notElem` tail tgts)
             return (value, arr {dict = collapsed_dict, target = collapsed_node})
 
       in Node collapsed_edges
