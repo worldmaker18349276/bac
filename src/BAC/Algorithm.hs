@@ -797,8 +797,21 @@ trimObject tgt node = do
       where
       filtered_dict = dict arr |> Map.filter (\s -> dict curr ! s /= tgt)
 
-insertMorphism :: (Symbol, Maybe Symbol) -> (e, e) -> Node e -> Maybe (Node e)
-insertMorphism (src, tgt) (val1, val2) node = do
+appendObject :: Symbol -> e -> Node e -> Maybe (Node e)
+appendObject src val node = do
+  src_arr <- node |> arrow src
+  let res0 = mergeCategories [target src_arr, singleton val]
+  fromReachable res0 $
+    node |> modifyUnder src \(curr, (value, arr)) lres -> case fromReachable res0 lres of
+      Nothing -> return (value, arr)
+      Just res -> return (value, arr {dict = new_dict, target = res})
+        where
+        new_sym = symbols (target curr) |> maximum |> (+ 1)
+        new_sym' = symbols (target arr) |> maximum |> (+ 1)
+        new_dict = dict arr |> Map.insert new_sym' new_sym
+
+insertObject :: (Symbol, Maybe Symbol) -> (e, e) -> Node e -> Maybe (Node e)
+insertObject (src, tgt) (val1, val2) node = do
   src_arr <- node |> arrow src
   let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
   new_inedge <- case tgt of
@@ -833,54 +846,52 @@ insertMorphism (src, tgt) (val1, val2) node = do
           )
           |> Map.fromList
 
-expandMergingSymbols :: Node e -> [[Symbol]] -> Maybe [[Symbol]]
+expandMergingSymbols :: Node e -> [[Symbol]] -> [[Symbol]]
 expandMergingSymbols node =
-  traverse (traverse (`arrow` node))
-  .> fmap (
-    zip [0 :: Integer ..]
-    .> concatMap sequence
-    .> fmap (fmap (dict .> Map.toList))
-    .> concatMap sequence
-    .> fmap (\(a, (b, c)) -> ((a, b), c))
-    .> bipartiteEqclass
-    .> fmap snd
-    .> fmap sort
-    .> sort
-  )
+  fmap (fmap ((`arrow` node) .> fromJust .> dict .> Map.toList))
+  .> zip [0 :: Integer ..]
+  .> concatMap sequence
+  .> concatMap sequence
+  .> fmap (\(a, (b, c)) -> ((a, b), c))
+  .> bipartiteEqclass
+  .> fmap snd
+  .> filter (length .> (> 1))
+  .> fmap sort
+  .> sort
 
 mergeMorphismsAggressively :: Symbol -> [[Symbol]] -> Node e -> Maybe (Node e)
 mergeMorphismsAggressively src tgts node = do
   src_arr <- node |> arrow src
 
   tgt_arrs <- tgts |> traverse (traverse (`arrow` target src_arr))
-  guard $ tgt_arrs |> all (fmap target .> fmap root .> void .> allSame)
+  guard $ tgt_arrs |> all (fmap target .> fmap void .> allSame)
 
-  let mergeSymbol tgts' s = tgts' |> filter (elem s) |> (++ [[s]]) |> head |> head
+  let mergeSymbol tgts' s = tgts' |> find (elem s) |> fmap head |> fromMaybe s
 
-  merging_lists <- expandMergingSymbols (target src_arr) tgts
+  let merging_lists = expandMergingSymbols (target src_arr) tgts
   let merged_node = Node do
         (value, arr) <- target src_arr |> edges
         let merged_dict = dict arr |> fmap (mergeSymbol merging_lists)
         return (value, arr {dict = merged_dict})
   let res0 = (merged_node, merging_lists)
-  let merging_lists_of = fromReachable res0 .> fmap snd .> fromMaybe []
 
   located_res <- sequence $
     node |> foldUnder src \curr results -> do
       results' <- traverse sequence results
-      merging_lists <-
-        results'
-        |> concatMap merging_lists_of
-        |> zip (target curr |> arrows |> fmap dict)
-        |> fmap (sequence .> fmap (uncurry (!)))
-        |> expandMergingSymbols (target curr)
+      let merging_lists_of = fromReachable res0 .> fmap snd .> fromMaybe []
+      let merging_lists =
+            results'
+            |> concatMap merging_lists_of
+            |> zip (target curr |> arrows |> fmap dict)
+            |> fmap (sequence .> fmap (uncurry (!)))
+            |> expandMergingSymbols (target curr)
       let merged_node = Node do
-            (res, (value, arr)) <- results' `zip` edges (target curr)
+            (lres, (value, arr)) <- results' `zip` edges (target curr)
             let merged_dict =
                   dict arr
                   |> fmap (mergeSymbol merging_lists)
-                  |> Map.mapKeys (mergeSymbol (merging_lists_of res))
-            case fromReachable res0 res of
+                  |> Map.mapKeys (mergeSymbol (merging_lists_of lres))
+            case fromReachable res0 lres of
               Nothing -> return (value, arr {dict = merged_dict})
               Just (res, _) -> return (value, arr {dict = merged_dict, target = res})
       return (merged_node, merging_lists)

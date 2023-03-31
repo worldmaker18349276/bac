@@ -11,11 +11,11 @@ import qualified Utils.DAG as DAG
 
 import Control.Monad (guard)
 import Data.Bifunctor (Bifunctor (second))
-import Data.Foldable (foldlM)
+import Data.Foldable (foldlM, find)
 import Data.List (nub)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromJust, listToMaybe)
+import Data.Maybe (listToMaybe, fromMaybe)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (runMaybeT, MaybeT))
 import Control.Monad.Identity (Identity (runIdentity))
@@ -75,9 +75,8 @@ braiding // eqclass = do
         |> fmap (pathToArrow .> symbol)
         |> (: [])
         |> expandMergingSymbols node
-        |> fromJust
 
-  let mergeSymbol sym = eqclass' |> filter (elem sym) |> (++ [[sym]]) |> head |> head
+  let mergeSymbol sym = eqclass' |> find (elem sym) |> fmap head |> fromMaybe sym
   let merged_edges = do
         (value, arr) <- edges node
         let merged_dict = dict arr |> fmap mergeSymbol
