@@ -88,7 +88,7 @@ base = 0
 --   >>> symbols crescent
 --   [0,1,2,3,4]
 symbols :: Node e -> [Symbol]
-symbols = edges .> fmap snd .> concatMap (dict .> Map.elems) .> (base :) .> nubSort
+symbols = arrows .> concatMap (dict .> Map.elems) .> (base :) .> nubSort
 
 -- | Concatenate two dictionaries:
 --
@@ -103,7 +103,19 @@ cat = fmap . (!)
 -- | The relative location between nodes.
 data Location = Inner | Boundary | Outer deriving (Eq, Ord, Show)
 
--- | Return root arrow of a node.
+-- | Arrows representing the edges of a node.
+arrows :: Node e -> [Arrow e]
+arrows = edges .> fmap snd
+
+-- | Nondecomposable arrows representing the edges of a node.
+arrowsND :: Node e -> [Arrow e]
+arrowsND node =
+  node
+  |> arrows
+  |> filter (symbol .> nondecomposable node)
+  |> nubSortOn symbol
+
+-- | Root arrow of a node.
 root :: Node e -> Arrow e
 root node = Arrow {dict = id_dict, target = node}
   where
@@ -131,7 +143,7 @@ divide arr12 arr13 =
 
 -- | Extend an arrow by joining to the edges of the target node.
 extend :: Arrow e -> [Arrow e]
-extend arr = edges (target arr) |> fmap snd |> fmap (join arr)
+extend arr = target arr |> arrows |> fmap (join arr)
 
 -- | Find the relative Location of the node referenced by the given symbol with respect to
 --   a given arrow.
@@ -197,14 +209,7 @@ symbol = dict .> (! base)
 nondecomposable :: Node e -> Symbol -> Bool
 nondecomposable node sym =
   (root node |> locate sym |> (/= Outer))
-  && (edges node |> fmap snd |> all (locate sym .> (/= Inner)))
-
-ndEdges :: Node e -> [Arrow e]
-ndEdges node =
-  edges node
-  |> fmap snd
-  |> filter (symbol .> nondecomposable node)
-  |> nubSortOn symbol
+  && (node |> arrows |> all (locate sym .> (/= Inner)))
 
 -- ** Tuple of Arrows
 
@@ -261,9 +266,9 @@ divide2 (arr12, arr24) (arr13, arr34) =
 --   > &&  arr12 `join` arr24 == arr13 `join` arr34
 extend2 :: (Arrow e, Arrow e) -> [(Arrow e, Arrow e)]
 extend2 (arr1, arr2) =
-  edges (target arr1)
-  |> filter (snd .> locate (symbol arr2) .> (/= Outer))
-  |> fmap snd
+  target arr1
+  |> arrows
+  |> filter (locate (symbol arr2) .> (/= Outer))
   |> concatMap (\arr -> arr `divide` arr2 |> fmap (arr1 `join` arr,))
 
 -- | Find prefix edges of a node under a given symbol.
@@ -276,12 +281,12 @@ prefix :: Node e -> Symbol -> [(Arrow e, Arrow e)]
 prefix node sym =
   arrow sym node
   |> maybe [] \tgt_arr ->
-    edges node
-    |> fmap snd
+    node
+    |> arrows
     |> mapMaybe (\arr -> divide arr tgt_arr |> listToMaybe |> fmap (arr,))
 
-ndPrefix :: Node e -> Symbol -> [(Arrow e, Arrow e)]
-ndPrefix node sym =
+prefixND :: Node e -> Symbol -> [(Arrow e, Arrow e)]
+prefixND node sym =
   prefix node sym
   |> filter (\(arr1, _) -> nondecomposable node (symbol arr1))
   |> nubSortOn symbol2
@@ -298,8 +303,8 @@ suffix node sym =
   |> findMapUnder sym (\b r _ -> orEmpty (not b) r)
   |> fromMaybe [] 
 
-ndSuffix :: Node e -> Symbol -> [(Arrow e, Arrow e)]
-ndSuffix node sym =
+suffixND :: Node e -> Symbol -> [(Arrow e, Arrow e)]
+suffixND node sym =
   suffix node sym
   |> filter (\(arr1, arr2) -> nondecomposable (target arr1) (symbol arr2))
   |> nubSortOn symbol2
@@ -342,7 +347,7 @@ validate arr = validateDicts && validateSup
 validateAll :: Arrow e -> Bool
 validateAll arr = validateChildren && validate arr
   where
-  validateChildren = edges (target arr) |> fmap snd |> all validateAll
+  validateChildren = target arr |> arrows |> all validateAll
 
 -- | Make a node with validation.
 makeNode :: [Edge e] -> Maybe (Node e)
@@ -358,7 +363,7 @@ makeArrow dict target = guarded validate (Arrow {dict = dict, target = target})
 --   The symbols of nodes should be the same, and equality of child nodes are not checked.
 --   The node with the same structure can be unioned by merging their edges.
 sameStruct :: [Node e] -> Bool
-sameStruct = fmap ndEdges .> fmap (fmap dict) .> allSame
+sameStruct = fmap arrowsND .> fmap (fmap dict) .> allSame
 
 -- | Find mappings to canonicalize the order of symbols of a node.  It will return
 --   multiple mappings if it possesses some symmetries.
@@ -371,7 +376,7 @@ sameStruct = fmap ndEdges .> fmap (fmap dict) .> allSame
 --   [[0,1,2,3,4,5,6],[0,1,2,3,6,5,4],[0,3,2,1,4,5,6],[0,3,2,1,6,5,4],[0,4,5,6,1,2,3],[0,6,5,4,1,2,3],[0,4,5,6,3,2,1],[0,6,5,4,3,2,1]]
 canonicalize :: Node e -> [Dict]
 canonicalize =
-  ndEdges
+  arrowsND
   .> fmap dict
   .> fmap Map.elems
   .> canonicalizeEqlistSet
@@ -389,7 +394,7 @@ canonicalize =
 canonicalizeArrow :: Arrow e -> [Dict]
 canonicalizeArrow arr =
   target arr
-  |> ndEdges
+  |> arrowsND
   |> fmap dict
   |> fmap Map.elems
   |> canonicalizeGradedEqlistSet (dict arr !)
@@ -571,11 +576,11 @@ rewireEdges ::
   -> Maybe (Node e)  -- ^ The result.
 rewireEdges src tgts node = do
   src_arr <- node |> arrow src
-  let nd_syms = target src_arr |> ndEdges |> fmap symbol
+  let nd_syms = target src_arr |> arrowsND |> fmap symbol
   src_edges' <- tgts |> traverse (traverse (`arrow` target src_arr))
   let res0 = Node src_edges'
 
-  let nd_syms' = res0 |> ndEdges |> fmap symbol
+  let nd_syms' = res0 |> arrowsND |> fmap symbol
   guard $ nd_syms == nd_syms'
 
   fromReachable res0 $ node |> modifyUnder src \(_, (value, arr)) -> \case

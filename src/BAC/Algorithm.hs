@@ -87,13 +87,13 @@ prepareForRemoveMorphism (src, tgt) node = do
   (src_arr, tgt_arr) <- arrow2 (src, tgt) node
   guard $ nondecomposable (target src_arr) tgt
   let src_alts = nubSortOn symbol2 do
-        (arr1, arr2) <- src |> ndSuffix node
+        (arr1, arr2) <- src |> suffixND node
         guard $
           suffix (target arr1) (symbol (arr2 `join` tgt_arr))
           |> all (first (join arr1) .> symbol2 .> (== (src, tgt)))
         return (arr1, arr2 `join` tgt_arr)
   let tgt_alts = nubSortOn symbol2 do
-        arr <- target tgt_arr |> ndEdges
+        arr <- target tgt_arr |> arrowsND
         guard $
           prefix (target src_arr) (symbol (tgt_arr `join` arr))
           |> all (fst .> (src_arr,) .> symbol2 .> (== (src, tgt)))
@@ -163,7 +163,7 @@ removeObject ::
 removeObject tgt node = do
   guard $ root node |> locate tgt |> (== Inner)
   tgt_arr <- node |> arrow tgt
-  guard $ edges (target tgt_arr) |> null
+  guard $ target tgt_arr |> edges |> null
 
   fromReachable (target tgt_arr) $ node |> modifyUnder tgt \(curr, (value, arr)) -> \case
     AtOuter -> return (value, arr)
@@ -192,7 +192,7 @@ validateCoangle node ((arr1, arr2), (arr1', arr2')) =
   symbol arr1 == symbol arr1'
   && (
     symbol arr1
-    |> ndSuffix node
+    |> suffixND node
     |> groupSortOn (\(a1, a2) -> symbol2 (a1, a2 `join` arr2))
     |> fmap (fmap \(a1, a2) -> symbol2 (a1, a2 `join` arr2'))
     |> all allSame
@@ -204,7 +204,7 @@ validateAngle ((arr1, arr2), (arr1', arr2')) =
   symbol (arr1 `join` arr2) == symbol (arr1' `join` arr2')
   && (
     target arr2
-    |> ndEdges
+    |> arrowsND
     |> groupSortOn (\a -> symbol (arr2 `join` a))
     |> fmap (fmap \a -> symbol (arr2' `join` a))
     |> all allSame
@@ -230,7 +230,7 @@ compatibleCoangles node angs =
   isJust $ sequence_ $ node |> foldUnder sym0 \curr results -> do
     results' <- traverse sequence results
     let pairs = do
-          (res, (value, arr)) <- results' `zip` edges (target curr)
+          (res, arr) <- results' `zip` arrows (target curr)
           case res of
             AtOuter -> mzero
             AtInner res -> res |> fmap (both (dict arr !))
@@ -275,14 +275,14 @@ prepareForAddMorphism src tgt node = do
   tgt_arr <- arrow tgt node
   guard $ locate src tgt_arr == Outer
   let src_alts = sortOn (fmap (both symbol2)) do
-        (arr1, arr2) <- src |> ndSuffix node
+        (arr1, arr2) <- src |> suffixND node
         return $ sortOn (both symbol2) do
           arr2' <- arr1 `divide` tgt_arr
           let ang = ((arr1, arr2), (arr1, arr2'))
           guard $ validateCoangle node ang
           return ang
   let tgt_alts = sortOn (fmap (both symbol2)) do
-        arr <- target tgt_arr |> ndEdges
+        arr <- target tgt_arr |> arrowsND
         return $ sortOn (both symbol2) do
           arr' <- src_arr `divide` (tgt_arr `join` arr)
           let ang = ((tgt_arr, arr), (src_arr, arr'))
@@ -344,7 +344,7 @@ addMorphism src tgt src_alts tgt_alts val node = do
   let new_edge = (val, Arrow {dict = new_dict, target = target tgt_arr})
 
   let find_new_wire (arr1, arr23) =
-        ndSuffix (target arr1) (symbol arr23)
+        suffixND (target arr1) (symbol arr23)
         |> head
         |> \(arr2, arr3) ->
           src_angs'
@@ -352,7 +352,7 @@ addMorphism src tgt src_alts tgt_alts val node = do
           |> fromJust
           |> \(_, (_, arr)) -> (dict arr2 ! new_sym, dict arr2 ! symbol arr)
 
-  let res0 = edges (target src_arr) |> (++ [new_edge]) |> Node
+  let res0 = target src_arr |> edges |> (++ [new_edge]) |> Node
   fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
     AtOuter -> return (value, arr)
     AtInner res -> return (value, arr {target = res})
@@ -430,7 +430,7 @@ splitMorphism (src, tgt) splittable_keys node = do
         splittable_keys |> label 0 |> fmap (\i -> maximum src_syms * i + tgt)
 
   let res0 = Node do
-        (value, arr) <- edges (target src_arr)
+        (value, arr) <- target src_arr |> edges
         let sym0 = symbol arr
         if sym0 == tgt
         then do
@@ -474,8 +474,8 @@ Examples:
 -}
 partitionSymbols :: Node e -> [[Symbol]]
 partitionSymbols =
-  edges
-  .> fmap (snd .> dict .> Map.elems)
+  arrows
+  .> fmap (dict .> Map.elems)
   .> zip [0 :: Int ..]
   .> concatMap sequence
   .> bipartiteEqclass
@@ -579,7 +579,7 @@ splitCategory splittable_keys node = do
   return do
     group <- splitted_groups
     let splitted_edges =
-          edges node |> filter (\(_, arr) -> symbol arr `elem` group)
+          node |> edges |> filter (\(_, arr) -> symbol arr `elem` group)
     return $ Node splitted_edges
 
 -- * Merge Morphisms, Objects, Categories
@@ -619,13 +619,13 @@ mergeMorphisms (src, tgts) node = do
   guard $ tgt_arrs |> fmap (dict .> Map.delete base) |> allSame
   guard $
     src /= base
-    || (tgt_arrs |> fmap (target .> edges .> fmap snd .> fmap dict) |> allSame)
+    || (tgt_arrs |> fmap (target .> arrows .> fmap dict) |> allSame)
   guard $ suffix node src |> all \(_, arr) -> tgts |> fmap (dict arr !) |> allSame
 
   let merge s = if s `elem` tgts then head tgts else s
 
   let res0 = Node do
-        (value, arr) <- edges (target src_arr)
+        (value, arr) <- target src_arr |> edges
         let dict' = dict arr |> Map.toList |> fmap (second merge) |> Map.fromList
         return (value, arr {dict = dict'})
 
@@ -642,7 +642,7 @@ mergeObjects tgts node = do
   let tgt = head tgts
   tgt_nodes <- tgts |> traverse (`arrow` node) |> fmap (fmap target)
 
-  let tgt_pars = tgts |> fmap (ndSuffix node)
+  let tgt_pars = tgts |> fmap (suffixND node)
 
   guard $ tgt_pars |> fmap length |> allSame
   guard $ transpose tgt_pars |> all (fmap (fst .> symbol) .> allSame)
@@ -651,7 +651,7 @@ mergeObjects tgts node = do
     results' <- results |> traverse sequence
 
     let collapse = nubSort $ fmap sort do
-          (lres, (_, arr)) <- results' `zip` edges (target curr)
+          (lres, arr) <- results' `zip` arrows (target curr)
           case lres of
             AtOuter -> mzero
             AtInner res -> res |> fmap (fmap (dict arr !))
@@ -683,7 +683,7 @@ mergeObjects tgts node = do
         return (key, merged_dict)
 
   let find_merged_dict (arr1, arr23) =
-        ndSuffix (target arr1) (symbol arr23)
+        suffixND (target arr1) (symbol arr23)
         |> head
         |> \(arr2, arr3) ->
           (arr1 `join` arr2, arr3)
@@ -755,7 +755,7 @@ trimObject tgt node = do
   fromReachable (target tgt_arr) $ node |> modifyUnder tgt \(curr, (value, arr)) -> \case
     AtOuter -> return (value, arr)
     AtBoundary -> do
-      (subvalue, subarr) <- edges (target arr)
+      (subvalue, subarr) <- target arr |> edges
       let concated_dict = dict arr `cat` dict subarr
       return (subvalue, subarr {dict = concated_dict})
     AtInner res -> return (value, arr {dict = filtered_dict, target = res})
@@ -824,7 +824,7 @@ mergeMorphismsAggressively src tgts node = do
 
   merging_lists <- expandMergingSymbols (target src_arr) tgts
   let merged_node = Node do
-        (value, arr) <- edges (target src_arr)
+        (value, arr) <- target src_arr |> edges
         let merged_dict = dict arr |> fmap (mergeSymbol merging_lists)
         return (value, arr {dict = merged_dict})
   let res0 = (merged_node, merging_lists)
@@ -836,7 +836,7 @@ mergeMorphismsAggressively src tgts node = do
       merging_lists <-
         results'
         |> concatMap merging_lists_of
-        |> zip (target curr |> edges |> fmap snd |> fmap dict)
+        |> zip (target curr |> arrows |> fmap dict)
         |> fmap (sequence .> fmap (uncurry (!)))
         |> expandMergingSymbols (target curr)
       let merged_node = Node do
