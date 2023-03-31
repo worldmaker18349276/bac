@@ -4,7 +4,95 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# LANGUAGE TupleSections #-}
 
-module BAC.Base where
+module BAC.Base (
+  -- * Basic #basic#
+
+  -- ** Types #types#
+  -- | Tree representation of a bounded acyclic category.
+  --
+  --   A bounded acyclic category can be represented as a tree structure with implicitly
+  --   shared nodes.
+  --
+  --   Edges of such structure have dictionaries, which obey three laws:
+  --
+  --   1.  __totality__: the dictionary of an edge should be a mapping from all valid symbols
+  --       in the child node to valid symbols in the parent node.
+  --   2.  __surjectivity__: all valid symbols should be covered by the dictionaries of
+  --       outgoing edges, except the base symbol.
+  --   3.  __supportivity__: if dictionaries of given two paths with the same starting node
+  --       map the base symbol to the same symbol, then they should have the same dictionary
+  --       and target node.  Note that null paths also count.
+  --
+  --   See my paper for a detailed explanation.
+
+  Node (Node, edges),
+  Edge,
+  Arrow (Arrow, dict, target),
+  Dict,
+  Symbol,
+  base,
+  symbols,
+  cat,
+
+  -- ** Arrow #arrow#
+
+  Location (..),
+  arrows,
+  arrowsND,
+  root,
+  join,
+  divide,
+  extend,
+  locate,
+  arrow,
+  symbol,
+  nondecomposable,
+
+  -- ** Tuple of Arrows
+
+  arrow2,
+  symbol2,
+  divide2,
+  extend2,
+  prefix,
+  prefixND,
+  suffix,
+  suffixND,
+
+  -- ** Validation #validation#
+
+  validate,
+  validateAll,
+  makeNode,
+  makeArrow,
+
+  -- * Isomorphism #isomorphism#
+
+  sameStruct,
+  canonicalize,
+  canonicalizeArrow,
+
+  -- * Folding #folding#
+
+  Located (..),
+  fromReachable,
+  fromInner,
+  fold,
+  foldUnder,
+  modify,
+  modifyUnder,
+  map,
+  mapUnder,
+  findMapNode,
+  findMapNodeUnder,
+  findMap,
+  findMapUnder,
+
+  -- * Non-Categorical Operations #operations#
+
+  rewireEdges,
+  relabelObject,
+) where
 
 import Control.Monad (guard)
 import Data.Bifunctor (bimap, Bifunctor (second))
@@ -18,39 +106,16 @@ import Data.Tuple.Extra (dupe)
 import Data.Functor (void)
 import Numeric.Natural (Natural)
 import GHC.Stack (HasCallStack)
+import Prelude hiding (map)
 
 import Utils.Memoize (unsafeMemoizeWithKey)
 import Utils.Utils ((.>), (|>), guarded, orEmpty)
 import Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet)
 
 -- $setup
--- The example code below runs with the following settings:
---
 -- >>> import BAC.Serialize
 -- >>> import BAC.Examples (cone, torus, crescent)
 -- >>> import Data.Map (fromList, elems)
-
--- * Basic #basic#
-
--- ** Types #types#
---
--- $doc
--- Tree representation of a bounded acyclic category.
---
--- A bounded acyclic category can be represented as a tree structure with implicitly
--- shared nodes.
---
--- Edges of such structure have dictionaries, which obey three laws:
---
--- 1.  __totality__: the dictionary of an edge should be a mapping from all valid symbols
---     in the child node to valid symbols in the parent node.
--- 2.  __surjectivity__: all valid symbols should be covered by the dictionaries of
---     outgoing edges, except the base symbol.
--- 3.  __supportivity__: if dictionaries of given two paths with the same starting node
---     map the base symbol to the same symbol, then they should have the same dictionary
---     and target node.  Note that null paths also count.
---
--- See my paper for a detailed explanation.
 
 -- | The node of the tree representation of a bounded acyclic category.
 --   The type variable `e` refers to the data carried by the edges.
@@ -97,8 +162,6 @@ symbols = arrows .> concatMap (dict .> Map.elems) .> (base :) .> nubSort
 --   It may crash if given dictionaries are not composable.
 cat :: HasCallStack => Dict -> Dict -> Dict
 cat = fmap . (!)
-
--- ** Arrow #arrow#
 
 -- | The relative location between nodes.
 data Location = Inner | Boundary | Outer deriving (Eq, Ord, Show)
@@ -211,8 +274,6 @@ nondecomposable node sym =
   (root node |> locate sym |> (/= Outer))
   && (node |> arrows |> all (locate sym .> (/= Inner)))
 
--- ** Tuple of Arrows
-
 -- | Make a 2-chain by given pair of symbols.
 --
 --   Examples:
@@ -309,8 +370,6 @@ suffixND node sym =
   |> filter (\(arr1, arr2) -> nondecomposable (target arr1) (symbol arr2))
   |> nubSortOn symbol2
 
--- ** Validation #validation#
-
 -- | Check if an arrow is valid.  To validate a node, try @validate (root node)@.
 --   See [Types]("BAC.Base#g:types") for detail.
 validate :: Arrow e -> Bool
@@ -357,8 +416,6 @@ makeNode edges = guarded (root .> validate) (Node {edges = edges})
 makeArrow :: Dict -> Node e -> Maybe (Arrow e)
 makeArrow dict target = guarded validate (Arrow {dict = dict, target = target})
 
--- * Isomorphism #isomorphism#
-
 -- | Check structural equality of nodes up to rewiring.
 --   The symbols of nodes should be the same, and equality of child nodes are not checked.
 --   The node with the same structure can be unioned by merging their edges.
@@ -400,8 +457,6 @@ canonicalizeArrow arr =
   |> canonicalizeGradedEqlistSet (dict arr !)
   |> fmap (base :)
   |> fmap ((`zip` [base..]) .> Map.fromList)
-
--- * Folding #folding#
 
 -- | A value labeled by the relative position of the node.
 data Located r = AtOuter | AtBoundary | AtInner r
@@ -527,8 +582,6 @@ findMapUnder sym f =
         AtOuter -> Nothing
         AtBoundary -> f False (curr, arr) value
         AtInner _ -> f True (curr, arr) value
-
--- * Non-Categorical Operations #operations#
 
 {- |
 Rewire edges of a given node.

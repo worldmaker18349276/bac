@@ -1,4 +1,4 @@
-module Utils.Utils where
+module Utils.Utils ((|>), (.>), orEmpty, guarded, label) where
 
 import Data.List (nub)
 import Data.Maybe (fromJust)

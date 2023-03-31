@@ -1,9 +1,8 @@
-module BAC.Examples where
+module BAC.Examples (cone, torus, crescent) where
 
 import BAC.Base
 import BAC.Braider
 import Data.Maybe (fromJust)
-import Data.Map (Map, fromList)
 
 -- $setup
 -- The examples run with the following settings:
@@ -34,17 +33,6 @@ cone = fromJust $ braid $ do
   c <- knot' [y, b]
   v <- knot' [c, c] // [[0,0], [1,0]] // [[0,1], [1,1]]
   knot' [p, v] // [[1,0], [1,1]] // [[0,0], [1,0,0]]
-
-coneNames :: Map Symbol String
-coneNames = fromList
-  [
-    (0, "void"),
-    (1, "tip"),
-    (2, "side"),
-    (3, "point"),
-    (4, "circle"),
-    (6, "bottom")
-  ]
 
 {- |
 ![torus](./pictures/torus-serialize.png)
@@ -82,16 +70,6 @@ torus = fromJust $ braid $ do
     // [[0,0], [0,2]]
     // [[0,1], [0,3]]
 
-torusNames :: Map Symbol String
-torusNames = fromList
-  [
-    (0, "void"),
-    (1, "point"),
-    (2, "circle"),
-    (3, "torus"),
-    (5, "circle'")
-  ]
-
 {- |
 
 ![crescent](./pictures/crescent-serialize.png)
@@ -123,13 +101,3 @@ crescent = fromJust $ braid $ do
     // [[0,0,0], [0,1,0]]
     // [[0,0], [0,2]]
     // [[0,1], [0,3]]
-
-crescentNames :: Map Symbol String
-crescentNames = fromList
-  [
-    (0, "void"),
-    (1, "point"),
-    (2, "circle"),
-    (3, "crescent"),
-    (4, "circle'")
-  ]

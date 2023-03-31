@@ -2,7 +2,14 @@
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module BAC.Braider where
+module BAC.Braider (
+  BraiderT,
+  knot,
+  knot',
+  (//),
+  braidM,
+  braid,
+) where
 
 import BAC.Base
 import BAC.Algorithm (expandMergingSymbols)

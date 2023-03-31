@@ -1,7 +1,16 @@
 {-# LANGUAGE BlockArguments #-}
 
-module BAC.Serialize (encodeDict, encodeAsYAMLBy, encodeAsYAML, encodeAsYAML', encodeBy,
-  encode, encode', printNode, printNode') where
+module BAC.Serialize (
+  encodeDict,
+  encodeAsYAMLBy,
+  encodeAsYAML,
+  encodeAsYAML',
+  encodeBy,
+  encode,
+  encode',
+  printNode,
+  printNode',
+) where
 
 import BAC.Base hiding (modify)
 import Utils.Utils ((|>), (.>))

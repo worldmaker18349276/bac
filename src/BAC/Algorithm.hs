@@ -4,7 +4,52 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# OPTIONS_GHC -Wno-unused-matches #-}
 
-module BAC.Algorithm where
+module BAC.Algorithm (
+  -- * Empty, Singleton
+
+  empty,
+  singleton,
+
+  -- * Remove Morphism, Object
+
+  prepareForRemoveMorphism,
+  removeMorphism,
+  removeObject,
+
+  -- * Add Morphism
+
+  Coangle,
+  Angle,
+  validateCoangle,
+  validateAngle,
+  compatibleAngles,
+  compatibleCoangles,
+  compatibleCoanglesAngles,
+  prepareForAddMorphism,
+  addMorphism,
+
+  -- * Split Morphism, Object, Category
+
+  partitionPrefix,
+  splitMorphism,
+  partitionSymbols,
+  splitObject,
+  splitCategory,
+
+  -- * Merge Morphisms, Objects, Categories
+
+  mergeMorphisms,
+  mergeObjects,
+  mergeCategories,
+
+  -- * Advanced Operations
+
+  trimObject,
+  appendObject,
+  insertObject,
+  expandMergingSymbols,
+  mergeMorphismsAggressively,
+) where
 
 import Control.Monad (guard, MonadPlus (mzero), void)
 import Data.Bifunctor (Bifunctor (first, second))
@@ -22,14 +67,10 @@ import Utils.DisjointSet (bipartiteEqclass, bipartiteEqclassOn)
 import BAC.Base
 
 -- $setup
--- The example code below runs with the following settings:
---
 -- >>> import Data.Tuple.Extra (both)
 -- >>> import Data.Foldable (traverse_)
 -- >>> import BAC.Serialize
 -- >>> import BAC.Examples (cone, torus, crescent)
-
--- * Empty, Singleton
 
 {- |
 An empty node.
@@ -58,8 +99,6 @@ singleton val = Node {edges = [(val, new_arr)]}
   new_dict = Map.singleton base new_sym
   new_node = empty
   new_arr = Arrow {dict = new_dict, target = new_node}
-
--- * Remove Morphism, Object
 
 {- |
 Prepare for removing a morphism.
@@ -171,8 +210,6 @@ removeObject tgt node = do
     AtInner res -> return (value, arr {dict = filtered_dict, target = res})
       where
       filtered_dict = dict arr |> Map.filter (\s -> dict curr ! s /= tgt)
-
--- * Add Morphism
 
 -- | Two tuples of arrows representing two morphisms where coforks of the first morphism
 --   are also coforks of the second morphism.  A cofork of a morphism `f` is a pair of
@@ -360,8 +397,6 @@ addMorphism src tgt src_alts tgt_alts val node = do
       where
       new_wire = find_new_wire (curr, arr)
       new_dict = dict arr |> uncurry Map.insert new_wire
-
--- * Split Morphism, Object, Category
 
 {- |
 Partition the prefixes of a morphism.
@@ -582,8 +617,6 @@ splitCategory splittable_keys node = do
           node |> edges |> filter (\(_, arr) -> symbol arr `elem` group)
     return $ Node splitted_edges
 
--- * Merge Morphisms, Objects, Categories
-
 {- |
 Merge symbols on a node.
 
@@ -779,8 +812,6 @@ mergeCategories nodes = Node {edges = merged_edges}
     (value, arr) <- edges node
     let dict' = dict arr |> fmap (+ offset)
     return (value, arr {dict = dict'})
-
--- * Advanced Operations
 
 trimObject :: Symbol -> Node e -> Maybe (Node e)
 trimObject tgt node = do
