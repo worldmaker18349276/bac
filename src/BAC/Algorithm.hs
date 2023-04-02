@@ -15,7 +15,7 @@ module BAC.Algorithm (
   prepareForRemoveMorphism,
   removeMorphism,
   removeObject,
-  removeInitialMorphismStepByStep,
+  removeInitialMorphism',
 
   -- * Add Morphism
 
@@ -254,7 +254,7 @@ Remove a morphism step by step: removing all related morphisms, then splitting c
 Examples:
 
 >>> cone' = fromJust $ rewireEdges 0 [((), 1), ((), 4), ((), 3)] cone
->>> printNode' $ fromJust $ removeInitialMorphismStepByStep 3 cone'
+>>> printNode' $ fromJust $ removeInitialMorphism' 3 cone'
 - 0->1; 1->2
   - 0->1
     &0
@@ -263,8 +263,8 @@ Examples:
     *0
   - 0->2
 -}
-removeInitialMorphismStepByStep :: Symbol -> Node e -> Maybe (Node e)
-removeInitialMorphismStepByStep tgt node = do
+removeInitialMorphism' :: Symbol -> Node e -> Maybe (Node e)
+removeInitialMorphism' tgt node = do
   guard $
     prepareForRemoveMorphism (0, tgt) node
     |> maybe False \(l, r) -> null l && null r
