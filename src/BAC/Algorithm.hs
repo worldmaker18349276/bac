@@ -57,7 +57,7 @@ import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
 import Data.List (elemIndices, findIndex, sort, transpose, sortOn, nub, elemIndex)
-import Data.List.Extra (nubSort, groupSortOn, allSame, nubSortOn, anySame, (!?))
+import Data.List.Extra (nubSort, groupSortOn, allSame, anySame, (!?))
 import Data.Tuple.Extra (both)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
@@ -106,38 +106,38 @@ Prepare for removing a morphism.
 
 Examples:
 
->>> fmap (both (fmap symbol2)) $ prepareForRemoveMorphism (3,1) cone
+>>> prepareForRemoveMorphism (3,1) cone
 Just ([],[])
 
->>> fmap (both (fmap symbol2)) $ prepareForRemoveMorphism (4,2) cone
+>>> prepareForRemoveMorphism (4,2) cone
 Just ([(3,3)],[])
 
->>> fmap (both (fmap symbol2)) $ prepareForRemoveMorphism (0,3) cone
+>>> prepareForRemoveMorphism (0,3) cone
 Just ([],[(0,4)])
 -}
 prepareForRemoveMorphism ::
   (Symbol, Symbol)  -- ^ The tuple of symbols indicating the morphism to be removed.
   -> Node e         -- ^ The root node of BAC.
-  -> Maybe ([(Arrow e, Arrow e)], [(Arrow e, Arrow e)])
-                    -- ^ Tuples of arrows indicating the edges need to be added.
+  -> Maybe ([(Symbol, Symbol)], [(Symbol, Symbol)])
+                    -- ^ Tuples of symbols indicating the edges need to be added.
                     --   The first list is the edges skipping the source object, and the
                     --   second list is the edges skipping the target object.
 prepareForRemoveMorphism (src, tgt) node = do
   guard $ tgt /= base
   (src_arr, tgt_arr) <- arrow2 (src, tgt) node
   guard $ nondecomposable (target src_arr) tgt
-  let src_alts = nubSortOn symbol2 do
+  let src_alts = nubSort do
         (arr1, arr2) <- src |> suffixND node
         guard $
           suffix (target arr1) (symbol (arr2 `join` tgt_arr))
           |> all (first (join arr1) .> symbol2 .> (== (src, tgt)))
-        return (arr1, arr2 `join` tgt_arr)
-  let tgt_alts = nubSortOn symbol2 do
+        return $ symbol2 (arr1, arr2 `join` tgt_arr)
+  let tgt_alts = nubSort do
         arr <- target tgt_arr |> arrowsND
         guard $
           prefix (target src_arr) (symbol (tgt_arr `join` arr))
           |> all (fst .> (src_arr,) .> symbol2 .> (== (src, tgt)))
-        return (src_arr, tgt_arr `join` arr)
+        return $ symbol2 (src_arr, tgt_arr `join` arr)
   return (src_alts, tgt_alts)
 
 {- |
@@ -277,7 +277,7 @@ removeInitialMorphismStepByStep tgt node = do
         |> fmap (tgt,)
 
   node <- (node, remove_list) |> foldlMUncurry \(node, sym2) -> do
-    (add_list, add_list') <- prepareForRemoveMorphism sym2 node |> fmap (both (fmap symbol2))
+    (add_list, add_list') <- prepareForRemoveMorphism sym2 node
     node <- (node, add_list ++ add_list') |> foldlMUncurry \(node, (s1, s2)) -> do
       let new_edges =
             node
@@ -297,59 +297,62 @@ removeInitialMorphismStepByStep tgt node = do
   nodes' <- splitCategory keys node
   return $ nodes' !! i
 
--- | Two tuples of arrows representing two morphisms where coforks of the first morphism
+-- | Two tuples of symbols representing two morphisms where coforks of the first morphism
 --   are also coforks of the second morphism.  A cofork of a morphism `f` is a pair of
 --   distinct morphisms `g`, 'g'' such that @f . g = f . g'@.  This constraint shows the
 --   possibility to add an edge between them.
-type Coangle e = ((Arrow e, Arrow e), (Arrow e, Arrow e))
+type Coangle = ((Symbol, Symbol), (Symbol, Symbol))
 
--- | Two tuples of arrows representing two morphisms where forks of the first morphism are
+-- | Two tuples of symbols representing two morphisms where forks of the first morphism are
 --   also forks of the second morphism.  A fork of a morphism `f` is a pair of distinct
 --   morphisms `g`, 'g'' such that @g . f = g' . f@.  This constraint shows the
 --   possibility to add an edge between them.
-type Angle e = ((Arrow e, Arrow e), (Arrow e, Arrow e))
+type Angle = ((Symbol, Symbol), (Symbol, Symbol))
 
 -- | Check whether a given value is a valid coangle.
-validateCoangle :: Node e -> Coangle e -> Bool
-validateCoangle node ((arr1, arr2), (arr1', arr2')) =
-  symbol arr1 == symbol arr1'
-  && (
-    symbol arr1
+validateCoangle :: Node e -> Coangle -> Bool
+validateCoangle node (sym_sym1, sym_sym2) = isJust do
+  arr_arr1 <- node |> arrow2 sym_sym1
+  arr_arr2 <- node |> arrow2 sym_sym2
+  guard $ symbol (fst arr_arr1) == symbol (fst arr_arr2)
+  guard $
+    fst sym_sym1
     |> suffixND node
-    |> groupSortOn (\(a1, a2) -> symbol2 (a1, a2 `join` arr2))
-    |> fmap (fmap \(a1, a2) -> symbol2 (a1, a2 `join` arr2'))
+    |> groupSortOn (\(a1, a2) -> symbol2 (a1, a2 `join` snd arr_arr1))
+    |> fmap (fmap \(a1, a2) -> symbol2 (a1, a2 `join` snd arr_arr2))
     |> all allSame
-  )
 
 -- | Check whether a given value is a valid angle.
-validateAngle :: Angle e -> Bool
-validateAngle ((arr1, arr2), (arr1', arr2')) =
-  symbol (arr1 `join` arr2) == symbol (arr1' `join` arr2')
-  && (
-    target arr2
+validateAngle :: Node e -> Angle -> Bool
+validateAngle node (sym_sym1, sym_sym2) = isJust do
+  arr_arr1 <- node |> arrow2 sym_sym1
+  arr_arr2 <- node |> arrow2 sym_sym2
+  guard $ symbol (uncurry join arr_arr1) == symbol (uncurry join arr_arr1)
+  guard $
+    target (snd arr_arr1)
     |> arrowsND
-    |> groupSortOn (\a -> symbol (arr2 `join` a))
-    |> fmap (fmap \a -> symbol (arr2' `join` a))
+    |> groupSortOn (\a -> symbol (snd arr_arr1 `join` a))
+    |> fmap (fmap \a -> symbol (snd arr_arr2 `join` a))
     |> all allSame
-  )
 
 -- | Check whether a list of angles are compatible.
 --   Angle @(f, g)@ and angle @(f', g')@ are compatible if @h . f = h . f'@ implies
 --   @h . g = h . g'@ for all `h`.
-compatibleAngles :: [Angle e] -> Bool
-compatibleAngles =
-  concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
-  .> nubSort
-  .> fmap fst
-  .> anySame
-  .> not
+compatibleAngles :: Node e -> [Angle] -> Bool
+compatibleAngles node =
+  traverse (\(sym_sym1, sym_sym2) -> do
+    arr_arr1 <- arrow2 sym_sym1 node
+    arr_arr2 <- arrow2 sym_sym2 node
+    return $ Map.elems (dict (snd arr_arr1)) `zip` Map.elems (dict (snd arr_arr2))
+  )
+  .> maybe False (concat .> nubSort .> fmap fst .> anySame .> not)
 
 -- | Check whether a list of coangles are compatible.
 --   Coangle @(f, g)@ and coangle @(f', g')@ are compatible if @f . h = f' . h@ implies
 --   @g . h = g' . h@ for all `h`.
-compatibleCoangles :: Node e -> [Coangle e] -> Bool
+compatibleCoangles :: Node e -> [Coangle] -> Bool
 compatibleCoangles _ [] = True
-compatibleCoangles node angs =
+compatibleCoangles node coangs =
   isJust $ sequence_ $ node |> foldUnder sym0 \curr results -> do
     results' <- traverse sequence results
     let pairs = do
@@ -358,25 +361,30 @@ compatibleCoangles node angs =
             AtOuter -> mzero
             AtInner res -> res |> fmap (both (dict arr !))
             AtBoundary ->
-              angs
-              |> find (fst .> symbol2 .> (== symbol2 (curr, arr)))
-              |> fmap (both (snd .> symbol))
+              coangs
+              |> find (fst .> (== symbol2 (curr, arr)))
+              |> fmap (both snd)
               |> maybe mzero return
     pairs |> nubSort |> guarded (fmap fst .> anySame .> not)
   where
-  sym0 = angs |> head |> fst |> fst |> symbol
+  sym0 = coangs |> head |> fst |> fst
 
 -- | Check whether coangles and angles are compatible each others.
 --   Coangle @(f, g)@ and angle @(g', f')@ are compatible if @f' . f = g' . g@.
-compatibleCoanglesAngles :: [Coangle e] -> [Angle e] -> Bool
-compatibleCoanglesAngles src_angs tgt_angs =
-  tgt_angs |> all \(_, (arr1, arr2)) ->
-    let
-      sym1 = dict arr1 ! base
-      sym2 = dict arr2 ! base
-    in
-      src_angs |> all \(_, (arr2', arr1')) ->
-        dict arr1' ! sym1 == dict arr2' ! sym2
+compatibleCoanglesAngles :: Node e -> [Coangle] -> [Angle] -> Bool
+compatibleCoanglesAngles node coangs angs =
+  isJust $
+    angs |> traverse \(sym_sym1, sym_sym2) -> do
+      arr_arr1 <- node |> arrow2 sym_sym1
+      arr_arr2 <- node |> arrow2 sym_sym2
+      coangs |> traverse \(sym_sym1', sym_sym2') -> do
+        arr_arr1' <- node |> arrow2 sym_sym1'
+        arr_arr2' <- node |> arrow2 sym_sym2'
+        guard $ symbol (uncurry join arr_arr1) == symbol (fst arr_arr2')
+        guard $ symbol (uncurry join arr_arr2) == symbol (fst arr_arr1')
+        guard $
+          symbol (snd arr_arr1 `join` snd arr_arr2')
+          == symbol (snd arr_arr2 `join` snd arr_arr1')
 
 {- |
 Prepare for adding a morphism.  The results are the angles and coangles need to be
@@ -384,32 +392,32 @@ selected, or Nothing if it is invalid.
 
 Examples:
 
->>> both (fmap (fmap (both symbol2))) $ fromJust $ prepareForAddMorphism 1 6 cone
+>>> fromJust $ prepareForAddMorphism 1 6 cone
 ([[((0,1),(0,6))]],[])
 -}
 prepareForAddMorphism ::
   Symbol      -- ^ The symbol indicating the source object of the morphism to be added.
   -> Symbol   -- ^ The symbol indicating the target object of the morphism to be added.
   -> Node e   -- ^ The root node of BAC.
-  -> Maybe ([[Coangle e]], [[Angle e]])
+  -> Maybe ([[Coangle]], [[Angle]])
               -- ^ The coangles and angles need to be selected, or Nothing if it is invalid.
 prepareForAddMorphism src tgt node = do
   src_arr <- arrow src node
   tgt_arr <- arrow tgt node
   guard $ locate src tgt_arr == Outer
-  let src_alts = sortOn (fmap (both symbol2)) do
+  let src_alts = sort do
         (arr1, arr2) <- src |> suffixND node
-        return $ sortOn (both symbol2) do
+        return $ sort do
           arr2' <- arr1 `divide` tgt_arr
-          let ang = ((arr1, arr2), (arr1, arr2'))
+          let ang = (symbol2 (arr1, arr2), symbol2 (arr1, arr2'))
           guard $ validateCoangle node ang
           return ang
-  let tgt_alts = sortOn (fmap (both symbol2)) do
+  let tgt_alts = sort do
         arr <- target tgt_arr |> arrowsND
-        return $ sortOn (both symbol2) do
+        return $ sort do
           arr' <- src_arr `divide` (tgt_arr `join` arr)
-          let ang = ((tgt_arr, arr), (src_arr, arr'))
-          guard $ validateAngle ang
+          let ang = (symbol2 (tgt_arr, arr), symbol2 (src_arr, arr'))
+          guard $ validateAngle node ang
           return ang
   return (src_alts, tgt_alts)
 
@@ -453,13 +461,14 @@ addMorphism src tgt src_alts tgt_alts val node = do
   src_angs' <- src_angs `zip` src_alts |> traverse (uncurry (!?))
   tgt_angs' <- tgt_angs `zip` tgt_alts |> traverse (uncurry (!?))
 
-  guard $ compatibleAngles tgt_angs'
-  guard $ compatibleCoanglesAngles src_angs' tgt_angs'
+  guard $ compatibleAngles node tgt_angs'
+  guard $ compatibleCoanglesAngles node src_angs' tgt_angs'
   guard $ compatibleCoangles node src_angs'
 
   let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
   let new_dict =
         tgt_angs'
+        |> fmap (both ((`arrow2` node) .> fromJust))
         |> concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
         |> ((base, new_sym) :)
         |> nubSort
@@ -471,9 +480,9 @@ addMorphism src tgt src_alts tgt_alts val node = do
         |> head
         |> \(arr2, arr3) ->
           src_angs'
-          |> find (fst .> symbol2 .> (== symbol2 (arr1 `join` arr2, arr3)))
+          |> find (fst .> (== symbol2 (arr1 `join` arr2, arr3)))
           |> fromJust
-          |> \(_, (_, arr)) -> (dict arr2 ! new_sym, dict arr2 ! symbol arr)
+          |> \(_, (_, s)) -> (dict arr2 ! new_sym, dict arr2 ! s)
 
   let res0 = target src_arr |> edges |> (++ [new_edge]) |> Node
   fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
@@ -492,18 +501,19 @@ by `tgt`.
 
 Examples:
 
->>> fmap (fmap symbol2) (partitionPrefix cone 2)
+>>> partitionPrefix cone 2
 [[(1,1)],[(3,2)]]
 -}
-partitionPrefix :: Node e -> Symbol -> [[(Arrow e, Arrow e)]]
+partitionPrefix :: Node e -> Symbol -> [[(Symbol, Symbol)]]
 partitionPrefix node tgt =
   prefix node tgt
   |> concatMap (\(arr1, arr23) -> suffix (target arr1) (symbol arr23) |> fmap (arr1,))
   |> fmap (\(arr1, (arr2, arr3)) -> ((arr1, arr2 `join` arr3), (arr1 `join` arr2, arr3)))
   |> bipartiteEqclassOn symbol2 symbol2
   |> fmap fst
-  |> fmap (sortOn symbol2)
-  |> sortOn (fmap symbol2)
+  |> fmap (fmap symbol2)
+  |> fmap sort
+  |> sort
 
 {- |
 Split a symbol on a node.
@@ -543,7 +553,7 @@ splitMorphism ::
 splitMorphism (src, tgt) splittable_keys node = do
   src_arr <- node |> arrow src
   guard $ root node |> locate tgt |> (== Inner)
-  let splittable_groups = partitionPrefix (target src_arr) tgt |> fmap (fmap symbol2)
+  let splittable_groups = partitionPrefix (target src_arr) tgt
   guard $ length splittable_groups == length splittable_keys
 
   let src_syms = target src_arr |> symbols
