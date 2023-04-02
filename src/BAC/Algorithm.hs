@@ -11,7 +11,7 @@ module BAC.Algorithm (
 
   -- * Remove Morphism, Object
 
-  prepareForRemoveMorphism,
+  missingAltPaths,
   removeMorphism,
   removeObject,
   removeInitialMorphism',
@@ -101,27 +101,28 @@ singleton val = Node {edges = [(val, new_arr)]}
   new_arr = Arrow {dict = new_dict, target = new_node}
 
 {- |
-Prepare for removing a morphism.
+Find all missing alternative paths for a nondecomposable morphism, which are necessary for
+removing this morphism.
 
 Examples:
 
->>> prepareForRemoveMorphism (3,1) cone
+>>> missingAltPaths (3,1) cone
 Just ([],[])
 
->>> prepareForRemoveMorphism (4,2) cone
+>>> missingAltPaths (4,2) cone
 Just ([(3,3)],[])
 
->>> prepareForRemoveMorphism (0,3) cone
+>>> missingAltPaths (0,3) cone
 Just ([],[(0,4)])
 -}
-prepareForRemoveMorphism ::
+missingAltPaths ::
   (Symbol, Symbol)  -- ^ The tuple of symbols indicating the morphism to be removed.
   -> Node e         -- ^ The root node of BAC.
   -> Maybe ([(Symbol, Symbol)], [(Symbol, Symbol)])
                     -- ^ Tuples of symbols indicating the edges need to be added.
                     --   The first list is the edges skipping the source object, and the
                     --   second list is the edges skipping the target object.
-prepareForRemoveMorphism (src, tgt) node = do
+missingAltPaths (src, tgt) node = do
   guard $ tgt /= base
   (src_arr, tgt_arr) <- arrow2 (src, tgt) node
   guard $ nondecomposable (target src_arr) tgt
@@ -199,7 +200,7 @@ removeMorphism ::
   -> Maybe (Node e)  -- ^ The result.
 removeMorphism (src, tgt) node = do
   guard $
-    prepareForRemoveMorphism (src, tgt) node
+    missingAltPaths (src, tgt) node
     |> maybe False \(l, r) -> null l && null r
 
   let src_node = node |> arrow src |> fromJust |> target
@@ -265,7 +266,7 @@ Examples:
 removeInitialMorphism' :: Symbol -> Node e -> Maybe (Node e)
 removeInitialMorphism' tgt node = do
   guard $
-    prepareForRemoveMorphism (0, tgt) node
+    missingAltPaths (0, tgt) node
     |> maybe False \(l, r) -> null l && null r
 
   tgt_arr <- node |> arrow tgt
@@ -276,7 +277,7 @@ removeInitialMorphism' tgt node = do
         |> fmap (tgt,)
 
   node <- (node, remove_list) |> foldlMUncurry \(node, sym2) -> do
-    (add_list, add_list') <- prepareForRemoveMorphism sym2 node
+    (add_list, add_list') <- missingAltPaths sym2 node
     node <- (node, add_list ++ add_list') |> foldlMUncurry \(node, (s1, s2)) -> do
       let new_edges =
             node
