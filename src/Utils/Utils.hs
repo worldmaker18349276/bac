@@ -1,8 +1,9 @@
-module Utils.Utils ((|>), (.>), orEmpty, guarded, label, mergeNubOn) where
+module Utils.Utils ((|>), (.>), orEmpty, guarded, label, mergeNubOn, foldlMUncurry) where
 
 import Data.List (nub)
 import Data.Maybe (fromJust)
 import Control.Applicative (Alternative (empty))
+import Data.Foldable (foldlM)
 
 infixl 1 |>
 (|>) :: a -> (a -> b) -> b
@@ -28,3 +29,6 @@ mergeNubOn f = foldr mergeNub []
   where
   mergeNub list = foldr (insertNub (fmap f list)) list
   insertNub keys a = if f a `elem` keys then id else (a :)
+
+foldlMUncurry :: (Foldable t, Monad m) => ((b, a) -> m b) -> (b, t a) -> m b
+foldlMUncurry = uncurry . foldlM . curry

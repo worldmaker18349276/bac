@@ -15,6 +15,7 @@ module BAC.Algorithm (
   prepareForRemoveMorphism,
   removeMorphism,
   removeObject,
+  removeInitialMorphismStepByStep,
 
   -- * Add Morphism
 
@@ -62,7 +63,7 @@ import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust, fromMaybe, isJust)
 
-import Utils.Utils ((|>), (.>), guarded, label)
+import Utils.Utils ((|>), (.>), guarded, label, foldlMUncurry)
 import Utils.DisjointSet (bipartiteEqclass, bipartiteEqclassOn)
 import BAC.Base
 
@@ -246,6 +247,55 @@ removeObject tgt node = do
     AtInner res -> return (value, arr {dict = filtered_dict, target = res})
       where
       filtered_dict = dict arr |> Map.filter (\s -> dict curr ! s /= tgt)
+
+{- |
+Remove a morphism step by step: removing all related morphisms, then splitting category.
+
+Examples:
+
+>>> cone' = fromJust $ rewireEdges 0 [((), 1), ((), 4), ((), 3)] cone
+>>> printNode' $ fromJust $ removeInitialMorphismStepByStep 3 cone'
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->4; 1->2; 2->6
+  - 0->1
+    *0
+  - 0->2
+-}
+removeInitialMorphismStepByStep :: Symbol -> Node e -> Maybe (Node e)
+removeInitialMorphismStepByStep tgt node = do
+  guard $
+    prepareForRemoveMorphism (0, tgt) node
+    |> maybe False \(l, r) -> null l && null r
+
+  tgt_arr <- node |> arrow tgt
+  let remove_list =
+        target tgt_arr
+        |> findMapNode (symbol .> Just)
+        |> filter (/= base)
+        |> fmap (tgt,)
+
+  node <- (node, remove_list) |> foldlMUncurry \(node, sym2) -> do
+    (add_list, add_list') <- prepareForRemoveMorphism sym2 node |> fmap (both (fmap symbol2))
+    node <- (node, add_list ++ add_list') |> foldlMUncurry \(node, (s1, s2)) -> do
+      let new_edges =
+            node
+            |> arrow s1
+            |> fromJust
+            |> target
+            |> edges
+            |> fmap (fmap symbol)
+            |> ((undefined, s2) :)
+      rewireEdges s1 new_edges node
+
+    (add_list, add_list') <- prepareForRemoveMorphism sym2 node
+    removeMorphism sym2 node
+
+  let keys = partitionSymbols node |> fmap (elem tgt)
+  let i = nub keys |> findIndex not |> fromJust
+  nodes' <- splitCategory keys node
+  return $ nodes' !! i
 
 -- | Two tuples of arrows representing two morphisms where coforks of the first morphism
 --   are also coforks of the second morphism.  A cofork of a morphism `f` is a pair of
@@ -942,7 +992,7 @@ mergeMorphismsAggressively src tgts node = do
         return (value, arr {dict = merged_dict})
   let res0 = (merged_node, merging_lists)
 
-  located_res <- sequence $
+  lres <- sequence $
     node |> foldUnder src \curr results -> do
       results' <- traverse sequence results
       let merging_lists_of = fromReachable res0 .> fmap snd .> fromMaybe []
@@ -963,5 +1013,5 @@ mergeMorphismsAggressively src tgts node = do
               Just (res, _) -> return (value, arr {dict = merged_dict, target = res})
       return (merged_node, merging_lists)
 
-  fromReachable merged_node $ fmap fst located_res
+  fromReachable merged_node $ fmap fst lres
 
