@@ -98,7 +98,7 @@ module BAC.Base (
 
 import Control.Monad (guard)
 import Data.Bifunctor (bimap, Bifunctor (second))
-import Data.List.Extra (groupSortOn, nubSort, allSame, nubSortOn)
+import Data.List.Extra (groupSortOn, nubSort, allSame, nubSortOn, sortOn)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe, listToMaybe, fromMaybe)
@@ -592,8 +592,12 @@ findMapNodeUnder sym f =
 
 -- | Map and find edges of BAC.
 findMapEdge :: ((Arrow e, Arrow e) -> e -> Maybe a) -> Node e -> [[a]]
-findMapEdge f = fmap snd . foldND \curr results ->
-  results |> mergeNubOn fst |> ((symbol curr, f' curr) :)
+findMapEdge f = fmap snd . fold \curr results ->
+  results `zip` edges (target curr)
+  |> sortOn (snd .> snd .> symbol .> nondecomposable (target curr))
+  |> fmap fst
+  |> mergeNubOn fst
+  |> ((symbol curr, f' curr) :)
   where
   f' curr = target curr |> edges |> mapMaybe \(value, arr) -> f (curr, arr) value
 
@@ -601,8 +605,10 @@ findMapEdge f = fmap snd . foldND \curr results ->
 findMapEdgeUnder ::
   Symbol -> (Bool -> (Arrow e, Arrow e) -> e -> Maybe a) -> Node e -> Maybe [[a]]
 findMapEdgeUnder sym f =
-  fromReachable [] . fmap (fmap snd) . foldUnderND sym \curr results ->
-    results
+  fromReachable [] . fmap (fmap snd) . foldUnder sym \curr results ->
+    results `zip` edges (target curr)
+    |> sortOn (snd .> snd .> symbol .> nondecomposable (target curr))
+    |> fmap fst
     |> mapMaybe fromInner
     |> mergeNubOn fst
     |> ((symbol curr, f' results curr) :)
