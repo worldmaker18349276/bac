@@ -1,4 +1,4 @@
-module Utils.Utils ((|>), (.>), orEmpty, guarded, label) where
+module Utils.Utils ((|>), (.>), orEmpty, guarded, label, mergeNubOn) where
 
 import Data.List (nub)
 import Data.Maybe (fromJust)
@@ -22,3 +22,9 @@ label :: (Eq a, Enum e) => e -> [a] -> [e]
 label e a = a |> fmap (`lookup` labels) |> fmap fromJust
   where
   labels = nub a `zip` [e..]
+
+mergeNubOn :: Eq b => (a -> b) -> [[a]] -> [a]
+mergeNubOn f = foldr mergeNub []
+  where
+  mergeNub list = foldr (insertNub (fmap f list)) list
+  insertNub keys a = if f a `elem` keys then id else (a :)

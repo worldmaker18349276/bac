@@ -79,14 +79,16 @@ module BAC.Base (
   fromInner,
   fold,
   foldUnder,
+  foldND,
+  foldUnderND,
   modify,
   modifyUnder,
   map,
   mapUnder,
   findMapNode,
   findMapNodeUnder,
-  findMap,
-  findMapUnder,
+  findMapEdge,
+  findMapEdgeUnder,
 
   -- * Non-Categorical Operations #operations#
 
@@ -96,7 +98,6 @@ module BAC.Base (
 
 import Control.Monad (guard)
 import Data.Bifunctor (bimap, Bifunctor (second))
-import Data.Foldable (toList)
 import Data.List.Extra (groupSortOn, nubSort, allSame, nubSortOn)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
@@ -109,7 +110,7 @@ import GHC.Stack (HasCallStack)
 import Prelude hiding (map)
 
 import Utils.Memoize (unsafeMemoizeWithKey)
-import Utils.Utils ((.>), (|>), guarded, orEmpty)
+import Utils.Utils ((.>), (|>), guarded, orEmpty, mergeNubOn)
 import Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet)
 
 -- $setup
@@ -361,8 +362,9 @@ prefixND node sym =
 suffix :: Node e -> Symbol -> [(Arrow e, Arrow e)]
 suffix node sym =
   node
-  |> findMapUnder sym (\b r _ -> orEmpty (not b) r)
-  |> fromMaybe [] 
+  |> findMapEdgeUnder sym (\b r _ -> orEmpty (not b) r)
+  |> fmap concat
+  |> fromMaybe []
 
 suffixND :: Node e -> Symbol -> [(Arrow e, Arrow e)]
 suffixND node sym =
@@ -486,7 +488,7 @@ fold ::
   -> r                   -- ^ The folding result.
 fold f = root .> fold'
   where
-  fold' = memoize \curr -> f curr (curr |> extend |> fmap fold')
+  fold' = memoize \curr -> curr |> extend |> fmap fold' |> f curr
   memoize = unsafeMemoizeWithKey symbol
 
 -- | Fold a BAC under a node.
@@ -502,6 +504,30 @@ foldUnder ::
   -> Node e                         -- ^ The root node of BAC to fold.
   -> Located r                      -- ^ The folding result, which is labeled by `Located`.
 foldUnder sym f = fold f'
+  where
+  f' curr results = case locate sym curr of
+    Outer    -> AtOuter
+    Boundary -> AtBoundary
+    Inner    -> AtInner $ f curr results
+
+foldND ::
+  (Arrow e -> [r] -> r)  -- ^ The function to reduce a node and the results from its child
+                         --   nodes into a value.
+  -> Node e              -- ^ The root node of BAC to fold.
+  -> r                   -- ^ The folding result.
+foldND f = root .> fold'
+  where
+  fold' = memoize \curr ->
+    arrowsND (target curr) |> fmap (join curr) |> fmap fold' |> f curr
+  memoize = unsafeMemoizeWithKey symbol
+
+foldUnderND ::
+  Symbol                            -- ^ The symbol referencing to the boundary.
+  -> (Arrow e -> [Located r] -> r)  -- ^ The reduce function.  Where the results of child
+                                    --   nodes are labeled by `Located`.
+  -> Node e                         -- ^ The root node of BAC to fold.
+  -> Located r                      -- ^ The folding result, which is labeled by `Located`.
+foldUnderND sym f = foldND f'
   where
   f' curr results = case locate sym curr of
     Outer    -> AtOuter
@@ -551,37 +577,42 @@ mapUnder sym f node = do
 
 -- | Map and find nodes of BAC.
 findMapNode :: (Arrow e -> Maybe a) -> Node e -> [a]
-findMapNode f = Map.elems . fold \curr results ->
-  results |> Map.unions |> case f curr of
-    Just res -> Map.insert (symbol curr) res
+findMapNode f = fmap snd . foldND \curr results ->
+  results |> mergeNubOn fst |> case f curr of
+    Just res -> ((symbol curr, res) :)
     Nothing -> id
 
 -- | Map and find nodes of BAC under a node.
 findMapNodeUnder :: Symbol -> (Arrow e -> Maybe a) -> Node e -> Maybe [a]
 findMapNodeUnder sym f =
-  fromReachable [] . fmap Map.elems . foldUnder sym \curr results ->
-    results |> mapMaybe fromInner |> Map.unions |> case f curr of
-      Just res -> Map.insert (symbol curr) res
+  fromReachable [] . fmap (fmap snd) . foldUnderND sym \curr results ->
+    results |> mapMaybe fromInner |> mergeNubOn fst |> case f curr of
+      Just res -> ((symbol curr, res) :)
       Nothing -> id
 
 -- | Map and find edges of BAC.
-findMap :: ((Arrow e, Arrow e) -> e -> Maybe a) -> Node e -> [a]
-findMap f = concat . Map.elems . fold \curr results ->
-  results |> Map.unions |> Map.insert (symbol curr) do
-    (value, arr) <- edges (target curr)
-    toList $ f (curr, arr) value
+findMapEdge :: ((Arrow e, Arrow e) -> e -> Maybe a) -> Node e -> [[a]]
+findMapEdge f = fmap snd . foldND \curr results ->
+  results |> mergeNubOn fst |> ((symbol curr, f' curr) :)
+  where
+  f' curr = target curr |> edges |> mapMaybe \(value, arr) -> f (curr, arr) value
 
 -- | Map and find edges of BAC under a node.
-findMapUnder ::
-  Symbol -> (Bool -> (Arrow e, Arrow e) -> e -> Maybe a) -> Node e -> Maybe [a]
-findMapUnder sym f =
-  fromReachable [] . fmap (concat . Map.elems) . foldUnder sym \curr results ->
-    results |> mapMaybe fromInner |> Map.unions |> Map.insert (symbol curr) do
-      (res, (value, arr)) <- results `zip` edges (target curr)
-      toList case res of
-        AtOuter -> Nothing
-        AtBoundary -> f False (curr, arr) value
-        AtInner _ -> f True (curr, arr) value
+findMapEdgeUnder ::
+  Symbol -> (Bool -> (Arrow e, Arrow e) -> e -> Maybe a) -> Node e -> Maybe [[a]]
+findMapEdgeUnder sym f =
+  fromReachable [] . fmap (fmap snd) . foldUnderND sym \curr results ->
+    results
+    |> mapMaybe fromInner
+    |> mergeNubOn fst
+    |> ((symbol curr, f' results curr) :)
+    where
+    f' results curr =
+      results `zip` edges (target curr)
+      |> mapMaybe \case
+        (AtOuter, _) -> Nothing
+        (AtBoundary, (value, arr)) -> f False (curr, arr) value
+        (AtInner _, (value, arr)) -> f True (curr, arr) value
 
 {- |
 Rewire edges of a given node.
