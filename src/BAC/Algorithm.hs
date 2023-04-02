@@ -2,7 +2,6 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE BlockArguments #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
-{-# OPTIONS_GHC -Wno-unused-matches #-}
 
 module BAC.Algorithm (
   -- * Empty, Singleton
@@ -205,7 +204,7 @@ removeMorphism (src, tgt) node = do
 
   let src_node = node |> arrow src |> fromJust |> target
   let res0 = src_node |> edges |> filter (\(_, arr) -> symbol arr /= tgt) |> Node
-  fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
+  fromReachable res0 $ node |> modifyUnder src \(_curr, (value, arr)) -> \case
     AtOuter -> return (value, arr)
     AtInner res -> return (value, arr {target = res})
     AtBoundary -> return (value, arr {dict = filtered_dict, target = res0})
@@ -289,7 +288,6 @@ removeInitialMorphism' tgt node = do
             |> ((undefined, s2) :)
       rewireEdges s1 new_edges node
 
-    (add_list, add_list') <- prepareForRemoveMorphism sym2 node
     removeMorphism sym2 node
 
   let keys = partitionSymbols node |> fmap (elem tgt)
@@ -580,7 +578,7 @@ splitMorphism (src, tgt) splittable_keys node = do
           let splitted_dict = dict arr |> Map.toList |> fmap split |> Map.fromList
           return (value, arr {dict = splitted_dict})
 
-  fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
+  fromReachable res0 $ node |> modifyUnder src \(_curr, (value, arr)) -> \case
     AtOuter -> return (value, arr)
     AtInner res -> return (value, arr {target = res})
     AtBoundary -> return (value, arr {dict = merged_dict, target = res0})
@@ -758,7 +756,7 @@ mergeMorphisms (src, tgts) node = do
         let dict' = dict arr |> Map.toList |> fmap (second merge) |> Map.fromList
         return (value, arr {dict = dict'})
 
-  fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
+  fromReachable res0 $ node |> modifyUnder src \(_curr, (value, arr)) -> \case
     AtOuter -> return (value, arr)
     AtInner res -> return (value, arr {target = res})
     AtBoundary -> return (value, arr {dict = dict', target = res0})
