@@ -64,7 +64,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust, fromMaybe, isJust)
 
 import Utils.Utils ((|>), (.>), guarded, label, foldlMUncurry)
-import Utils.DisjointSet (bipartiteEqclass, bipartiteEqclassOn)
+import Utils.DisjointSet (bipartiteEqclass)
 import BAC.Base
 
 -- $setup
@@ -589,9 +589,9 @@ partitionPrefix node tgt =
   prefix node tgt
   |> concatMap (\(arr1, arr23) -> suffix (target arr1) (symbol arr23) |> fmap (arr1,))
   |> fmap (\(arr1, (arr2, arr3)) -> ((arr1, arr2 `join` arr3), (arr1 `join` arr2, arr3)))
-  |> bipartiteEqclassOn symbol2 symbol2
+  |> fmap (both symbol2)
+  |> bipartiteEqclass
   |> fmap fst
-  |> fmap (fmap symbol2)
   |> fmap sort
   |> sort
 
