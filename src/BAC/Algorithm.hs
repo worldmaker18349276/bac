@@ -92,8 +92,8 @@ Examples:
 - 0->1
 -}
 singleton ::
-  e           -- ^ The data of the only edge.
-  -> Node e   -- ^ The result.
+  e  -- ^ The data of the only edge.
+  -> Node e
 singleton val = Node {edges = [(val, new_arr)]}
   where
   new_sym = base + 1
@@ -196,9 +196,9 @@ printNode' $
     *1
 -}
 removeMorphism ::
-  (Symbol, Symbol)   -- ^ The tuple of symbols indicate the morphism to be removed.
-  -> Node e          -- ^ The root node of BAC.
-  -> Maybe (Node e)  -- ^ The result.
+  (Symbol, Symbol)  -- ^ The tuple of symbols indicate the morphism to be removed.
+  -> Node e
+  -> Maybe (Node e)
 removeMorphism (src, tgt) node = do
   guard $
     missingAltPaths (src, tgt) node
@@ -243,9 +243,9 @@ Examples:
 Nothing
 -}
 removeObject ::
-  Symbol             -- ^ The symbol indicates the object to be removed.
-  -> Node e          -- ^ The root node of BAC.
-  -> Maybe (Node e)  -- ^ The result.
+  Symbol  -- ^ The symbol indicates the object to be removed.
+  -> Node e
+  -> Maybe (Node e)
 removeObject tgt node = do
   guard $ root node |> locate tgt |> (== Inner)
   tgt_arr <- node |> arrow tgt
@@ -523,13 +523,13 @@ Examples:
     *2
 -}
 addMorphism ::
-  Symbol             -- ^ The symbol indicating the source object of the morphism to be added.
-  -> Symbol          -- ^ The symbol indicating the target object of the morphism to be added.
-  -> [Int]           -- ^ The indices of coangles given by `findValidCoanglesAngles`.
-  -> [Int]           -- ^ The indices of angles given by `findValidCoanglesAngles`.
-  -> e               -- ^ The value of the edge to be added.
-  -> Node e          -- ^ The root node of BAC.
-  -> Maybe (Node e)  -- ^ The result.
+  Symbol     -- ^ The symbol indicating the source object of the morphism to be added.
+  -> Symbol  -- ^ The symbol indicating the target object of the morphism to be added.
+  -> [Int]   -- ^ The indices of coangles given by `findValidCoanglesAngles`.
+  -> [Int]   -- ^ The indices of angles given by `findValidCoanglesAngles`.
+  -> e       -- ^ The value of the edge to be added.
+  -> Node e
+  -> Maybe (Node e)
 addMorphism src tgt src_alts tgt_alts val node = do
   src_arr <- node |> arrow src
   tgt_arr <- node |> arrow tgt
@@ -628,8 +628,8 @@ splitMorphism ::
   Eq k
   => (Symbol, Symbol)  -- ^ The symbols reference to the morphism to split.
   -> [k]               -- ^ The keys to classify splittable groups given by `partitionPrefix`.
-  -> Node e            -- ^ The root node of BAC.
-  -> Maybe (Node e)    -- ^ The result.
+  -> Node e
+  -> Maybe (Node e)
 splitMorphism (src, tgt) splittable_keys node = do
   src_arr <- node |> arrow src
   guard $ root node |> locate tgt |> (== Inner)
@@ -716,10 +716,10 @@ Examples:
 -}
 splitObject ::
   Eq k
-  => Symbol          -- ^ The symbol referencing the node to be splitted.
-  -> [k]             -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
-  -> Node e          -- ^ The root node of BAC.
-  -> Maybe (Node e)  -- ^ The result.
+  => Symbol  -- ^ The symbol referencing the node to be splitted.
+  -> [k]     -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
+  -> Node e
+  -> Maybe (Node e)
 splitObject tgt splittable_keys node = do
   guard $ root node |> locate tgt |> (== Inner)
   tgt_arr <- node |> arrow tgt
@@ -774,9 +774,9 @@ Examples:
 -}
 splitCategory ::
   Eq k
-  => [k]             -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
-  -> Node e          -- ^ The root node of BAC.
-  -> Maybe [Node e]  -- ^ The list of the root nodes representing splitted categories.
+  => [k]  -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
+  -> Node e
+  -> Maybe [Node e]
 splitCategory splittable_keys node = do
   let splittable_groups = partitionSymbols node
   guard $ length splittable_groups == length splittable_keys
@@ -819,8 +819,8 @@ Examples:
 -}
 mergeMorphisms ::
   (Symbol, [Symbol])  -- ^ The symbol referencing the node and symbols to be merged.
-  -> Node e           -- ^ The root node of BAC.
-  -> Maybe (Node e)   -- ^ The result.
+  -> Node e
+  -> Maybe (Node e)
 mergeMorphisms (src, tgts) node = do
   guard $ notNull tgts
   src_arr <- node |> arrow src
