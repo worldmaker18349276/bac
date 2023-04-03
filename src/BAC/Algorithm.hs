@@ -15,6 +15,7 @@ module BAC.Algorithm (
   removeMorphism,
   removeObject,
   removeInitialMorphism',
+  removeObject',
 
   -- * Add Morphism
 
@@ -229,6 +230,15 @@ Examples:
   - 0->4; 1->2
     *1
 
+>>> printNode' $ fromJust $ removeObject 2 cone
+- 0->1
+- 0->3; 1->4; 3->6; 4->4
+  - 0->1; 2->3
+    &0
+    - 0->2
+  - 0->4; 2->3
+    *0
+
 >>> removeObject 4 cone
 Nothing
 -}
@@ -278,7 +288,78 @@ removeInitialMorphism' tgt node = do
 
   node <- (node, remove_list) |> foldlMUncurry \(node, sym2) -> do
     (add_list, add_list') <- missingAltPaths sym2 node
-    node <- (node, add_list ++ add_list') |> foldlMUncurry \(node, (s1, s2)) -> do
+    guard $ add_list |> null
+    node <- (node, add_list') |> foldlMUncurry \(node, (s1, s2)) -> do
+      let new_edges =
+            node
+            |> arrow s1
+            |> fromJust
+            |> target
+            |> edges
+            |> fmap (fmap symbol)
+            |> ((undefined, s2) :)
+      rewireEdges s1 new_edges node
+
+    removeMorphism sym2 node
+
+  let keys = partitionSymbols node |> fmap (elem tgt)
+  let i = nub keys |> findIndex not |> fromJust
+  nodes' <- splitCategory keys node
+  return $ nodes' !! i
+
+
+{- |
+Remove an object step by step: removing all related morphisms, then splitting category.
+
+Examples:
+
+>>> printNode' $ fromJust $ removeObject' 6 cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 4->4
+  - 0->1; 1->2
+    &1
+    - 0->1
+      *0
+  - 0->4; 1->2
+    *1
+
+>>> printNode' $ fromJust $ removeObject' 2 cone
+- 0->1
+- 0->3; 1->4; 3->6; 4->4
+  - 0->1; 2->3
+    &0
+    - 0->2
+  - 0->4; 2->3
+    *0
+
+>>> removeObject' 4 cone
+Nothing
+-}
+removeObject' :: Symbol -> Node e -> Maybe (Node e)
+removeObject' tgt node = do
+  guard $ root node |> locate tgt |> (== Inner)
+  tgt_arr <- node |> arrow tgt
+  guard $ target tgt_arr |> edges |> null
+
+  let remove_list =
+        node
+        |> findMapNode (\curr ->
+          curr `divide` tgt_arr
+          |> fmap (curr,)
+          |> fmap symbol2
+          |> Just
+        )
+        |> concat
+        |> filter (fst .> (/= base))
+        |> filter (snd .> (/= base))
+        |> reverse
+
+  node <- (node, remove_list) |> foldlMUncurry \(node, sym2) -> do
+    (add_list, add_list') <- missingAltPaths sym2 node
+    guard $ add_list' |> null
+    node <- (node, add_list) |> foldlMUncurry \(node, (s1, s2)) -> do
       let new_edges =
             node
             |> arrow s1
