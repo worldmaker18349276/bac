@@ -1,4 +1,10 @@
-module Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet, canonicalizeEqlistSetBruteForce, verify) where
+module Utils.EqlistSet (
+  EqlistSet,
+  canonicalizeEqlistSet,
+  canonicalizeGradedEqlistSet,
+  canonicalizeEqlistSetBruteForce,
+  verify,
+) where
 
 import Data.List.Extra (groupSortOn, allSame)
 import Data.List (nub, elemIndex, sort, delete)
@@ -6,14 +12,14 @@ import Data.Maybe (fromJust, fromMaybe)
 import Control.Arrow ((&&&))
 
 
-type EqSet a = [a]
+type EqlistSet a = [[a]]
 
--- | Canonicalize a set of eqlists by relabeling.
-canonicalizeEqlistSetBruteForce :: Eq a => EqSet [a] -> [[a]]
+-- | Canonicalize a eqlist set by relabeling.
+canonicalizeEqlistSetBruteForce :: Eq a => EqlistSet a -> [[a]]
 canonicalizeEqlistSetBruteForce eqlistset =
   head $ groupSortOn (`key` eqlistset) $ perms $ nub $ concat eqlistset
   where
-  key :: Eq a => [a] -> EqSet [a] -> [[Int]]
+  key :: Eq a => [a] -> EqlistSet a -> [[Int]]
   key order = sort . fmap (fmap (fromJust . (`elemIndex` order)))
   perms :: [a] -> [[a]]
   perms = foldr (concatMap . inserts) [[]]
@@ -25,35 +31,35 @@ canonicalizeEqlistSetBruteForce eqlistset =
 --
 --   Examples:
 --
---   >>> eqlistset = [[1,2], [2,3], [3,4], [4,1]] :: EqSet [Int]
+--   >>> eqlistset = [[1,2], [2,3], [3,4], [4,1]] :: EqlistSet Int
 --   >>> verify eqlistset (canonicalizeEqlistSetBruteForce eqlistset)
 --   True
 --
---   >>> eqlistset' = [[1,2,3], [3,2,1], [1,4,3], [3,4,1]] :: EqSet [Int]
+--   >>> eqlistset' = [[1,2,3], [3,2,1], [1,4,3], [3,4,1]] :: EqlistSet Int
 --   >>> verify eqlistset' (canonicalizeEqlistSetBruteForce eqlistset')
 --   True
-verify :: Eq a => EqSet [a] -> [[a]] -> Bool
+verify :: Eq a => EqlistSet a -> [[a]] -> Bool
 verify eqlistset orders = allSame $ fmap (`key` eqlistset) orders
   where
-  key :: Eq a => [a] -> EqSet [a] -> [[Int]]
+  key :: Eq a => [a] -> EqlistSet a -> [[Int]]
   key order = sort . fmap (sort . fmap (fromJust . (`elemIndex` order)))
 
 -- | Canonicalize a set of eqlists by relabeling.
 --
 --   Examples:
 --
---   >>> canonicalizeEqlistSet ([[1,2], [2,3], [3,4], [4,1]] :: EqSet [Int])
+--   >>> canonicalizeEqlistSet ([[1,2], [2,3], [3,4], [4,1]] :: EqlistSet Int)
 --   [[1,2,4,3],[2,3,1,4],[3,4,2,1],[4,1,3,2]]
 --
---   >>> canonicalizeEqlistSet ([[1,2,3], [3,2,1], [1,4,3], [3,4,1]] :: EqSet [Int])
+--   >>> canonicalizeEqlistSet ([[1,2,3], [3,2,1], [1,4,3], [3,4,1]] :: EqlistSet Int)
 --   [[1,2,3,4],[3,2,1,4],[1,4,3,2],[3,4,1,2]]
-canonicalizeEqlistSet :: Eq a => EqSet [a] -> [[a]]
+canonicalizeEqlistSet :: Eq a => EqlistSet a -> [[a]]
 canonicalizeEqlistSet = canonicalizeGradedEqlistSet (const ())
 
 -- TODO: further refine grades and groups by adjacent vertices
 
--- | Canonicalize a set of graded eqlists by relabeling.
-canonicalizeGradedEqlistSet :: (Eq a, Ord g) => (a -> g) -> EqSet [a] -> [[a]]
+-- | Canonicalize a graded eqlist set by relabeling.
+canonicalizeGradedEqlistSet :: (Eq a, Ord g) => (a -> g) -> EqlistSet a -> [[a]]
 canonicalizeGradedEqlistSet grade =
   fmap fst . go . set . fmap (fmap nub) . groupSortOn (fmap grade &&& label)
   where

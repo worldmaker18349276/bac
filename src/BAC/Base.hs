@@ -68,9 +68,9 @@ module BAC.Base (
 
   -- * Isomorphism #isomorphism#
 
-  sameStruct,
+  eqStruct,
   canonicalize,
-  canonicalizeArrow,
+  canonicalizeObject,
 
   -- * Folding #folding#
 
@@ -418,11 +418,11 @@ makeNode edges = guarded (root .> validate) (Node {edges = edges})
 makeArrow :: Dict -> Node e -> Maybe (Arrow e)
 makeArrow dict target = guarded validate (Arrow {dict = dict, target = target})
 
--- | Check structural equality of nodes up to rewiring.
+-- | Structural equality, the equality of nodes up to rewiring.
 --   The symbols of nodes should be the same, and equality of child nodes are not checked.
 --   The node with the same structure can be unioned by merging their edges.
-sameStruct :: [Node e] -> Bool
-sameStruct = fmap arrowsND .> fmap (fmap dict) .> allSame
+eqStruct :: [Node e] -> Bool
+eqStruct = fmap arrowsND .> fmap (fmap dict) .> allSame
 
 -- | Find mappings to canonicalize the order of symbols of a node.  It will return
 --   multiple mappings if it possesses some symmetries.
@@ -430,6 +430,9 @@ sameStruct = fmap arrowsND .> fmap (fmap dict) .> allSame
 --   nodes.  The relative order between these mappings forms automorphism of this BAC.
 --
 --   Examples:
+--
+--   >>> fmap elems $ canonicalize crescent
+--   [[0,1,2,3,4]]
 --
 --   >>> fmap elems $ canonicalize $ target $ fromJust $ arrow 1 crescent
 --   [[0,1,2,3,4,5,6],[0,1,2,3,6,5,4],[0,3,2,1,4,5,6],[0,3,2,1,6,5,4],[0,4,5,6,1,2,3],[0,6,5,4,1,2,3],[0,4,5,6,3,2,1],[0,6,5,4,3,2,1]]
@@ -442,23 +445,31 @@ canonicalize =
   .> fmap (base :)
   .> fmap ((`zip` [base..]) .> Map.fromList)
 
--- | Find mappings to canonicalize an arrow.
---   The induced automorphisms are invariant under the mapping of the arrow.
---   It can be used to check the isomorphism between arrows.
+-- | Find mappings to canonicalize the order of symbols of a subnode specified by given
+--   symbol.  The induced automorphisms are invariant under the mapping of incoming edges.
+--   It can be used to check the upper isomorphism between objects.
 --
 --   Examples:
 --
---   >>> fmap elems $ canonicalizeArrow $ fromJust $ arrow 1 crescent
+--   >>> fmap elems $ fromJust $ canonicalizeObject crescent 1
 --   [[0,1,2,5,3,4,6],[0,3,4,6,1,2,5]]
-canonicalizeArrow :: Arrow e -> [Dict]
-canonicalizeArrow arr =
-  target arr
-  |> arrowsND
-  |> fmap dict
-  |> fmap Map.elems
-  |> canonicalizeGradedEqlistSet (dict arr !)
-  |> fmap (base :)
-  |> fmap ((`zip` [base..]) .> Map.fromList)
+canonicalizeObject :: Node e -> Symbol -> Maybe [Dict]
+canonicalizeObject node tgt = do
+  guard $ tgt /= base
+  tgt_arr <- node |> arrow tgt
+  let keys =
+        tgt
+        |> suffixND node
+        |> fmap (snd .> dict .> fmap (: []))
+        |> foldl (Map.unionWith (++)) Map.empty
+  return $
+    target tgt_arr
+    |> arrowsND
+    |> fmap dict
+    |> fmap Map.elems
+    |> canonicalizeGradedEqlistSet (keys !)
+    |> fmap (base :)
+    |> fmap ((`zip` [base..]) .> Map.fromList)
 
 -- | A value labeled by the relative position of the node.
 data Located r = AtOuter | AtBoundary | AtInner r
