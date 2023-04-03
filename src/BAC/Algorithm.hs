@@ -26,7 +26,7 @@ module BAC.Algorithm (
   compatibleAngles,
   compatibleCoangles,
   compatibleCoanglesAngles,
-  prepareForAddMorphism,
+  findValidCoanglesAngles,
   addMorphism,
 
   -- * Split Morphism, Object, Category
@@ -472,16 +472,16 @@ selected, or Nothing if it is invalid.
 
 Examples:
 
->>> fromJust $ prepareForAddMorphism 1 6 cone
+>>> fromJust $ findValidCoanglesAngles 1 6 cone
 ([[((0,1),(0,6))]],[])
 -}
-prepareForAddMorphism ::
+findValidCoanglesAngles ::
   Symbol      -- ^ The symbol indicating the source object of the morphism to be added.
   -> Symbol   -- ^ The symbol indicating the target object of the morphism to be added.
   -> Node e   -- ^ The root node of BAC.
   -> Maybe ([[Coangle]], [[Angle]])
               -- ^ The coangles and angles need to be selected, or Nothing if it is invalid.
-prepareForAddMorphism src tgt node = do
+findValidCoanglesAngles src tgt node = do
   src_arr <- arrow src node
   tgt_arr <- arrow tgt node
   guard $ locate src tgt_arr == Outer
@@ -525,8 +525,8 @@ Examples:
 addMorphism ::
   Symbol             -- ^ The symbol indicating the source object of the morphism to be added.
   -> Symbol          -- ^ The symbol indicating the target object of the morphism to be added.
-  -> [Int]           -- ^ The indices of coangles given by `prepareForAddMorphism`.
-  -> [Int]           -- ^ The indices of angles given by `prepareForAddMorphism`.
+  -> [Int]           -- ^ The indices of coangles given by `findValidCoanglesAngles`.
+  -> [Int]           -- ^ The indices of angles given by `findValidCoanglesAngles`.
   -> e               -- ^ The value of the edge to be added.
   -> Node e          -- ^ The root node of BAC.
   -> Maybe (Node e)  -- ^ The result.
@@ -535,7 +535,7 @@ addMorphism src tgt src_alts tgt_alts val node = do
   tgt_arr <- node |> arrow tgt
   guard $ tgt_arr |> locate src |> (== Outer)
 
-  (src_angs, tgt_angs) <- prepareForAddMorphism src tgt node
+  (src_angs, tgt_angs) <- findValidCoanglesAngles src tgt node
   guard $ length src_angs == length src_alts
   guard $ length tgt_angs == length tgt_alts
   src_angs' <- src_angs `zip` src_alts |> traverse (uncurry (!?))
