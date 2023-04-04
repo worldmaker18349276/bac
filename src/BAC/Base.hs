@@ -203,7 +203,7 @@ divide arr12 arr13 =
   |> filter (snd .> (== symbol arr13))
   |> fmap fst
   |> nubSort
-  |> fmap ((`arrow` target arr12) .> fromJust)
+  |> fmap (arrow (target arr12) .> fromJust)
 
 -- | Extend an arrow by joining to the edges of the target node.
 extend :: Arrow e -> [Arrow e]
@@ -214,16 +214,16 @@ extend arr = target arr |> arrows |> fmap (join arr)
 --
 --   Examples:
 --
---   >>> locate 2 (root cone)
+--   >>> locate (root cone) 2
 --   Inner
 --
---   >>> locate 0 (root cone)
+--   >>> locate (root cone) 0
 --   Boundary
 --
---   >>> locate 5 (root cone)
+--   >>> locate (root cone) 5
 --   Outer
-locate :: Symbol -> Arrow e -> Location
-locate sym arr
+locate :: Arrow e -> Symbol -> Location
+locate arr sym
   | symbol arr == sym   = Boundary
   | sym `elem` dict arr = Inner
   | otherwise           = Outer
@@ -233,15 +233,15 @@ locate sym arr
 --
 --   Examples:
 --
---   >>> arrow 3 cone
+--   >>> arrow cone 3
 --   Just (Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
 --
---   >>> arrow 5 cone
+--   >>> arrow cone 5
 --   Nothing
-arrow :: Symbol -> Node e -> Maybe (Arrow e)
-arrow sym = root .> go
+arrow :: Node e -> Symbol -> Maybe (Arrow e)
+arrow node sym = go (root node)
   where
-  go arr = case locate sym arr of
+  go arr = case locate arr sym of
     Outer    -> Nothing
     Boundary -> Just arr
     Inner    -> Just $ arr |> extend |> mapMaybe go |> head
@@ -249,14 +249,14 @@ arrow sym = root .> go
 -- | Find the symbol referencing to the given arrow.
 --   It is the inverse of `arrow`:
 --
---   > fmap symbol (arrow sym node) = Just sym
+--   > fmap symbol (arrow node sym) = Just sym
 --
 --   Examples:
 --
---   >>> fmap symbol (arrow 3 cone)
+--   >>> fmap symbol (arrow cone 3)
 --   Just 3
 --
---   >>> fmap symbol (arrow 5 cone)
+--   >>> fmap symbol (arrow cone 5)
 --   Nothing
 symbol :: Arrow e -> Symbol
 symbol = dict .> (! base)
@@ -272,38 +272,38 @@ symbol = dict .> (! base)
 --   False
 nondecomposable :: Node e -> Symbol -> Bool
 nondecomposable node sym =
-  (root node |> locate sym |> (/= Outer))
-  && (node |> arrows |> all (locate sym .> (/= Inner)))
+  (locate (root node) sym |> (/= Outer))
+  && (node |> arrows |> all ((`locate` sym) .> (/= Inner)))
 
 -- | Make a 2-chain by given pair of symbols.
 --
 --   Examples:
 --
---   >>> fmap fst (arrow2 (3,2) cone)
+--   >>> fmap fst (arrow2 cone (3,2))
 --   Just (Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
 --
---   >>> fmap snd (arrow2 (3,2) cone)
+--   >>> fmap snd (arrow2 cone (3,2))
 --   Just (Arrow {dict = fromList [(0,2)], target = ...
 --
---   >>> arrow2 (1,2) cone
+--   >>> arrow2 cone (1,2)
 --   Nothing
-arrow2 :: (Symbol, Symbol) -> Node e -> Maybe (Arrow e, Arrow e)
-arrow2 (src, tgt) node = do
-  src_arr <- node |> arrow src
-  tgt_subarr <- target src_arr |> arrow tgt
+arrow2 :: Node e -> (Symbol, Symbol) -> Maybe (Arrow e, Arrow e)
+arrow2 node (src, tgt) = do
+  src_arr <- arrow node src
+  tgt_subarr <- arrow (target src_arr) tgt
   return (src_arr, tgt_subarr)
 
 -- | Find the pair of symbols referencing to the given 2-chain.
 --   It is the inverse of `arrow2`:
 --
---   > fmap symbol2 (arrow2 sym2 node) = Just sym2
+--   > fmap symbol2 (arrow2 node sym2) = Just sym2
 --
 --   Examples:
 --
---   >>> fmap symbol2 (arrow2 (3,2) cone)
+--   >>> fmap symbol2 (arrow2 cone (3,2))
 --   Just (3,2)
 --
---   >>> fmap symbol2 (arrow2 (1,2) cone)
+--   >>> fmap symbol2 (arrow2 cone (1,2))
 --   Nothing
 symbol2 :: (Arrow e, Arrow e) -> (Symbol, Symbol)
 symbol2 = symbol `bimap` symbol
@@ -330,7 +330,7 @@ extend2 :: (Arrow e, Arrow e) -> [(Arrow e, Arrow e)]
 extend2 (arr1, arr2) =
   target arr1
   |> arrows
-  |> filter (locate (symbol arr2) .> (/= Outer))
+  |> filter ((`locate` symbol arr2) .> (/= Outer))
   |> concatMap (\arr -> arr `divide` arr2 |> fmap (arr1 `join` arr,))
 
 -- | Find prefix edges of a node under a given symbol.
@@ -341,7 +341,7 @@ extend2 (arr1, arr2) =
 --   > &&  (_, arr1) `elem` edges node
 prefix :: Node e -> Symbol -> [(Arrow e, Arrow e)]
 prefix node sym =
-  arrow sym node
+  arrow node sym
   |> maybe [] \tgt_arr ->
     node
     |> arrows
@@ -388,7 +388,7 @@ validate arr = validateDicts && validateSup
     |> fmap void
     |> groupSortOn symbol
     |> all allSame
-  descendants node = symbols node |> fmap (`arrow` node) |> fmap fromJust
+  descendants node = symbols node |> fmap (arrow node) |> fmap fromJust
 
 -- | Check if an arrow is valid in depth.  All descendant nodes will be checked.
 --
@@ -403,7 +403,7 @@ validate arr = validateDicts && validateSup
 --   >>> validateAll $ root crescent
 --   True
 --
---   >>> validateAll $ fromJust $ arrow 3 cone
+--   >>> validateAll $ fromJust $ arrow cone 3
 --   True
 validateAll :: Arrow e -> Bool
 validateAll arr = validateChildren && validate arr
@@ -434,7 +434,7 @@ eqStruct = fmap arrowsND .> fmap (fmap dict) .> allSame
 --   >>> fmap elems $ canonicalize crescent
 --   [[0,1,2,3,4]]
 --
---   >>> fmap elems $ canonicalize $ target $ fromJust $ arrow 1 crescent
+--   >>> fmap elems $ canonicalize $ target $ fromJust $ arrow crescent 1
 --   [[0,1,2,3,4,5,6],[0,1,2,3,6,5,4],[0,3,2,1,4,5,6],[0,3,2,1,6,5,4],[0,4,5,6,1,2,3],[0,6,5,4,1,2,3],[0,4,5,6,3,2,1],[0,6,5,4,3,2,1]]
 canonicalize :: Node e -> [Dict]
 canonicalize =
@@ -456,7 +456,7 @@ canonicalize =
 canonicalizeObject :: Node e -> Symbol -> Maybe [Dict]
 canonicalizeObject node tgt = do
   guard $ tgt /= base
-  tgt_arr <- node |> arrow tgt
+  tgt_arr <- arrow node tgt
   let keys =
         tgt
         |> suffixND node
@@ -516,7 +516,7 @@ foldUnder ::
   -> Located r                      -- ^ The folding result, which is labeled by `Located`.
 foldUnder sym f = fold f'
   where
-  f' curr results = case locate sym curr of
+  f' curr results = case locate curr sym of
     Outer    -> AtOuter
     Boundary -> AtBoundary
     Inner    -> AtInner $ f curr results
@@ -540,7 +540,7 @@ foldUnderND ::
   -> Located r                      -- ^ The folding result, which is labeled by `Located`.
 foldUnderND sym f = foldND f'
   where
-  f' curr results = case locate sym curr of
+  f' curr results = case locate curr sym of
     Outer    -> AtOuter
     Boundary -> AtBoundary
     Inner    -> AtInner $ f curr results
@@ -579,7 +579,7 @@ map f = modify \(curr, (value, arr)) res ->
 -- | Map stored data of BAC under a node.
 mapUnder :: Symbol -> (Bool -> (Arrow e, Arrow e) -> e -> e) -> Node e -> Maybe (Node e)
 mapUnder sym f node = do
-  curr <- node |> arrow sym
+  curr <- arrow node sym
   let res0 = target curr
   fromReachable res0 $ node |> modifyUnder sym \(curr, (value, arr)) -> \case
     AtOuter     -> return (value, arr)
@@ -676,9 +676,9 @@ rewireEdges ::
   -> Node e          -- ^ The root node of BAC.
   -> Maybe (Node e)  -- ^ The result.
 rewireEdges src tgts node = do
-  src_arr <- node |> arrow src
+  src_arr <- arrow node src
   let nd_syms = target src_arr |> arrowsND |> fmap symbol
-  src_edges' <- tgts |> traverse (traverse (`arrow` target src_arr))
+  src_edges' <- tgts |> traverse (traverse (arrow (target src_arr)))
   let res0 = Node src_edges'
 
   let nd_syms' = res0 |> arrowsND |> fmap symbol
@@ -723,7 +723,7 @@ relabelObject ::
   -> Node e          -- ^ The root node of BAC.
   -> Maybe (Node e)  -- ^ The result.
 relabelObject tgt mapping node = do
-  tgt_arr <- node |> arrow tgt
+  tgt_arr <- arrow node tgt
   guard $ base `Map.member` mapping && mapping ! base == base
   guard $ Map.keys mapping == symbols (target tgt_arr)
   let unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList

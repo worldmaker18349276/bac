@@ -36,6 +36,7 @@ module BAC.Algorithm (
   partitionSymbols,
   splitObject,
   splitCategory,
+  -- duplicateObject',
 
   -- * Merge Morphisms, Objects, Categories
 
@@ -125,7 +126,7 @@ missingAltPaths ::
                     --   second list is the edges skipping the target object.
 missingAltPaths (src, tgt) node = do
   guard $ tgt /= base
-  (src_arr, tgt_arr) <- arrow2 (src, tgt) node
+  (src_arr, tgt_arr) <- arrow2 node (src, tgt)
   guard $ nondecomposable (target src_arr) tgt
   let src_alts = nubSort do
         (arr1, arr2) <- src |> suffixND node
@@ -204,7 +205,7 @@ removeMorphism (src, tgt) node = do
     missingAltPaths (src, tgt) node
     |> maybe False \(l, r) -> null l && null r
 
-  let src_node = node |> arrow src |> fromJust |> target
+  let src_node = arrow node src |> fromJust |> target
   let res0 = src_node |> edges |> filter (\(_, arr) -> symbol arr /= tgt) |> Node
   fromReachable res0 $ node |> modifyUnder src \(_curr, (value, arr)) -> \case
     AtOuter -> return (value, arr)
@@ -247,8 +248,8 @@ removeObject ::
   -> Node e
   -> Maybe (Node e)
 removeObject tgt node = do
-  guard $ root node |> locate tgt |> (== Inner)
-  tgt_arr <- node |> arrow tgt
+  guard $ locate (root node) tgt |> (== Inner)
+  tgt_arr <- arrow node tgt
   guard $ target tgt_arr |> edges |> null
 
   fromReachable (target tgt_arr) $ node |> modifyUnder tgt \(curr, (value, arr)) -> \case
@@ -279,7 +280,7 @@ removeInitialMorphism' tgt node = do
     missingAltPaths (0, tgt) node
     |> maybe False \(l, r) -> null l && null r
 
-  tgt_arr <- node |> arrow tgt
+  tgt_arr <- arrow node tgt
   let remove_list =
         target tgt_arr
         |> findMapNode (symbol .> Just)
@@ -291,8 +292,7 @@ removeInitialMorphism' tgt node = do
     guard $ add_list |> null
     node <- (node, add_list') |> foldlMUncurry \(node, (s1, s2)) -> do
       let new_edges =
-            node
-            |> arrow s1
+            arrow node s1
             |> fromJust
             |> target
             |> edges
@@ -339,8 +339,8 @@ Nothing
 -}
 removeObject' :: Symbol -> Node e -> Maybe (Node e)
 removeObject' tgt node = do
-  guard $ root node |> locate tgt |> (== Inner)
-  tgt_arr <- node |> arrow tgt
+  guard $ locate (root node) tgt |> (== Inner)
+  tgt_arr <- arrow node tgt
   guard $ target tgt_arr |> edges |> null
 
   let remove_list =
@@ -361,8 +361,7 @@ removeObject' tgt node = do
     guard $ add_list' |> null
     node <- (node, add_list) |> foldlMUncurry \(node, (s1, s2)) -> do
       let new_edges =
-            node
-            |> arrow s1
+            arrow node s1
             |> fromJust
             |> target
             |> edges
@@ -392,8 +391,8 @@ type Angle = ((Symbol, Symbol), (Symbol, Symbol))
 -- | Check whether a given value is a valid coangle.
 validateCoangle :: Node e -> Coangle -> Bool
 validateCoangle node (sym_sym1, sym_sym2) = isJust do
-  arr_arr1 <- node |> arrow2 sym_sym1
-  arr_arr2 <- node |> arrow2 sym_sym2
+  arr_arr1 <- arrow2 node sym_sym1
+  arr_arr2 <- arrow2 node sym_sym2
   guard $ symbol (fst arr_arr1) == symbol (fst arr_arr2)
   guard $
     fst sym_sym1
@@ -405,8 +404,8 @@ validateCoangle node (sym_sym1, sym_sym2) = isJust do
 -- | Check whether a given value is a valid angle.
 validateAngle :: Node e -> Angle -> Bool
 validateAngle node (sym_sym1, sym_sym2) = isJust do
-  arr_arr1 <- node |> arrow2 sym_sym1
-  arr_arr2 <- node |> arrow2 sym_sym2
+  arr_arr1 <- arrow2 node sym_sym1
+  arr_arr2 <- arrow2 node sym_sym2
   guard $ symbol (uncurry join arr_arr1) == symbol (uncurry join arr_arr1)
   guard $
     target (snd arr_arr1)
@@ -421,8 +420,8 @@ validateAngle node (sym_sym1, sym_sym2) = isJust do
 compatibleAngles :: Node e -> [Angle] -> Bool
 compatibleAngles node =
   traverse (\(sym_sym1, sym_sym2) -> do
-    arr_arr1 <- arrow2 sym_sym1 node
-    arr_arr2 <- arrow2 sym_sym2 node
+    arr_arr1 <- arrow2 node sym_sym1
+    arr_arr2 <- arrow2 node sym_sym2
     return $ Map.elems (dict (snd arr_arr1)) `zip` Map.elems (dict (snd arr_arr2))
   )
   .> maybe False (concat .> nubSort .> fmap fst .> anySame .> not)
@@ -455,11 +454,11 @@ compatibleCoanglesAngles :: Node e -> [Coangle] -> [Angle] -> Bool
 compatibleCoanglesAngles node coangs angs =
   isJust $
     angs |> traverse \(sym_sym1, sym_sym2) -> do
-      arr_arr1 <- node |> arrow2 sym_sym1
-      arr_arr2 <- node |> arrow2 sym_sym2
+      arr_arr1 <- arrow2 node sym_sym1
+      arr_arr2 <- arrow2 node sym_sym2
       coangs |> traverse \(sym_sym1', sym_sym2') -> do
-        arr_arr1' <- node |> arrow2 sym_sym1'
-        arr_arr2' <- node |> arrow2 sym_sym2'
+        arr_arr1' <- arrow2 node sym_sym1'
+        arr_arr2' <- arrow2 node sym_sym2'
         guard $ symbol (uncurry join arr_arr1) == symbol (fst arr_arr2')
         guard $ symbol (uncurry join arr_arr2) == symbol (fst arr_arr1')
         guard $
@@ -482,9 +481,9 @@ findValidCoanglesAngles ::
   -> Maybe ([[Coangle]], [[Angle]])
               -- ^ The coangles and angles need to be selected, or Nothing if it is invalid.
 findValidCoanglesAngles src tgt node = do
-  src_arr <- arrow src node
-  tgt_arr <- arrow tgt node
-  guard $ locate src tgt_arr == Outer
+  src_arr <- arrow node src
+  tgt_arr <- arrow node tgt
+  guard $ locate tgt_arr src == Outer
   let src_alts = sort do
         (arr1, arr2) <- src |> suffixND node
         return $ sort do
@@ -531,9 +530,9 @@ addMorphism ::
   -> Node e
   -> Maybe (Node e)
 addMorphism src tgt src_alts tgt_alts val node = do
-  src_arr <- node |> arrow src
-  tgt_arr <- node |> arrow tgt
-  guard $ tgt_arr |> locate src |> (== Outer)
+  src_arr <- arrow node src
+  tgt_arr <- arrow node tgt
+  guard $ locate tgt_arr src |> (== Outer)
 
   (src_angs, tgt_angs) <- findValidCoanglesAngles src tgt node
   guard $ length src_angs == length src_alts
@@ -548,7 +547,7 @@ addMorphism src tgt src_alts tgt_alts val node = do
   let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
   let new_dict =
         tgt_angs'
-        |> fmap (both ((`arrow2` node) .> fromJust))
+        |> fmap (both (arrow2 node .> fromJust))
         |> concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
         |> ((base, new_sym) :)
         |> nubSort
@@ -631,8 +630,8 @@ splitMorphism ::
   -> Node e
   -> Maybe (Node e)
 splitMorphism (src, tgt) splittable_keys node = do
-  src_arr <- node |> arrow src
-  guard $ root node |> locate tgt |> (== Inner)
+  src_arr <- arrow node src
+  guard $ locate (root node) tgt |> (== Inner)
   let splittable_groups = partitionPrefix (target src_arr) tgt
   guard $ length splittable_groups == length splittable_keys
 
@@ -680,7 +679,7 @@ Examples:
 >>> partitionSymbols $ cone
 [[1,2,3,4,6]]
 
->>> partitionSymbols $ target $ fromJust $ arrow 1 crescent
+>>> partitionSymbols $ target $ fromJust $ arrow crescent 1
 [[1,2,3],[5,6,7]]
 -}
 partitionSymbols :: Node e -> [[Symbol]]
@@ -721,8 +720,8 @@ splitObject ::
   -> Node e
   -> Maybe (Node e)
 splitObject tgt splittable_keys node = do
-  guard $ root node |> locate tgt |> (== Inner)
-  tgt_arr <- node |> arrow tgt
+  guard $ locate (root node) tgt |> (== Inner)
+  tgt_arr <- arrow node tgt
   res0 <- splitCategory splittable_keys (target tgt_arr)
 
   let splitSym :: [Symbol] -> Symbol -> [Symbol]
@@ -746,7 +745,7 @@ splitObject tgt splittable_keys node = do
       (sym, res) <- splitted_syms `zip` res0
       let split (s, r)
             | s == base                    = Just (base, sym)
-            | locate s (root res) == Inner = Just (s, r)
+            | locate (root res) s == Inner = Just (s, r)
             | otherwise                    = Nothing
       let splitted_dict =
             dict arr |> Map.toList |> mapMaybe split |> Map.fromList
@@ -757,7 +756,7 @@ Split a root node.
 
 Examples:
 
->>> let crescent_1 = target $ fromJust $ arrow 1 crescent
+>>> let crescent_1 = target $ fromJust $ arrow crescent 1
 >>> traverse_ printNode' $ fromJust $ splitCategory [0,1::Int] crescent_1
 - 0->1; 1->2
   - 0->1
@@ -823,8 +822,8 @@ mergeMorphisms ::
   -> Maybe (Node e)
 mergeMorphisms (src, tgts) node = do
   guard $ notNull tgts
-  src_arr <- node |> arrow src
-  tgt_arrs <- tgts |> traverse \tgt -> target src_arr |> arrow tgt
+  src_arr <- arrow node src
+  tgt_arrs <- tgts |> traverse (arrow (target src_arr))
   guard $ tgt_arrs |> fmap (dict .> Map.delete base) |> allSame
   guard $
     src /= base
@@ -875,7 +874,7 @@ mergeObjects ::
 mergeObjects tgts keys node = do
   guard $ notNull tgts
   let tgt = head tgts
-  tgt_nodes <- tgts |> traverse (`arrow` node) |> fmap (fmap target)
+  tgt_nodes <- tgts |> traverse (arrow node) |> fmap (fmap target)
 
   let tgt_pars = tgts |> fmap (suffixND node)
   guard $ tgt_pars |> fmap length |> allSame
@@ -991,8 +990,8 @@ mergeCategories nodes = Node {edges = merged_edges}
 
 trimObject :: Symbol -> Node e -> Maybe (Node e)
 trimObject tgt node = do
-  guard $ root node |> locate tgt |> (== Inner)
-  tgt_arr <- node |> arrow tgt
+  guard $ locate (root node) tgt |> (== Inner)
+  tgt_arr <- arrow node tgt
 
   fromReachable (target tgt_arr) $ node |> modifyUnder tgt \(curr, (value, arr)) -> \case
     AtOuter -> return (value, arr)
@@ -1006,7 +1005,7 @@ trimObject tgt node = do
 
 appendObject :: Symbol -> e -> Node e -> Maybe (Node e)
 appendObject src val node = do
-  src_arr <- node |> arrow src
+  src_arr <- arrow node src
   let res0 = mergeCategories [target src_arr, singleton val]
   fromReachable res0 $
     node |> modifyUnder src \(curr, (value, arr)) lres -> case fromReachable res0 lres of
@@ -1019,12 +1018,12 @@ appendObject src val node = do
 
 insertObject :: (Symbol, Maybe Symbol) -> (e, e) -> Node e -> Maybe (Node e)
 insertObject (src, tgt) (val1, val2) node = do
-  src_arr <- node |> arrow src
+  src_arr <- arrow node src
   let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
   new_inedge <- case tgt of
     Just tgt -> do
       guard $ tgt /= base
-      tgt_arr <- target src_arr |> arrow tgt
+      tgt_arr <- arrow (target src_arr) tgt
       let new_outdict = target tgt_arr |> symbols |> fmap (\s -> (s, s+1)) |> Map.fromList
       let new_outedge = (val2, Arrow {dict = new_outdict, target = target tgt_arr})
       let new_node = Node {edges = [new_outedge]}
@@ -1055,7 +1054,7 @@ insertObject (src, tgt) (val1, val2) node = do
 
 expandMergingSymbols :: Node e -> [[Symbol]] -> [[Symbol]]
 expandMergingSymbols node =
-  fmap (fmap ((`arrow` node) .> fromJust .> dict .> Map.toList))
+  fmap (fmap (arrow node .> fromJust .> dict .> Map.toList))
   .> zip [0 :: Integer ..]
   .> concatMap sequence
   .> concatMap sequence
@@ -1068,9 +1067,9 @@ expandMergingSymbols node =
 
 mergeMorphismsAggressively :: Symbol -> [[Symbol]] -> Node e -> Maybe (Node e)
 mergeMorphismsAggressively src tgts node = do
-  src_arr <- node |> arrow src
+  src_arr <- arrow node src
 
-  tgt_arrs <- tgts |> traverse (traverse (`arrow` target src_arr))
+  tgt_arrs <- tgts |> traverse (traverse (arrow (target src_arr)))
   guard $ tgt_arrs |> all (fmap target .> fmap void .> allSame)
 
   let mergeSymbol tgts' s = tgts' |> find (elem s) |> fmap head |> fromMaybe s
