@@ -62,6 +62,7 @@ import Data.Tuple.Extra (both)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust, fromMaybe, isJust)
+import Numeric.Natural (Natural)
 
 import Utils.Utils ((|>), (.>), guarded, label, foldlMUncurry)
 import Utils.DisjointSet (bipartiteEqclass)
@@ -596,7 +597,7 @@ Split a symbol on a node.
 
 Examples:
 
->>> printNode' $ fromJust $ splitMorphism (0,2) [0,1::Int] cone
+>>> printNode' $ fromJust $ splitMorphism (0,2) [0,1] cone
 - 0->1; 1->2
   - 0->1
 - 0->3; 1->4; 2->8; 3->6; 4->4
@@ -607,7 +608,7 @@ Examples:
   - 0->4; 1->2; 2->3
     *0
 
->>> printNode' $ fromJust $ splitMorphism (3,2) [0,1::Int] cone
+>>> printNode' $ fromJust $ splitMorphism (3,2) [0,1] cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -621,9 +622,8 @@ Examples:
     *1
 -}
 splitMorphism ::
-  Eq k
-  => (Symbol, Symbol)  -- ^ The symbols reference to the morphism to split.
-  -> [k]               -- ^ The keys to classify splittable groups given by `partitionPrefix`.
+  (Symbol, Symbol)  -- ^ The symbols reference to the morphism to split.
+  -> [Natural]      -- ^ The keys to classify splittable groups given by `partitionPrefix`.
   -> Node e
   -> Maybe (Node e)
 splitMorphism (src, tgt) splittable_keys node = do
@@ -634,7 +634,7 @@ splitMorphism (src, tgt) splittable_keys node = do
 
   let src_syms = target src_arr |> symbols
   let splitted_syms =
-        splittable_keys |> label 0 |> fmap (\i -> maximum src_syms * i + tgt)
+        splittable_keys |> fmap (\i -> maximum src_syms * i + tgt)
 
   let res0 = Node do
         (value, arr) <- target src_arr |> edges
