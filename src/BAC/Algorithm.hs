@@ -626,8 +626,8 @@ splitMorphism ::
   -> Node e
   -> Maybe (Node e)
 splitMorphism (src, tgt) splittable_keys node = do
-  src_arr <- arrow node src
-  guard $ locate (root node) tgt |> (== Inner)
+  guard $ tgt /= base
+  (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
   let splittable_groups = partitionPrefix (target src_arr) tgt
   guard $ length splittable_groups == length splittable_keys
 
