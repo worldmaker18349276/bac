@@ -64,7 +64,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust, fromMaybe, isJust)
 import Numeric.Natural (Natural)
 
-import Utils.Utils ((|>), (.>), guarded, label, foldlMUncurry)
+import Utils.Utils ((|>), (.>), guarded, foldlMUncurry)
 import Utils.DisjointSet (bipartiteEqclass)
 import BAC.Base
 
@@ -694,7 +694,7 @@ Split a node referenced by a symbol.
 
 Examples:
 
->>> printNode' $ fromJust $ splitObject 1 [0,1::Int] crescent
+>>> printNode' $ fromJust $ splitObject 1 [0,1] crescent
 - 0->1; 1->2; 2->3; 3->4
   - 0->1; 1->2
     &0
@@ -711,9 +711,8 @@ Examples:
     *2
 -}
 splitObject ::
-  Eq k
-  => Symbol  -- ^ The symbol referencing the node to be splitted.
-  -> [k]     -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
+  Symbol         -- ^ The symbol referencing the node to be splitted.
+  -> [Natural]   -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
   -> Node e
   -> Maybe (Node e)
 splitObject tgt splittable_keys node = do
@@ -722,7 +721,7 @@ splitObject tgt splittable_keys node = do
 
   let splitSym :: [Symbol] -> Symbol -> [Symbol]
       splitSym syms s =
-        splittable_keys |> label 0 |> fmap (\i -> maximum syms * i + s)
+        splittable_keys |> fmap (\i -> maximum syms * i + s)
 
   fromInner $ node |> modifyUnder tgt \(curr, (value, arr)) -> \case
     AtOuter -> return (value, arr)
