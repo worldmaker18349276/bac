@@ -36,7 +36,6 @@ module BAC.Algorithm (
   partitionSymbols,
   splitObject,
   splitCategory,
-  -- duplicateObject',
 
   -- * Merge Morphisms, Objects, Categories
 
@@ -249,10 +248,10 @@ removeObject ::
   -> Maybe (Node e)
 removeObject tgt node = do
   guard $ locate (root node) tgt |> (== Inner)
-  tgt_arr <- arrow node tgt
-  guard $ target tgt_arr |> edges |> null
+  let tgt_node = arrow node tgt |> fromJust |> target
+  guard $ tgt_node |> edges |> null
 
-  fromReachable (target tgt_arr) $ node |> modifyUnder tgt \(curr, (value, arr)) -> \case
+  fromReachable tgt_node $ node |> modifyUnder tgt \(curr, (value, arr)) -> \case
     AtOuter -> return (value, arr)
     AtBoundary -> mzero
     AtInner res -> return (value, arr {dict = filtered_dict, target = res})
@@ -280,16 +279,16 @@ removeInitialMorphism' tgt node = do
     missingAltPaths (0, tgt) node
     |> maybe False \(l, r) -> null l && null r
 
-  tgt_arr <- arrow node tgt
   let remove_list =
-        target tgt_arr
+        arrow node tgt
+        |> fromJust
+        |> target
         |> findMapNode (symbol .> Just)
         |> filter (/= base)
         |> fmap (tgt,)
 
   node <- (node, remove_list) |> foldlMUncurry \(node, sym2) -> do
-    (add_list, add_list') <- missingAltPaths sym2 node
-    guard $ add_list |> null
+    let ([], add_list') = node |> missingAltPaths sym2 |> fromJust
     node <- (node, add_list') |> foldlMUncurry \(node, (s1, s2)) -> do
       let new_edges =
             arrow node s1
@@ -298,14 +297,13 @@ removeInitialMorphism' tgt node = do
             |> edges
             |> fmap (fmap symbol)
             |> ((undefined, s2) :)
-      rewireEdges s1 new_edges node
+      return $ node |> rewireEdges s1 new_edges |> fromJust
 
-    removeMorphism sym2 node
+    return $ node |> removeMorphism sym2 |> fromJust
 
   let keys = partitionSymbols node |> fmap (elem tgt)
   let i = nub keys |> findIndex not |> fromJust
-  nodes' <- splitCategory keys node
-  return $ nodes' !! i
+  return $ node |> splitCategory keys |> fromJust |> (!! i)
 
 
 {- |
@@ -340,8 +338,8 @@ Nothing
 removeObject' :: Symbol -> Node e -> Maybe (Node e)
 removeObject' tgt node = do
   guard $ locate (root node) tgt |> (== Inner)
-  tgt_arr <- arrow node tgt
-  guard $ target tgt_arr |> edges |> null
+  let tgt_arr = arrow node tgt |> fromJust
+  guard $ tgt_arr |> target |> edges |> null
 
   let remove_list =
         node
@@ -357,8 +355,7 @@ removeObject' tgt node = do
         |> reverse
 
   node <- (node, remove_list) |> foldlMUncurry \(node, sym2) -> do
-    (add_list, add_list') <- missingAltPaths sym2 node
-    guard $ add_list' |> null
+    let (add_list, []) = node |> missingAltPaths sym2 |> fromJust
     node <- (node, add_list) |> foldlMUncurry \(node, (s1, s2)) -> do
       let new_edges =
             arrow node s1
@@ -367,14 +364,13 @@ removeObject' tgt node = do
             |> edges
             |> fmap (fmap symbol)
             |> ((undefined, s2) :)
-      rewireEdges s1 new_edges node
+      return $ node |> rewireEdges s1 new_edges |> fromJust
 
-    removeMorphism sym2 node
+    return $ node |> removeMorphism sym2 |> fromJust
 
   let keys = partitionSymbols node |> fmap (elem tgt)
   let i = nub keys |> findIndex not |> fromJust
-  nodes' <- splitCategory keys node
-  return $ nodes' !! i
+  return $ node |> splitCategory keys |> fromJust |> (!! i)
 
 -- | Two tuples of symbols representing two morphisms where coforks of the first morphism
 --   are also coforks of the second morphism.  A cofork of a morphism `f` is a pair of
@@ -534,7 +530,7 @@ addMorphism src tgt src_alts tgt_alts val node = do
   tgt_arr <- arrow node tgt
   guard $ locate tgt_arr src |> (== Outer)
 
-  (src_angs, tgt_angs) <- findValidCoanglesAngles src tgt node
+  let (src_angs, tgt_angs) = findValidCoanglesAngles src tgt node |> fromJust
   guard $ length src_angs == length src_alts
   guard $ length tgt_angs == length tgt_alts
   src_angs' <- src_angs `zip` src_alts |> traverse (uncurry (!?))
@@ -721,8 +717,7 @@ splitObject ::
   -> Maybe (Node e)
 splitObject tgt splittable_keys node = do
   guard $ locate (root node) tgt |> (== Inner)
-  tgt_arr <- arrow node tgt
-  res0 <- splitCategory splittable_keys (target tgt_arr)
+  res0 <- arrow node tgt |> fromJust |> target |> splitCategory splittable_keys
 
   let splitSym :: [Symbol] -> Symbol -> [Symbol]
       splitSym syms s =
@@ -883,7 +878,7 @@ mergeObjects tgts keys node = do
   guard $ length (head keys) == length (head tgt_pars)
 
   guard $ keys |> all (anySame .> not)
-  indices <- keys |> traverse (traverse (`elemIndex` head keys))
+  let indices = keys |> fmap (fmap ((`elemIndex` head keys) .> fromJust))
   let merging_arrs =
         zip tgt_pars indices
         |> fmap (uncurry zip .> sortOn snd .> fmap fst)
