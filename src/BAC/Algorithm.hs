@@ -290,7 +290,6 @@ removeInitialMorphism' tgt node = do
         |> fmap symbol
         |> filter (/= base)
         |> fmap (tgt,)
-        |> reverse
 
   node <- (node, remove_list) |> foldlMUncurry \(node, sym2) -> do
     let ([], add_list') = node |> missingAltPaths sym2 |> fromJust
@@ -348,13 +347,13 @@ removeObject' tgt node = do
   let remove_list =
         node
         |> arrowsOrdUnder tgt
-        |> fromJust
         |> concatMap (\curr ->
           curr `divide` tgt_arr
           |> fmap (curr,)
           |> fmap symbol2
         )
         |> filter (fst .> (/= base))
+        |> reverse
 
   node <- (node, remove_list) |> foldlMUncurry \(node, sym2) -> do
     let (add_list, []) = node |> missingAltPaths sym2 |> fromJust
@@ -850,22 +849,22 @@ Duplicate a node referenced by a symbol step by step.
 Examples:
 
 >>> printNode' $ fromJust $ duplicateObject' 3 [0,1] crescent
-- 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4; 9->7; 15->7
-  - 0->1; 1->2; 2->9
+- 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4; 13->7; 15->7
+  - 0->1; 1->2; 2->15
     &0
     - 0->1
       &1
     - 0->2
       &2
-  - 0->3; 1->2; 2->9
+  - 0->3; 1->2; 2->15
     &3
     - 0->1
       *1
     - 0->2
       *2
-  - 0->5; 1->6; 2->15
+  - 0->5; 1->6; 2->13
     *0
-  - 0->7; 1->6; 2->15
+  - 0->7; 1->6; 2->13
     *3
 -}
 duplicateObject' :: Symbol -> [Natural] -> Node e -> Maybe (Node e)
@@ -878,10 +877,10 @@ duplicateObject' tgt keys node = do
   let split_list =
         node
         |> arrowsOrdUnder tgt
-        |> fromJust
         |> concatMap (\curr -> curr `divide` tgt_arr |> fmap (curr,))
         |> filter (\(arr1, arr2) -> not $ nondecomposable (target arr1) (symbol arr2))
         |> fmap symbol2
+        |> reverse
 
   let dup_list = suffixND node tgt |> fmap symbol2
   let origin_node = node
