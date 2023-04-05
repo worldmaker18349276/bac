@@ -85,10 +85,8 @@ module BAC.Base (
   modifyUnder,
   map,
   mapUnder,
-  findMapNode,
-  findMapNodeUnder,
-  findMapEdge,
-  findMapEdgeUnder,
+  findMap,
+  findMapUnder,
 
   -- * Non-Categorical Operations #operations#
 
@@ -98,7 +96,7 @@ module BAC.Base (
 
 import Control.Monad (guard)
 import Data.Bifunctor (bimap, Bifunctor (second))
-import Data.List.Extra (groupSortOn, nubSort, allSame, nubSortOn, sortOn)
+import Data.List.Extra (groupSortOn, nubSort, allSame, nubSortOn, notNull)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe, fromMaybe)
@@ -110,7 +108,7 @@ import GHC.Stack (HasCallStack)
 import Prelude hiding (map)
 
 import Utils.Memoize (unsafeMemoizeWithKey)
-import Utils.Utils ((.>), (|>), guarded, orEmpty, mergeNubOn)
+import Utils.Utils ((.>), (|>), guarded, mergeNubOn)
 import Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet)
 
 -- $setup
@@ -361,10 +359,16 @@ prefixND node sym =
 --   > &&  (_, arr2) `elem` edges (target arr1)
 suffix :: Node e -> Symbol -> [(Arrow e, Arrow e)]
 suffix node sym =
-  node
-  |> findMapEdgeUnder sym (\b r _ -> orEmpty (not b) r)
-  |> fmap concat
-  |> fromMaybe []
+  concat $ fromMaybe [] $
+    node
+    |> findMapUnder sym \curr ->
+      curr
+      |> target
+      |> arrows
+      |> filter (join curr .> symbol .> (== sym))
+      |> fmap (curr,)
+      |> guarded notNull
+  
 
 suffixND :: Node e -> Symbol -> [(Arrow e, Arrow e)]
 suffixND node sym =
@@ -587,49 +591,19 @@ mapUnder sym f node = do
     AtInner res -> return (f True (curr, arr) value, arr {target = res})
 
 -- | Map and find nodes of BAC.
-findMapNode :: (Arrow e -> Maybe a) -> Node e -> [a]
-findMapNode f = fmap snd . foldND \curr results ->
+findMap :: (Arrow e -> Maybe a) -> Node e -> [a]
+findMap f = fmap snd . foldND \curr results ->
   results |> mergeNubOn fst |> case f curr of
     Just res -> ((symbol curr, res) :)
     Nothing -> id
 
 -- | Map and find nodes of BAC under a node.
-findMapNodeUnder :: Symbol -> (Arrow e -> Maybe a) -> Node e -> Maybe [a]
-findMapNodeUnder sym f =
+findMapUnder :: Symbol -> (Arrow e -> Maybe a) -> Node e -> Maybe [a]
+findMapUnder sym f =
   fromReachable [] . fmap (fmap snd) . foldUnderND sym \curr results ->
     results |> mapMaybe fromInner |> mergeNubOn fst |> case f curr of
       Just res -> ((symbol curr, res) :)
       Nothing -> id
-
--- | Map and find edges of BAC.
-findMapEdge :: ((Arrow e, Arrow e) -> e -> Maybe a) -> Node e -> [[a]]
-findMapEdge f = fmap snd . fold \curr results ->
-  results `zip` edges (target curr)
-  |> sortOn (snd .> snd .> symbol .> nondecomposable (target curr))
-  |> fmap fst
-  |> mergeNubOn fst
-  |> ((symbol curr, f' curr) :)
-  where
-  f' curr = target curr |> edges |> mapMaybe \(value, arr) -> f (curr, arr) value
-
--- | Map and find edges of BAC under a node.
-findMapEdgeUnder ::
-  Symbol -> (Bool -> (Arrow e, Arrow e) -> e -> Maybe a) -> Node e -> Maybe [[a]]
-findMapEdgeUnder sym f =
-  fromReachable [] . fmap (fmap snd) . foldUnder sym \curr results ->
-    results `zip` edges (target curr)
-    |> sortOn (snd .> snd .> symbol .> nondecomposable (target curr))
-    |> fmap fst
-    |> mapMaybe fromInner
-    |> mergeNubOn fst
-    |> ((symbol curr, f' results curr) :)
-    where
-    f' results curr =
-      results `zip` edges (target curr)
-      |> mapMaybe \case
-        (AtOuter, _) -> Nothing
-        (AtBoundary, (value, arr)) -> f False (curr, arr) value
-        (AtInner _, (value, arr)) -> f True (curr, arr) value
 
 {- |
 Rewire edges of a given node.

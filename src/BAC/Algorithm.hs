@@ -286,7 +286,7 @@ removeInitialMorphism' tgt node = do
         arrow node tgt
         |> fromJust
         |> target
-        |> findMapNode (symbol .> Just)
+        |> findMap (symbol .> Just)
         |> filter (/= base)
         |> fmap (tgt,)
 
@@ -345,7 +345,7 @@ removeObject' tgt node = do
 
   let remove_list =
         node
-        |> findMapNode (\curr ->
+        |> findMap (\curr ->
           curr `divide` tgt_arr
           |> fmap (curr,)
           |> fmap symbol2
@@ -877,7 +877,7 @@ duplicateObject' tgt keys node = do
   let tgt_arr = arrow node tgt |> fromJust
   let split_list =
         node
-        |> findMapNodeUnder tgt (\curr -> curr `divide` tgt_arr |> fmap (curr,) |> Just)
+        |> findMapUnder tgt (\curr -> curr `divide` tgt_arr |> fmap (curr,) |> Just)
         |> fromJust
         |> concat
         |> filter (\(arr1, arr2) -> not $ nondecomposable (target arr1) (symbol arr2))
