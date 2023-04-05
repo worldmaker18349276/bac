@@ -101,7 +101,7 @@ import Data.Bifunctor (bimap, Bifunctor (second))
 import Data.List.Extra (groupSortOn, nubSort, allSame, nubSortOn, sortOn)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromJust, mapMaybe, listToMaybe, fromMaybe)
+import Data.Maybe (fromJust, mapMaybe, fromMaybe)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (dupe)
 import Data.Functor (void)
@@ -333,7 +333,7 @@ extend2 (arr1, arr2) =
   |> filter ((`locate` symbol arr2) .> (/= Outer))
   |> concatMap (\arr -> arr `divide` arr2 |> fmap (arr1 `join` arr,))
 
--- | Find prefix edges of a node under a given symbol.
+-- | Find prefix edges of paths from a node to a given symbol.
 --   It obeys the following law:
 --
 --   > (arr1, arr2) `elem` prefix node sym
@@ -345,7 +345,7 @@ prefix node sym =
   |> maybe [] \tgt_arr ->
     node
     |> arrows
-    |> mapMaybe (\arr -> divide arr tgt_arr |> listToMaybe |> fmap (arr,))
+    |> concatMap (\arr -> divide arr tgt_arr |> fmap (arr,))
 
 prefixND :: Node e -> Symbol -> [(Arrow e, Arrow e)]
 prefixND node sym =
@@ -353,7 +353,7 @@ prefixND node sym =
   |> filter (\(arr1, _) -> nondecomposable node (symbol arr1))
   |> nubSortOn symbol2
 
--- | Find suffix edges of a node under a given symbol.
+-- | Find suffix edges of paths from a node to a given symbol.
 --   It obeys the following law:
 --
 --   > (arr1, arr2) `elem` suffix node sym
