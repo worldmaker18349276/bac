@@ -59,7 +59,7 @@ import Data.Foldable.Extra (notNull)
 import Data.List (elemIndices, findIndex, sort, transpose, sortOn, nub, elemIndex)
 import Data.List.Extra (nubSort, groupSortOn, allSame, anySame, (!?))
 import Data.Tuple.Extra (both)
-import Data.Map.Strict ((!))
+import Data.Map.Strict ((!), Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, fromJust, fromMaybe, isJust)
 import Numeric.Natural (Natural)
@@ -302,9 +302,8 @@ removeInitialMorphism' tgt node = do
 
     return $ node |> removeMorphism sym2 |> fromJust
 
-  let keys = partitionSymbols node |> fmap (elem tgt)
-  let i = nub keys |> findIndex not |> fromJust
-  return $ node |> splitCategory keys |> fromJust |> (!! i)
+  let keys = partitionSymbols node |> fmap \syms -> if tgt `elem` syms then 0 else 1
+  return $ node |> splitCategory keys |> fromJust |> (! 1)
 
 
 {- |
@@ -369,9 +368,8 @@ removeObject' tgt node = do
 
     return $ node |> removeMorphism sym2 |> fromJust
 
-  let keys = partitionSymbols node |> fmap (elem tgt)
-  let i = nub keys |> findIndex not |> fromJust
-  return $ node |> splitCategory keys |> fromJust |> (!! i)
+  let keys = partitionSymbols node |> fmap \syms -> if tgt `elem` syms then 0 else 1
+  return $ node |> splitCategory keys |> fromJust |> (! 1)
 
 -- | Two tuples of symbols representing two morphisms where coforks of the first morphism
 --   are also coforks of the second morphism.  A cofork of a morphism `f` is a pair of
@@ -737,7 +735,8 @@ splitObject tgt splittable_keys node = do
     AtBoundary -> do
       let r_syms = target curr |> symbols
       let splitted_syms = splitSym r_syms (symbol arr)
-      (sym, res) <- splitted_syms `zip` res0
+      (sym, key) <- splitted_syms `zip` splittable_keys
+      let res = res0 ! key
       let split (s, r)
             | s == base                    = Just (base, sym)
             | locate (root res) s == Inner = Just (s, r)
@@ -752,7 +751,7 @@ Split a root node.
 Examples:
 
 >>> let crescent_1 = target $ fromJust $ arrow crescent 1
->>> traverse_ printNode' $ fromJust $ splitCategory [0,1::Int] crescent_1
+>>> traverse_ printNode' $ fromJust $ splitCategory [0,1] crescent_1
 - 0->1; 1->2
   - 0->1
     &0
@@ -767,25 +766,24 @@ Examples:
     *0
 -}
 splitCategory ::
-  Eq k
-  => [k]  -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
+  [Natural]  -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
   -> Node e
-  -> Maybe [Node e]
+  -> Maybe (Map Natural (Node e))
 splitCategory splittable_keys node = do
   let splittable_groups = partitionSymbols node
   guard $ length splittable_groups == length splittable_keys
 
+  let splitted_keys = splittable_keys |> nub
   let splitted_groups =
-        splittable_keys
-        |> nub
+        splitted_keys
         |> fmap (`elemIndices` splittable_keys)
         |> fmap (concatMap (splittable_groups !!))
 
-  return do
-    group <- splitted_groups
+  return $ Map.fromList do
+    (key, group) <- splitted_keys `zip` splitted_groups
     let splitted_edges =
           node |> edges |> filter (\(_, arr) -> symbol arr `elem` group)
-    return $ Node splitted_edges
+    return (key, Node splitted_edges)
 
 {- |
 Merge symbols on a node.
