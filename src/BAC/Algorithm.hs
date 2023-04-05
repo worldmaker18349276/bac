@@ -501,7 +501,7 @@ Add a symbol in a node.
 
 Examples:
 
->>> printNode' $ fromJust $ addMorphism 1 6 [0] [] () cone
+>>> printNode' $ fromJust $ addMorphism 1 6 2 [0] [] () cone
 - 0->1; 1->2; 2->6
   - 0->1
     &0
@@ -520,12 +520,13 @@ Examples:
 addMorphism ::
   Symbol     -- ^ The symbol indicating the source object of the morphism to be added.
   -> Symbol  -- ^ The symbol indicating the target object of the morphism to be added.
+  -> Symbol  -- ^ The symbol to be added.
   -> [Int]   -- ^ The indices of coangles given by `findValidCoanglesAngles`.
   -> [Int]   -- ^ The indices of angles given by `findValidCoanglesAngles`.
   -> e       -- ^ The value of the edge to be added.
   -> Node e
   -> Maybe (Node e)
-addMorphism src tgt src_alts tgt_alts val node = do
+addMorphism src tgt sym src_alts tgt_alts val node = do
   src_arr <- arrow node src
   tgt_arr <- arrow node tgt
   guard $ locate tgt_arr src |> (== Outer)
@@ -539,13 +540,13 @@ addMorphism src tgt src_alts tgt_alts val node = do
   guard $ compatibleAngles node tgt_angs'
   guard $ compatibleCoanglesAngles node src_angs' tgt_angs'
   guard $ compatibleCoangles node src_angs'
+  guard $ target src_arr |> symbols |> notElem sym
 
-  let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
   let new_dict =
         tgt_angs'
         |> fmap (both (arrow2 node .> fromJust))
         |> concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
-        |> ((base, new_sym) :)
+        |> ((base, sym) :)
         |> nubSort
         |> Map.fromList
   let new_edge = (val, Arrow {dict = new_dict, target = target tgt_arr})
@@ -557,7 +558,7 @@ addMorphism src tgt src_alts tgt_alts val node = do
           src_angs'
           |> find (fst .> (== symbol2 (arr1 `join` arr2, arr3)))
           |> fromJust
-          |> \(_, (_, s)) -> (dict arr2 ! new_sym, dict arr2 ! s)
+          |> \(_, (_, s)) -> (dict arr2 ! sym, dict arr2 ! s)
 
   let res0 = target src_arr |> edges |> (++ [new_edge]) |> Node
   fromReachable res0 $ node |> modifyUnder src \(curr, (value, arr)) -> \case
