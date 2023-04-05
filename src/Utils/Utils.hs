@@ -1,9 +1,11 @@
+{-# OPTIONS_GHC -Wno-deprecations #-}
 module Utils.Utils ((|>), (.>), orEmpty, guarded, label, mergeNubOn, foldlMUncurry) where
 
 import Data.List (nub)
 import Data.Maybe (fromJust)
 import Control.Applicative (Alternative (empty))
 import Data.Foldable (foldlM)
+import Data.List.Extra (nubOn)
 
 infixl 1 |>
 (|>) :: a -> (a -> b) -> b
@@ -25,10 +27,7 @@ label e a = a |> fmap (`lookup` labels) |> fmap fromJust
   labels = nub a `zip` [e..]
 
 mergeNubOn :: Eq b => (a -> b) -> [[a]] -> [a]
-mergeNubOn f = foldr mergeNub []
-  where
-  mergeNub list = foldr (insertNub (fmap f list)) list
-  insertNub keys a = if f a `elem` keys then id else (a :)
+mergeNubOn f = concat .> nubOn f
 
 foldlMUncurry :: (Foldable t, Monad m) => ((b, a) -> m b) -> (b, t a) -> m b
 foldlMUncurry = uncurry . foldlM . curry

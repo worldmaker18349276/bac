@@ -78,6 +78,7 @@ module BAC.Base (
   fromReachable,
   fromInner,
   fold,
+  fold',
   foldUnder,
   foldND,
   foldUnderND,
@@ -85,8 +86,8 @@ module BAC.Base (
   modifyUnder,
   map,
   mapUnder,
-  findMap,
-  findMapUnder,
+  arrowsOrd,
+  arrowsOrdUnder,
 
   -- * Non-Categorical Operations #operations#
 
@@ -95,8 +96,9 @@ module BAC.Base (
 ) where
 
 import Control.Monad (guard)
+import Control.Monad.ST (runST, fixST)
 import Data.Bifunctor (bimap, Bifunctor (second))
-import Data.List.Extra (groupSortOn, nubSort, allSame, nubSortOn, notNull)
+import Data.List.Extra (groupSortOn, nubSort, allSame, nubSortOn)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe, fromMaybe)
@@ -107,7 +109,7 @@ import Numeric.Natural (Natural)
 import GHC.Stack (HasCallStack)
 import Prelude hiding (map)
 
-import Utils.Memoize (unsafeMemoizeWithKey)
+import Utils.Memoize (unsafeMemoizeWithKey, memoizeWithKey)
 import Utils.Utils ((.>), (|>), guarded, mergeNubOn)
 import Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet)
 
@@ -359,15 +361,15 @@ prefixND node sym =
 --   > &&  (_, arr2) `elem` edges (target arr1)
 suffix :: Node e -> Symbol -> [(Arrow e, Arrow e)]
 suffix node sym =
-  concat $ fromMaybe [] $
-    node
-    |> findMapUnder sym \curr ->
-      curr
-      |> target
-      |> arrows
-      |> filter (join curr .> symbol .> (== sym))
-      |> fmap (curr,)
-      |> guarded notNull
+  node
+  |> arrowsOrdUnder sym
+  |> fromMaybe []
+  |> concatMap \curr ->
+    curr
+    |> target
+    |> arrows
+    |> filter (join curr .> symbol .> (== sym))
+    |> fmap (curr,)
   
 
 suffixND :: Node e -> Symbol -> [(Arrow e, Arrow e)]
@@ -501,10 +503,22 @@ fold ::
                          --   nodes into a value.
   -> Node e              -- ^ The root node of BAC to fold.
   -> r                   -- ^ The folding result.
-fold f = root .> fold'
+fold f node = node |> root |> go
   where
-  fold' = memoize \curr -> curr |> extend |> fmap fold' |> f curr
+  go = memoize \curr -> curr |> extend |> fmap go |> f curr
   memoize = unsafeMemoizeWithKey symbol
+
+-- | Safe version of fold.
+--
+--   Examples:
+--
+--   >>> fold' (\_ results -> "<" ++ concat results ++ ">") cone
+--   "<<<>><<<><>><<><>>>>"
+fold' :: (Arrow e -> [c] -> c) -> Node e -> c
+fold' f node = runST do go' <- go; node |> root |> go'
+  where
+  go = fixST \go' -> memoizeWithKey symbol \curr ->
+    curr |> extend |> traverse go' |> fmap (f curr)
 
 -- | Fold a BAC under a node.
 --
@@ -530,11 +544,11 @@ foldND ::
                          --   nodes into a value.
   -> Node e              -- ^ The root node of BAC to fold.
   -> r                   -- ^ The folding result.
-foldND f = root .> fold'
-  where
-  fold' = memoize \curr ->
-    arrowsND (target curr) |> fmap (join curr) |> fmap fold' |> f curr
-  memoize = unsafeMemoizeWithKey symbol
+foldND f = fold \curr results ->
+  results `zip` arrows (target curr)
+  |> filter (snd .> symbol .> nondecomposable (target curr))
+  |> fmap fst
+  |> f curr
 
 foldUnderND ::
   Symbol                            -- ^ The symbol referencing to the boundary.
@@ -590,20 +604,26 @@ mapUnder sym f node = do
     AtBoundary  -> return (f False (curr, arr) value, arr {target = res0})
     AtInner res -> return (f True (curr, arr) value, arr {target = res})
 
--- | Map and find nodes of BAC.
-findMap :: (Arrow e -> Maybe a) -> Node e -> [a]
-findMap f = fmap snd . foldND \curr results ->
-  results |> mergeNubOn fst |> case f curr of
-    Just res -> ((symbol curr, res) :)
-    Nothing -> id
+-- | Find all arrows of this node in descending order.
+--
+--   Examples:
+--
+--   >>> fmap symbol $ arrowsOrd cone
+--   [2,1,6,4,3,0]
+arrowsOrd :: Node e -> [Arrow e]
+arrowsOrd = fmap snd . foldND \curr results ->
+  results ++ [[(symbol curr, curr)]] |> mergeNubOn fst
 
--- | Map and find nodes of BAC under a node.
-findMapUnder :: Symbol -> (Arrow e -> Maybe a) -> Node e -> Maybe [a]
-findMapUnder sym f =
+-- | Find all arrows under a given symbol of this node in descending order.
+--
+--   Examples:
+--
+--   >>> fmap symbol $ fromJust $ arrowsOrdUnder 6 cone
+--   [4,3,0]
+arrowsOrdUnder :: Symbol -> Node e -> Maybe [Arrow e]
+arrowsOrdUnder sym =
   fromReachable [] . fmap (fmap snd) . foldUnderND sym \curr results ->
-    results |> mapMaybe fromInner |> mergeNubOn fst |> case f curr of
-      Just res -> ((symbol curr, res) :)
-      Nothing -> id
+    results |> mapMaybe fromInner |> (++ [[(symbol curr, curr)]]) |> mergeNubOn fst
 
 {- |
 Rewire edges of a given node.
