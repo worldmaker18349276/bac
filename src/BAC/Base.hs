@@ -94,7 +94,7 @@ module BAC.Base (
 
 import Control.Monad (guard)
 import Data.Bifunctor (bimap, Bifunctor (second))
-import Data.List.Extra (groupSortOn, nubSort, allSame, nubSortOn)
+import Data.List.Extra (groupSortOn, nubSort, allSame, nubSortOn, snoc)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe)
@@ -492,8 +492,14 @@ fromInner _           = Nothing
 --
 --   Examples:
 --
---   >>> fold (\_ results -> "<" ++ concat results ++ ">") cone
---   "<<<>><<<><>><<><>>>>"
+--   >>> fold (\curr results -> concat results `snoc` symbol curr) cone
+--   [2,1,2,6,4,2,6,4,3,0]
+--
+--   >>> fold (\curr results -> concat results `snoc` symbol curr) crescent
+--   [3,2,3,4,3,2,3,4,1,0]
+--
+--   >>> fold (\curr results -> concat results `snoc` symbol curr) torus
+--   [3,3,2,3,3,5,3,3,2,3,3,5,1,0]
 fold ::
   (Arrow e -> [r] -> r)  -- ^ The function to reduce a node and the results from its child
                          --   nodes into a value.
@@ -502,10 +508,6 @@ fold ::
 fold f = root .> memoizeWithKey symbol \self curr -> do
   res <- curr |> extend |> traverse self
   return $ f curr res
-
--- fold f = root .> memoizeWithKey symbol \self curr -> do
---   res <- curr |> extend |> traverse self
---   return $ f curr res
 
 -- | Fold a BAC under a node.
 --
@@ -568,34 +570,42 @@ mapUnder sym f node = do
     AtBoundary  -> return (f False (curr, arr) value, arr {target = res0})
     AtInner res -> return (f True (curr, arr) value, arr {target = res})
 
--- | Find all arrows of this node in ascending order.
+-- | Find all arrows of this node in descending order (evalution order of fold).
+--   It is equivalent to @fold (\curr results -> concat results `snoc` curr) .> nubOn symbol@.
 --
 --   Examples:
 --
 --   >>> fmap symbol $ arrowsOrd cone
---   [0,3,4,6,1,2]
+--   [2,1,6,4,3,0]
+--
+--   >>> fmap symbol $ arrowsOrd crescent
+--   [3,2,4,1,0]
+--
+--   >>> fmap symbol $ arrowsOrd torus
+--   [3,2,5,1,0]
 arrowsOrd :: Node e -> [Arrow e]
 arrowsOrd = root .> go [] .> fmap snd
   where
   go res curr
     | sym `elem` fmap fst res = res
-    | otherwise               = curr |> extend |> foldl' go res |> ((sym, curr) :)
+    | otherwise               = curr |> extend |> foldl' go res |> (`snoc` (sym, curr))
     where
     sym = symbol curr
 
--- | Find all arrows under a given symbol of this node in ascending order.
+-- | Find all arrows under a given symbol of this node in descending order (evalution
+--   order of foldUnder).
 --
 --   Examples:
 --
 --   >>> fmap symbol $ arrowsOrdUnder 6 cone
---   [0,3,4]
+--   [4,3,0]
 arrowsOrdUnder :: Symbol -> Node e -> [Arrow e]
 arrowsOrdUnder sym = root .> go [] .> fmap snd
   where
   go res curr
     | locate curr sym /= Inner = res
     | sym' `elem` fmap fst res = res
-    | otherwise                = curr |> extend |> foldl' go res |> ((sym', curr) :)
+    | otherwise                = curr |> extend |> foldl' go res |> (`snoc` (sym', curr))
     where
     sym' = symbol curr
 
