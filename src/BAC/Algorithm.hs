@@ -55,7 +55,7 @@ module BAC.Algorithm (
 ) where
 
 import Control.Monad (guard, MonadPlus (mzero), void)
-import Data.Bifunctor (Bifunctor (first, second))
+import Data.Bifunctor (Bifunctor (first, second, bimap))
 import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
 import Data.List (elemIndices, findIndex, sort, transpose, sortOn, nub, elemIndex)
@@ -976,11 +976,59 @@ mergeMorphisms (src, tgts) node = do
       dict' = dict arr |> Map.toList |> fmap (first merge) |> Map.fromList
 
 {- |
+Check lower isomorphisms for given symbols.
+
+Examples:
+
+>>> lowerIso [2,4] [[0,1::Int], [0,1]] crescent
+True
+-}
+lowerIso ::
+  Eq k
+  => [Symbol]  -- ^ The symbols to check.
+  -> [[k]]     -- ^ The keys to classify nondecomposable incoming morphisms.
+  -> Node e
+  -> Bool
+lowerIso [] _ _ = True
+lowerIso [_] _ _ = True
+lowerIso tgts keys node = isJust do
+  let tgt_pars = tgts |> fmap (suffixND node)
+  guard $ tgt_pars |> fmap length |> allSame
+  guard $ length keys == length tgt_pars
+  guard $ keys `zip` tgt_pars |> fmap (length `bimap` length) |> all (uncurry (==))
+
+  guard $ keys |> all (anySame .> not)
+  indices <- keys |> traverse (traverse (`elemIndex` head keys))
+  let merging_symbols =
+        zip tgt_pars indices
+        |> fmap (uncurry zip .> sortOn snd .> fmap fst)
+        |> transpose
+        |> fmap (fmap symbol2)
+  guard $ merging_symbols |> all (fmap fst .> allSame)
+
+  sequence_ $ node |> foldUnder (head tgts) \curr results -> do
+    results' <- results |> traverse sequence
+
+    let collapse = nubSort $ fmap sort do
+          (lres, arr) <- results' `zip` arrows (target curr)
+          case lres of
+            AtOuter -> mzero
+            AtInner res -> res |> fmap (fmap (dict arr !))
+            AtBoundary ->
+              merging_symbols
+              |> filter (head .> fst .> (== symbol curr))
+              |> fmap (fmap snd)
+
+    guard $ collapse |> concat |> anySame |> not
+
+    return collapse
+
+{- |
 Merge nodes.
 
 Examples:
 
->>> printNode' $ fromJust $ mergeObjects [2,4] [[0::Int,1], [0,1]] crescent
+>>> printNode' $ fromJust $ mergeObjects [2,4] [[0,1], [0,1]] crescent
 - 0->1; 1->2; 2->3; 5->2; 6->3
   - 0->1; 1->2; 2->2
     &0
@@ -996,48 +1044,24 @@ Examples:
     *0
 -}
 mergeObjects ::
-  Eq k
-  => [Symbol]   -- ^ The symbols referencing the nodes to be merged.
-  -> [[k]]      -- ^ The merging table of nondecomposable incoming morphisms of the nodes.
-                --   The arrows with the same key will be merged.
+  [Symbol]        -- ^ The symbols referencing the nodes to be merged.
+  -> [[Natural]]  -- ^ The merging table of nondecomposable incoming morphisms of the nodes.
+                  --   The arrows with the same key will be merged.
   -> Node e
   -> Maybe (Node e)
 mergeObjects tgts keys node = do
   guard $ notNull tgts
+  guard $ lowerIso tgts keys node
+
   let tgt = head tgts
-  tgt_nodes <- tgts |> traverse (arrow node) |> fmap (fmap target)
-
+  let tgt_nodes = tgts |> fmap (arrow node .> fromJust .> target)
   let tgt_pars = tgts |> fmap (suffixND node)
-  guard $ tgt_pars |> fmap length |> allSame
-  guard $ keys |> fmap length |> allSame
-  guard $ length keys == length tgt_pars
-  guard $ length (head keys) == length (head tgt_pars)
-
-  guard $ keys |> all (anySame .> not)
-  let indices = keys |> fmap (fmap ((`elemIndex` head keys) .> fromJust))
   let merging_arrs =
-        zip tgt_pars indices
+        keys
+        |> fmap (fmap ((`elemIndex` head keys) .> fromJust))
+        |> zip tgt_pars
         |> fmap (uncurry zip .> sortOn snd .> fmap fst)
         |> transpose
-  guard $ merging_arrs |> all (fmap (fst .> symbol) .> allSame)
-
-  sequence_ $ node |> foldUnder tgt \curr results -> do
-    results' <- results |> traverse sequence
-
-    let collapse = nubSort $ fmap sort do
-          (lres, arr) <- results' `zip` arrows (target curr)
-          case lres of
-            AtOuter -> mzero
-            AtInner res -> res |> fmap (fmap (dict arr !))
-            AtBoundary ->
-              merging_arrs
-              |> fmap (fmap symbol2)
-              |> filter (head .> fst .> (== symbol curr))
-              |> fmap (fmap snd)
-
-    guard $ collapse |> concat |> anySame |> not
-
-    return collapse
 
   let merged_node = mergeCategories tgt_nodes
   let merging_offsets = tgt_nodes |> fmap (symbols .> maximum) |> scanl (+) 0
