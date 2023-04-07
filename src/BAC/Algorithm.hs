@@ -58,8 +58,8 @@ import Control.Monad (guard, MonadPlus (mzero), void)
 import Data.Bifunctor (Bifunctor (first, second, bimap))
 import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
-import Data.List (elemIndices, findIndex, sort, transpose, sortOn, nub, elemIndex)
-import Data.List.Extra (nubSort, groupSortOn, allSame, anySame, (!?))
+import Data.List (elemIndices, findIndex, sort, transpose, sortOn, nub, elemIndex, uncons)
+import Data.List.Extra (nubSort, groupSortOn, allSame, anySame, (!?), nubSortOn)
 import Data.Tuple.Extra (both)
 import Data.Map.Strict ((!), Map)
 import qualified Data.Map.Strict as Map
@@ -69,6 +69,7 @@ import Numeric.Natural (Natural)
 import Utils.Utils ((|>), (.>), guarded, foldlMUncurry)
 import Utils.DisjointSet (bipartiteEqclass)
 import BAC.Base
+import Control.Arrow ((&&&))
 
 -- $setup
 -- >>> import Data.Tuple.Extra (both)
@@ -973,6 +974,40 @@ mergeMorphisms (src, tgts) node = do
     AtBoundary -> return (value, arr {dict = dict', target = res0})
       where
       dict' = dict arr |> Map.toList |> fmap (first merge) |> Map.fromList
+
+newtype Tree a = Tree (Map a (Tree a)) deriving (Eq, Ord, Show)
+
+forwardMaxChainTrieUnder :: Symbol -> Node e -> Maybe (Tree (Symbol, Symbol))
+forwardMaxChainTrieUnder sym = fromReachable res0 . foldUnder sym \curr results ->
+  arrows (target curr) `zip` results
+  |> mapMaybe (second (fromReachable res0) .> sequence)
+  |> fmap (first symbol)
+  |> filter (fst .> nondecomposable (target curr))
+  |> fmap (first (symbol curr,))
+  |> nubSortOn fst
+  |> Map.fromList
+  |> Tree
+  where
+  res0 = Tree Map.empty
+
+backwardMaxChainTrieUnder :: Symbol -> Node e -> Maybe (Tree (Symbol, Symbol))
+backwardMaxChainTrieUnder sym =
+  forwardMaxChainTrieUnder sym .> fmap (fromTrie .> fmap reverse .> toTrie)
+  where
+  fromTrie :: Ord a => Tree a -> [[a]]
+  fromTrie (Tree trie) =
+    trie
+    |> Map.toList
+    |> fmap (fmap fromTrie)
+    |> concatMap sequence
+    |> fmap (uncurry (:))
+  toTrie :: Ord a => [[a]] -> Tree a
+  toTrie =
+    fmap (uncons .> fromJust)
+    .> groupSortOn fst
+    .> fmap ((head .> fst) &&& (fmap snd .> toTrie))
+    .> Map.fromList
+    .> Tree
 
 {- |
 Check lower isomorphisms for given symbols.
