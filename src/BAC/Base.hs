@@ -85,6 +85,8 @@ module BAC.Base (
   mapUnder,
   arrowsOrd,
   arrowsOrdUnder,
+  cofold,
+  cofoldUnder,
 
   -- * Non-Categorical Operations #operations#
 
@@ -608,6 +610,55 @@ arrowsOrdUnder sym = root .> go [] .> fmap snd
     | otherwise                = curr |> extend |> foldl' go res |> (`snoc` (sym', curr))
     where
     sym' = symbol curr
+
+cofold :: (Arrow e -> [((Arrow e, e, Arrow e), r)] -> r) -> Node e -> [(Arrow e, r)]
+cofold f node = go [(root node, [])] []
+  where
+  -- go :: [(Arrow e, [((Arrow e, e, Arrow e), r)])] -> [(Arrow e, r)] -> [(Arrow e, r)]
+  go [] results = results
+  go ((curr, args) : table) results = go table' results'
+    where
+    value = f curr args
+    results' = if null (extend curr) then (curr, value) : results else results
+    table' =
+      edges (target curr)
+      |> fmap (\(e, arr) -> (curr `join` arr, ((curr, e, arr), value)))
+      |> foldl' insertSlot table
+  -- insertSlot ::
+  --   [(Arrow e, [((Arrow e, e, Arrow e), r)])]
+  --   -> (Arrow e, ((Arrow e, e, Arrow e), r))
+  --   -> [(Arrow e, [((Arrow e, e, Arrow e), r)])]
+  insertSlot [] (curr, arg) = [(curr, [arg])]
+  insertSlot ((arr, args) : table) (curr, arg) =
+    case locate curr (symbol arr) of
+      Outer -> (arr, args) : insertSlot table (curr, arg)
+      Boundary -> (arr, args `snoc` arg) : table
+      Inner -> (curr, [arg]) : (arr, args) : table
+
+cofoldUnder :: Symbol -> (Arrow e -> [((Arrow e, e, Arrow e), r)] -> r) -> Node e -> Maybe r
+cofoldUnder tgt f node =
+  if locate (root node) tgt /= Outer then Nothing else Just $ go [(root node, [])]
+  where
+  -- go :: [(Arrow e, [((Arrow e, e, Arrow e), r)])] -> r
+  go [] = error "invalid state"
+  go ((curr, args) : table) = if symbol curr == tgt then value else go table'
+    where
+    value = f curr args
+    table' =
+      edges (target curr)
+      |> fmap (\(e, arr) -> (curr `join` arr, ((curr, e, arr), value)))
+      |> filter (fst .> (`locate` tgt) .> (/= Outer))
+      |> foldl' insertSlot table
+  -- insertSlot ::
+  --   [(Arrow e, [((Arrow e, e, Arrow e), r)])]
+  --   -> (Arrow e, ((Arrow e, e, Arrow e), r))
+  --   -> [(Arrow e, [((Arrow e, e, Arrow e), r)])]
+  insertSlot [] (curr, arg) = [(curr, [arg])]
+  insertSlot ((arr, args) : table) (curr, arg) =
+    case locate curr (symbol arr) of
+      Outer -> (arr, args) : insertSlot table (curr, arg)
+      Boundary -> (arr, args `snoc` arg) : table
+      Inner -> (curr, [arg]) : (arr, args) : table
 
 {- |
 Rewire edges of a given node.
