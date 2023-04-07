@@ -12,7 +12,7 @@ import Data.Maybe (fromJust)
 {- |
 ![cone](./pictures/cone-serialize.png)
 
->>> printNode' cone
+>>> printNode cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -25,19 +25,19 @@ import Data.Maybe (fromJust)
   - 0->4; 1->2; 2->3
     *1
 -}
-cone :: Node ()
+cone :: Node
 cone = fromJust $ braid $ do
-  y <- knot' []
-  b <- knot' []
-  p <- knot' [y]
-  c <- knot' [y, b]
-  v <- knot' [c, c] // [[0,0], [1,0]] // [[0,1], [1,1]]
-  knot' [p, v] // [[1,0], [1,1]] // [[0,0], [1,0,0]]
+  y <- knot []
+  b <- knot []
+  p <- knot [y]
+  c <- knot [y, b]
+  v <- knot [c, c] // [[0,0], [1,0]] // [[0,1], [1,1]]
+  knot [p, v] // [[1,0], [1,1]] // [[0,0], [1,0,0]]
 
 {- |
 ![torus](./pictures/torus-serialize.png)
 
->>> printNode' torus
+>>> printNode torus
 - 0->1; 1->2; 2->3; 3->3; 4->5; 6->3; 7->2; 8->3; 10->5
   - 0->1; 1->2; 2->3
     &0
@@ -56,17 +56,17 @@ cone = fromJust $ braid $ do
   - 0->10; 1->2; 2->8
     *2
 -}
-torus :: Node ()
+torus :: Node
 torus = fromJust $ braid $ do
-  t <- knot' []
-  c <- knot' [t, t]
-  c' <- knot' [t, t]
-  p <- knot' [c, c', c, c']
+  t <- knot []
+  c <- knot [t, t]
+  c' <- knot [t, t]
+  p <- knot [c, c', c, c']
     // [[0,1], [1,0]]
     // [[1,1], [2,1]]
     // [[2,0], [3,1]]
     // [[3,0], [0,0]]
-  knot' [p]
+  knot [p]
     // [[0,0], [0,2]]
     // [[0,1], [0,3]]
 
@@ -74,7 +74,7 @@ torus = fromJust $ braid $ do
 
 ![crescent](./pictures/crescent-serialize.png)
 
->>> printNode' crescent
+>>> printNode crescent
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4
   - 0->1; 1->2
     &0
@@ -89,15 +89,15 @@ torus = fromJust $ braid $ do
   - 0->7; 1->6
     *2
 -}
-crescent :: Node ()
+crescent :: Node
 crescent = fromJust $ braid $ do
-  s <- knot' []
-  c <- knot' [s]
-  c' <- knot' [s]
-  p <- knot' [c, c', c, c']
+  s <- knot []
+  c <- knot [s]
+  c' <- knot [s]
+  p <- knot [c, c', c, c']
     // [[0,0], [1,0]]
     // [[2,0], [3,0]]
-  knot' [p]
+  knot [p]
     // [[0,0,0], [0,1,0]]
     // [[0,0], [0,2]]
     // [[0,1], [0,3]]
