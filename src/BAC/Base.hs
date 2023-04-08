@@ -74,6 +74,7 @@ module BAC.Base (
   eqStruct,
   canonicalize,
   canonicalizeObject,
+  lowerIso,
 
   -- * Folding #folding#
 
@@ -95,14 +96,14 @@ module BAC.Base (
   relabelObject,
 ) where
 
-import Control.Monad (guard)
-import Data.Bifunctor (Bifunctor (second), bimap)
+import Control.Monad (MonadPlus (mzero), guard)
+import Data.Bifunctor (Bifunctor (first, second), bimap)
 import Data.Foldable (Foldable (foldl'))
-import Data.List (sortOn)
-import Data.List.Extra (allSame, groupSortOn, nubSort, snoc)
+import Data.List (elemIndex, sort, sortOn, transpose, intercalate)
+import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, snoc)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromJust, mapMaybe)
+import Data.Maybe (fromJust, isJust, mapMaybe)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (dupe)
 import GHC.Stack (HasCallStack)
@@ -474,6 +475,106 @@ canonicalizeObject node tgt = do
     |> fmap (base :)
     |> fmap ((`zip` [base..]) .> Map.fromList)
 
+newtype Tree a = Tree (Map a (Tree a)) deriving (Eq, Ord, Show)
+
+showTree :: Show a => Tree a -> String
+showTree (Tree m) =
+  intercalate "," $
+    m |> Map.toList |> fmap \(key, subnode) ->
+      show key ++ ":{" ++ showTree subnode ++ "}"
+
+-- | All maximum chains to a node stored as a forward trie.
+--   Maximum chain is a sequence of symbols, and each symbol indicates a nondecomposable
+--   morphism.
+--   Forward trie is a tree such that its paths correspond to maximum chains.
+--   Just like BAC, the nodes of this trie is implicitly shared.
+--
+--   Also see `backwardMaxChainTrieUnder`.
+--
+--   Examples:
+--
+--   >>> putStr $ showTree $ fromJust $ forwardMaxChainTrieUnder 6 cone
+--   3:{1:{2:{}},4:{2:{}}}
+forwardMaxChainTrieUnder :: Symbol -> Node -> Maybe (Tree Symbol)
+forwardMaxChainTrieUnder sym = fromReachable res0 . foldUnder sym \curr results ->
+  edges (target curr) `zip` results
+  |> mapMaybe (second (fromReachable res0) .> sequence)
+  |> fmap (first symbol)
+  |> filter (fst .> nondecomposable (target curr))
+  |> Map.fromList
+  |> Tree
+  where
+  res0 = Tree Map.empty
+
+-- | All maximum chains to a node stored as a backward trie.
+--   Maximum chain is a sequence of pairs of symbols, and each pair of symbols indicates
+--   a nondecomposable morphism.
+--   Backward trie is a tree such that its paths correspond to the reverse of maximum
+--   chains.
+--   Just like BAC, the nodes of this trie is implicitly shared.
+--
+--   Also see `forwardMaxChainTrieUnder`.
+--
+--   Examples:
+--
+--   >>> putStr $ showTree $ fromJust $ backwardMaxChainTrieUnder 6 cone
+--   (4,2):{(3,1):{(0,3):{}},(3,4):{(0,3):{}}}
+backwardMaxChainTrieUnder :: Symbol -> Node -> Maybe (Tree (Symbol, Symbol))
+backwardMaxChainTrieUnder sym = cofoldUnder sym \_curr results ->
+  results
+  |> filter (fst .> \(arr1, arr2) -> nondecomposable (target arr1) (symbol arr2))
+  |> fmap (first symbol2)
+  |> Map.fromList
+  |> Tree
+
+{- |
+Check lower isomorphisms for given symbols.
+
+Examples:
+
+>>> lowerIso [2,4] [[0,1::Int], [0,1]] crescent
+True
+-}
+lowerIso ::
+  Eq k
+  => [Symbol]  -- ^ The symbols to check.
+  -> [[k]]     -- ^ The keys to classify nondecomposable incoming morphisms.
+  -> Node
+  -> Bool
+lowerIso [] _ _ = True
+lowerIso [_] _ _ = True
+lowerIso tgts keys node = isJust do
+  let tgt_pars = tgts |> fmap (suffixND node)
+  guard $ tgt_pars |> fmap length |> allSame
+  guard $ length keys == length tgt_pars
+  guard $ keys `zip` tgt_pars |> fmap (length `bimap` length) |> all (uncurry (==))
+
+  guard $ keys |> all (anySame .> not)
+  indices <- keys |> traverse (traverse (`elemIndex` head keys))
+  let merging_symbols =
+        zip tgt_pars indices
+        |> fmap (uncurry zip .> sortOn snd .> fmap fst)
+        |> transpose
+        |> fmap (fmap symbol2)
+  guard $ merging_symbols |> all (fmap fst .> allSame)
+
+  sequence_ $ node |> foldUnder (head tgts) \curr results -> do
+    results' <- results |> traverse sequence
+
+    let collapse = nubSort $ fmap sort do
+          (lres, edge) <- results' `zip` edges (target curr)
+          case lres of
+            AtOuter -> mzero
+            AtInner res -> res |> fmap (fmap (dict edge !))
+            AtBoundary ->
+              merging_symbols
+              |> filter (head .> fst .> (== symbol curr))
+              |> fmap (fmap snd)
+
+    guard $ collapse |> concat |> anySame |> not
+
+    return collapse
+
 -- | A value labeled by the relative position of the node.
 data Located r = AtOuter | AtBoundary | AtInner r
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
@@ -615,6 +716,28 @@ arrowsUnder sym = root .> go [] .> fmap snd
     where
     sym' = symbol curr
 
+-- | Fold a BAC reversely.
+--
+--   Examples:
+--
+--   >>> fmap (first symbol) $ cofold (\curr results -> concatMap snd results `snoc` symbol curr) cone
+--   [(6,[0,3,0,3,4,6]),(2,[0,1,0,3,0,3,4,2])]
+--
+--   >>> fmap (first symbol) $ cofold (\curr results -> concatMap snd results `snoc` symbol curr) crescent
+--   [(3,[0,1,0,1,2,0,1,0,1,4,3])]
+--
+--   >>> fmap (first symbol) $ cofold (\curr results -> concatMap snd results `snoc` symbol curr) torus
+--   [(3,[0,1,0,1,2,0,1,0,1,2,0,1,0,1,5,0,1,0,1,5,3])]
+--
+--   >>> import Debug.Trace (traceShow)
+--   >>> res = cofold (\curr results -> results == results `seq` traceShow (symbol curr) ()) cone
+--   >>> res == res `seq` return ()
+--   0
+--   3
+--   4
+--   6
+--   1
+--   2
 cofold :: (Arrow -> [((Arrow, Arrow), r)] -> r) -> Node -> [(Arrow, r)]
 cofold f node = go [(root node, [])] []
   where
@@ -639,9 +762,24 @@ cofold f node = go [(root node, [])] []
       Boundary -> (arr, args `snoc` arg) : table
       Inner -> (curr, [arg]) : (arr, args) : table
 
+
+-- | Fold a BAC reversely under a node.
+--
+--   Examples:
+--
+--   >>> cofoldUnder 6 (\curr results -> concatMap snd results `snoc` symbol curr) cone
+--   Just [0,3,0,3,4,6]
+--
+--   >>> import Debug.Trace (traceShow)
+--   >>> res = cofoldUnder 6 (\curr results -> results == results `seq` traceShow (symbol curr) ()) cone
+--   >>> res == res `seq` return ()
+--   0
+--   3
+--   4
+--   6
 cofoldUnder :: Symbol -> (Arrow -> [((Arrow, Arrow), r)] -> r) -> Node -> Maybe r
 cofoldUnder tgt f node =
-  if locate (root node) tgt /= Outer then Nothing else Just $ go [(root node, [])]
+  if locate (root node) tgt == Outer then Nothing else Just $ go [(root node, [])]
   where
   -- go :: [(Arrow, [((Arrow, Arrow), r)])] -> r
   go [] = error "invalid state"

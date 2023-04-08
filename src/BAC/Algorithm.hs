@@ -54,13 +54,12 @@ module BAC.Algorithm (
   mergeMorphismsAggressively,
 ) where
 
-import Control.Arrow ((&&&))
 import Control.Monad (MonadPlus (mzero), guard)
-import Data.Bifunctor (Bifunctor (bimap, first, second))
+import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
-import Data.List (elemIndex, elemIndices, findIndex, nub, sort, sortOn, transpose, uncons)
-import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, nubSortOn, (!?))
+import Data.List (elemIndex, elemIndices, findIndex, nub, sort, sortOn, transpose)
+import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, (!?))
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, fromMaybe, isJust, mapMaybe)
@@ -969,88 +968,6 @@ mergeMorphisms (src, tgts) node = do
     AtBoundary -> return edge {dict = dict', target = res0}
       where
       dict' = dict edge |> Map.toList |> fmap (first merge) |> Map.fromList
-
-newtype Tree a = Tree (Map a (Tree a)) deriving (Eq, Ord, Show)
-
-forwardMaxChainTrieUnder :: Symbol -> Node -> Maybe (Tree (Symbol, Symbol))
-forwardMaxChainTrieUnder sym = fromReachable res0 . foldUnder sym \curr results ->
-  edges (target curr) `zip` results
-  |> mapMaybe (second (fromReachable res0) .> sequence)
-  |> fmap (first symbol)
-  |> filter (fst .> nondecomposable (target curr))
-  |> fmap (first (symbol curr,))
-  |> nubSortOn fst
-  |> Map.fromList
-  |> Tree
-  where
-  res0 = Tree Map.empty
-
-backwardMaxChainTrieUnder :: Symbol -> Node -> Maybe (Tree (Symbol, Symbol))
-backwardMaxChainTrieUnder sym =
-  forwardMaxChainTrieUnder sym .> fmap (fromTrie .> fmap reverse .> toTrie)
-  where
-  fromTrie :: Ord a => Tree a -> [[a]]
-  fromTrie (Tree trie) =
-    trie
-    |> Map.toList
-    |> fmap (fmap fromTrie)
-    |> concatMap sequence
-    |> fmap (uncurry (:))
-  toTrie :: Ord a => [[a]] -> Tree a
-  toTrie =
-    fmap (uncons .> fromJust)
-    .> groupSortOn fst
-    .> fmap ((head .> fst) &&& (fmap snd .> toTrie))
-    .> Map.fromList
-    .> Tree
-
-{- |
-Check lower isomorphisms for given symbols.
-
-Examples:
-
->>> lowerIso [2,4] [[0,1::Int], [0,1]] crescent
-True
--}
-lowerIso ::
-  Eq k
-  => [Symbol]  -- ^ The symbols to check.
-  -> [[k]]     -- ^ The keys to classify nondecomposable incoming morphisms.
-  -> Node
-  -> Bool
-lowerIso [] _ _ = True
-lowerIso [_] _ _ = True
-lowerIso tgts keys node = isJust do
-  let tgt_pars = tgts |> fmap (suffixND node)
-  guard $ tgt_pars |> fmap length |> allSame
-  guard $ length keys == length tgt_pars
-  guard $ keys `zip` tgt_pars |> fmap (length `bimap` length) |> all (uncurry (==))
-
-  guard $ keys |> all (anySame .> not)
-  indices <- keys |> traverse (traverse (`elemIndex` head keys))
-  let merging_symbols =
-        zip tgt_pars indices
-        |> fmap (uncurry zip .> sortOn snd .> fmap fst)
-        |> transpose
-        |> fmap (fmap symbol2)
-  guard $ merging_symbols |> all (fmap fst .> allSame)
-
-  sequence_ $ node |> foldUnder (head tgts) \curr results -> do
-    results' <- results |> traverse sequence
-
-    let collapse = nubSort $ fmap sort do
-          (lres, edge) <- results' `zip` edges (target curr)
-          case lres of
-            AtOuter -> mzero
-            AtInner res -> res |> fmap (fmap (dict edge !))
-            AtBoundary ->
-              merging_symbols
-              |> filter (head .> fst .> (== symbol curr))
-              |> fmap (fmap snd)
-
-    guard $ collapse |> concat |> anySame |> not
-
-    return collapse
 
 {- |
 Merge nodes.
