@@ -93,20 +93,20 @@ format level curr = do
           write $ indent ++ "&" ++ show n ++ "\n"
         Nothing -> do
           write ""
-      edges (target curr) |> traverse_ \arr -> do
-        write $ indent ++ "- " ++ encodeDict (dict arr) ++ "\n"
-        format (level + 1) (curr `join` arr)
+      edges (target curr) |> traverse_ \edge -> do
+        write $ indent ++ "- " ++ encodeDict (dict edge) ++ "\n"
+        format (level + 1) (curr `join` edge)
 
 formatYAML :: Int -> Arrow -> State FormatterState ()
 formatYAML level curr =
-  edges (target curr) |> traverse_ \arr -> do
+  edges (target curr) |> traverse_ \edge -> do
     let indent = repeat " " |> take (level * 4) |> concat
 
-    write $ indent ++ "- dict: '" ++ encodeDict (dict arr) ++ "'\n"
+    write $ indent ++ "- dict: '" ++ encodeDict (dict edge) ++ "'\n"
     write indent
 
-    let arr' = curr `join` arr
-    let sym = symbol arr'
+    let arr = curr `join` edge
+    let sym = symbol arr
     state <- get
     let ptr = lookup sym (pointers state)
 
@@ -121,7 +121,7 @@ formatYAML level curr =
 
     case ptr of
       Just _ | sym `elem` is_init state -> write "\n"
-      _ | null (edges (target arr')) -> write " []\n"
+      _ | null (edges (target arr)) -> write " []\n"
       _ -> do
         write "\n"
-        formatYAML (level + 1) arr'
+        formatYAML (level + 1) arr

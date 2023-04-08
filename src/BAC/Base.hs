@@ -3,7 +3,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TupleSections #-}
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module BAC.Base (
   -- * Basic #basic#
@@ -38,11 +37,11 @@ module BAC.Base (
 
   -- -- ** Arrow #arrow#
 
-  Location (..),
   root,
   join,
   divide,
   extend,
+  Location (..),
   locate,
   arrow,
   symbol,
@@ -51,10 +50,10 @@ module BAC.Base (
 
   arrow2,
   symbol2,
-  divide2,
-  extend2,
   prefix,
   suffix,
+  extend2,
+  divide2,
 
   -- ** Nondecomposable
 
@@ -85,8 +84,8 @@ module BAC.Base (
   foldUnder,
   modify,
   modifyUnder,
-  arrowsOrd,
-  arrowsOrdUnder,
+  arrows,
+  arrowsUnder,
   cofold,
   cofoldUnder,
 
@@ -99,7 +98,8 @@ module BAC.Base (
 import Control.Monad (guard)
 import Data.Bifunctor (Bifunctor (second), bimap)
 import Data.Foldable (Foldable (foldl'))
-import Data.List.Extra (allSame, groupSortOn, nubSort, nubSortOn, snoc)
+import Data.List (sortOn)
+import Data.List.Extra (allSame, groupSortOn, nubSort, snoc)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe)
@@ -109,9 +109,9 @@ import GHC.Stack (HasCallStack)
 import Numeric.Natural (Natural)
 import Prelude hiding (map)
 
-import Utils.Memoize (memoizeWithKey)
-import Utils.Utils ((.>), (|>), guarded)
 import Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet)
+import Utils.Memoize (memoizeWithKey)
+import Utils.Utils (guarded, (.>), (|>))
 
 -- $setup
 -- >>> import BAC.Serialize
@@ -122,14 +122,16 @@ import Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet)
 --   It should be validated by @validate . root@.
 newtype Node = Node (Map Dict Node) deriving (Eq, Ord, Show)
 
+-- | The arrows of edges of the given node.
 edges :: Node -> [Arrow]
 edges (Node m) = m |> Map.toList |> fmap (uncurry Arrow)
 
+-- | Construct a node by edges.  The structure will not be validated, use `makeNode` instead.
 fromEdges :: [Arrow] -> Node
 fromEdges = fmap (\Arrow {dict, target} -> (dict, target)) .> Map.fromList .> Node
 
 -- | Arrow of a bounded acyclic category, representing a downward functor.
---   It should be validated by `validate`.
+--   It should be validated by `validate`, or use `makeArrow`.
 data Arrow = Arrow {dict :: Dict, target :: Node} deriving (Eq, Ord, Show)
 
 -- | Dictionary of an arrow, representing mapping between objects.
@@ -142,7 +144,7 @@ type Symbol = Natural
 base :: Symbol
 base = 0
 
--- | Return all symbols of a node in ascending order.  The first one is the base symbol.
+-- | All symbols of a node.  The first one is the base symbol.
 --
 --   Examples:
 --
@@ -164,9 +166,6 @@ symbols = edges .> concatMap (dict .> Map.elems) .> (base :) .> nubSort
 --   It may crash if given dictionaries are not composable.
 cat :: HasCallStack => Dict -> Dict -> Dict
 cat = fmap . (!)
-
--- | The relative location between nodes.
-data Location = Inner | Boundary | Outer deriving (Eq, Ord, Show)
 
 -- | Root arrow of a node.
 root :: Node -> Arrow
@@ -198,8 +197,11 @@ divide arr12 arr13 =
 extend :: Arrow -> [Arrow]
 extend arr = target arr |> edges |> fmap (join arr)
 
--- | Find the relative Location of the node referenced by the given symbol with respect to
---   a given arrow.
+-- | The relative location between nodes.
+data Location = Inner | Boundary | Outer deriving (Eq, Ord, Show)
+
+-- | Relative location of the node referenced by the given symbol with respect to a given
+--   arrow.
 --
 --   Examples:
 --
@@ -217,8 +219,8 @@ locate arr sym
   | sym `elem` dict arr = Inner
   | otherwise           = Outer
 
--- | Make a arrow pointing to the node referenced by the given symbol.
---   Return `Nothing` if it is outside the node.
+-- | An arrow to the node referenced by the given symbol, or `Nothing` if it is outside
+--   the node.
 --
 --   Examples:
 --
@@ -235,10 +237,8 @@ arrow node sym = go (root node)
     Boundary -> Just arr
     Inner    -> Just $ arr |> extend |> mapMaybe go |> head
 
--- | Find the symbol referencing to the given arrow.
+-- | The symbol referencing to the given arrow.
 --   It is the inverse of `arrow`:
---
---   > fmap symbol (arrow node sym) = Just sym
 --
 --   Examples:
 --
@@ -250,7 +250,7 @@ arrow node sym = go (root node)
 symbol :: Arrow -> Symbol
 symbol = dict .> (! base)
 
--- | Make a 2-chain by given pair of symbols.
+-- | A 2-chain referenced by the given pair of symbols.
 --
 --   Examples:
 --
@@ -268,10 +268,8 @@ arrow2 node (src, tgt) = do
   tgt_subarr <- arrow (target src_arr) tgt
   return (src_arr, tgt_subarr)
 
--- | Find the pair of symbols referencing to the given 2-chain.
+-- | The pair of symbols referencing to the given 2-chain.
 --   It is the inverse of `arrow2`:
---
---   > fmap symbol2 (arrow2 node sym2) = Just sym2
 --
 --   Examples:
 --
@@ -283,18 +281,39 @@ arrow2 node (src, tgt) = do
 symbol2 :: (Arrow, Arrow) -> (Symbol, Symbol)
 symbol2 = symbol `bimap` symbol
 
--- | Divide two tuples of arrows.  The first is divisor and the second is the dividend,
---   and they should start and end at the same node.
---   It obeys the following laws:
+-- | Find prefix edges of paths from a node to a given symbol.
+--   It obeys the following law:
 --
---   > arr12 `join` arr24  ==  arr13 `join` arr34
---   > arr23 `elem` divide2 (arr12, arr24) (arr13, arr34)
---   > ->  arr12 `join` arr23 == arr13
---   > &&  arr23 `join` arr34 == arr34
-divide2 :: (Arrow, Arrow) -> (Arrow, Arrow) -> [Arrow]
-divide2 (arr12, arr24) (arr13, arr34) =
-  arr12 `divide` arr13 |> filter \arr23 ->
-    symbol (arr23 `join` arr34) == symbol arr24
+--   > (arr1, arr2) `elem` prefix node sym
+--   > ->  arr1 `elem` edges node
+--   > &&  symbol (arr1 `join` arr2) == sym
+prefix :: Node -> Symbol -> [(Arrow, Arrow)]
+prefix node sym =
+  arrow node sym
+  |> maybe [] \tgt_arr ->
+    node
+    |> edges
+    |> concatMap \arr ->
+      divide arr tgt_arr
+      |> fmap (arr,)
+
+-- | Find suffix edges of paths from a node to a given symbol.
+--   It obeys the following law:
+--
+--   > (arr1, arr2) `elem` suffix node sym
+--   > ->  arr2 `elem` edges (target arr1)
+--   > &&  symbol (arr1 `join` arr2) == sym
+suffix :: Node -> Symbol -> [(Arrow, Arrow)]
+suffix node sym =
+  node
+  |> arrowsUnder sym
+  |> sortOn symbol
+  |> concatMap \curr ->
+    curr
+    |> target
+    |> edges
+    |> filter (join curr .> symbol .> (== sym))
+    |> fmap (curr,)
 
 -- | Extend a tuple of arrows.
 --   It obeys the following law:
@@ -311,38 +330,19 @@ extend2 (arr1, arr2) =
     arr `divide` arr2
     |> fmap (arr1 `join` arr,)
 
--- | Find prefix edges of paths from a node to a given symbol.
---   It obeys the following law:
+-- | Divide two tuples of arrows.  The first is divisor and the second is the dividend,
+--   and they should start and end at the same node.
+--   It obeys the following laws:
 --
---   > (arr1, arr2) `elem` prefix node sym
---   > ->  symbol (arr1 `join` arr2) == sym
---   > &&  (_, arr1) `elem` edges node
-prefix :: Node -> Symbol -> [(Arrow, Arrow)]
-prefix node sym =
-  arrow node sym
-  |> maybe [] \tgt_arr ->
-    node
-    |> edges
-    |> concatMap \arr ->
-      divide arr tgt_arr
-      |> fmap (arr,)
-
--- | Find suffix edges of paths from a node to a given symbol.
---   It obeys the following law:
+--   > arr12 `join` arr24  ==  arr13 `join` arr34
 --
---   > (arr1, arr2) `elem` suffix node sym
---   > ->  symbol (arr1 `join` arr2) == sym
---   > &&  (_, arr2) `elem` edges (target arr1)
-suffix :: Node -> Symbol -> [(Arrow, Arrow)]
-suffix node sym =
-  node
-  |> arrowsOrdUnder sym
-  |> concatMap \curr ->
-    curr
-    |> target
-    |> edges
-    |> filter (join curr .> symbol .> (== sym))
-    |> fmap (curr,)
+--   > arr23 `elem` divide2 (arr12, arr24) (arr13, arr34)
+--   > ->  arr12 `join` arr23 == arr13
+--   > &&  arr23 `join` arr34 == arr34
+divide2 :: (Arrow, Arrow) -> (Arrow, Arrow) -> [Arrow]
+divide2 (arr12, arr24) (arr13, arr34) =
+  arr12 `divide` arr13 |> filter \arr23 ->
+    symbol (arr23 `join` arr34) == symbol arr24
 
 
 -- | Check if the given symbol reference to a nondecomposable initial morphism.
@@ -359,25 +359,22 @@ nondecomposable node sym =
   (root node `locate` sym |> (/= Outer))
   && (node |> edges |> all ((`locate` sym) .> (/= Inner)))
 
--- | Nondecomposable arrows representing the edges of a node.
+-- | Nondecomposable edges of a node.
 edgesND :: Node -> [Arrow]
 edgesND node =
   node
   |> edges
   |> filter (symbol .> nondecomposable node)
-  |> nubSortOn symbol
 
 prefixND :: Node -> Symbol -> [(Arrow, Arrow)]
 prefixND node sym =
   prefix node sym
   |> filter (\(arr1, _) -> nondecomposable node (symbol arr1))
-  |> nubSortOn symbol2
 
 suffixND :: Node -> Symbol -> [(Arrow, Arrow)]
 suffixND node sym =
   suffix node sym
   |> filter (\(arr1, arr2) -> nondecomposable (target arr1) (symbol arr2))
-  |> nubSortOn symbol2
 
 
 -- | Check if an arrow is valid.  To validate a node, try @validate (root node)@.
@@ -389,13 +386,12 @@ validate arr = validateDicts && validateSup
   validateSup =
     extend arr
     |> fmap dupe
-    |> fmap (second (target .> descendants))
+    |> fmap (second (target .> arrows))
     |> concatMap sequence
     |> fmap (uncurry join)
     |> (arr :)
     |> groupSortOn symbol
     |> all allSame
-  descendants node = symbols node |> fmap (arrow node) |> fmap fromJust
 
 -- | Check if an arrow is valid in depth.  All descendant nodes will be checked.
 --
@@ -505,6 +501,14 @@ fromInner _           = Nothing
 --
 --   >>> fold (\curr results -> concat results `snoc` symbol curr) torus
 --   [3,3,2,3,3,5,3,3,2,3,3,5,1,0]
+--
+--   >>> import Debug.Trace (traceShow)
+--   >>> fold (\curr results -> results == results `seq` traceShow (symbol curr) ()) torus `seq` return ()
+--   3
+--   2
+--   5
+--   1
+--   0
 fold ::
   (Arrow -> [r] -> r)  -- ^ The function to reduce a node and the results from its child
                        --   nodes into a value.
@@ -520,6 +524,16 @@ fold f = root .> memoizeWithKey symbol \self curr -> do
 --
 --   >>> foldUnder 6 (\_ results -> "<" ++ concat (mapMaybe fromInner results) ++ ">") cone
 --   AtInner "<<<><>>>"
+--
+--   >>> foldUnder 6 (\curr results -> concat (mapMaybe fromInner results) `snoc` symbol curr) cone
+--   AtInner [4,4,3,0]
+--
+--   >>> import Debug.Trace (traceShow)
+--   >>> res = foldUnder 6 (\curr results -> results == results `seq` traceShow (symbol curr) ()) cone
+--   >>> res == res `seq` return ()
+--   4
+--   3
+--   0
 foldUnder ::
   Symbol                          -- ^ The symbol referencing to the boundary.
   -> (Arrow -> [Located r] -> r)  -- ^ The reduce function.  Where the results of child
@@ -560,21 +574,21 @@ modifyUnder sym f =
     (res, edge) <- results `zip` edges (target curr)
     f (curr, edge) res
 
--- | Find all arrows of this node in descending order (evalution order of fold).
+-- | All arrows of this node in evalution order of fold.
 --   It is equivalent to @fold (\curr results -> concat results `snoc` curr) .> nubOn symbol@.
 --
 --   Examples:
 --
---   >>> fmap symbol $ arrowsOrd cone
+--   >>> fmap symbol $ arrows cone
 --   [2,1,6,4,3,0]
 --
---   >>> fmap symbol $ arrowsOrd crescent
+--   >>> fmap symbol $ arrows crescent
 --   [3,2,4,1,0]
 --
---   >>> fmap symbol $ arrowsOrd torus
+--   >>> fmap symbol $ arrows torus
 --   [3,2,5,1,0]
-arrowsOrd :: Node -> [Arrow]
-arrowsOrd = root .> go [] .> fmap snd
+arrows :: Node -> [Arrow]
+arrows = root .> go [] .> fmap snd
   where
   go res curr
     | sym `elem` fmap fst res = res
@@ -582,15 +596,17 @@ arrowsOrd = root .> go [] .> fmap snd
     where
     sym = symbol curr
 
--- | Find all arrows under a given symbol of this node in descending order (evalution
---   order of foldUnder).
+-- | All arrows under a given symbol of this node in evalution order of foldUnder.
 --
 --   Examples:
 --
---   >>> fmap symbol $ arrowsOrdUnder 6 cone
+--   >>> fmap symbol $ arrowsUnder 6 cone
 --   [4,3,0]
-arrowsOrdUnder :: Symbol -> Node -> [Arrow]
-arrowsOrdUnder sym = root .> go [] .> fmap snd
+--
+--   >>> fmap symbol $ arrowsUnder 5 cone
+--   []
+arrowsUnder :: Symbol -> Node -> [Arrow]
+arrowsUnder sym = root .> go [] .> fmap snd
   where
   go res curr
     | locate curr sym /= Inner = res
@@ -701,10 +717,10 @@ rewireEdges src tgts node = do
   let nd_syms' = res0 |> edgesND |> fmap symbol
   guard $ nd_syms == nd_syms'
 
-  fromReachable res0 $ node |> modifyUnder src \(_, arr) -> \case
-    AtOuter -> return arr
-    AtInner res -> return arr {target = res}
-    AtBoundary -> return arr {target = res0}
+  fromReachable res0 $ node |> modifyUnder src \(_curr, edge) -> \case
+    AtOuter -> return edge
+    AtInner res -> return edge {target = res}
+    AtBoundary -> return edge {target = res0}
 
 {- |
 Relabel a given node.
@@ -747,9 +763,9 @@ relabelObject tgt mapping node = do
   guard $ length unmapping == length mapping
 
   let res0 = fromEdges do
-        arr <- edges (target tgt_arr)
-        return arr {dict = mapping `cat` dict arr}
-  fromReachable res0 $ node |> modifyUnder tgt \(_, arr) -> \case
-    AtOuter -> return arr
-    AtInner res -> return arr {target = res}
-    AtBoundary -> return arr {dict = dict arr `cat` unmapping, target = res0}
+        edge <- edges (target tgt_arr)
+        return edge {dict = mapping `cat` dict edge}
+  fromReachable res0 $ node |> modifyUnder tgt \(_curr, edge) -> \case
+    AtOuter -> return edge
+    AtInner res -> return edge {target = res}
+    AtBoundary -> return edge {dict = dict edge `cat` unmapping, target = res0}
