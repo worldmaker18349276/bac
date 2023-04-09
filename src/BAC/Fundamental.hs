@@ -39,6 +39,7 @@ module BAC.Fundamental (
   partitionPrefix,
   splitMorphism,
   partitionSymbols,
+  splitSymbol,
   splitObject,
   splitCategory,
   duplicateObject,
@@ -126,8 +127,8 @@ Nothing
 rewire ::
   Symbol         -- ^ The symbol referencing to the node to rewire.
   -> [Symbol]    -- ^ The list of values and symbols of rewired edges.
-  -> BAC        -- ^ The root node of BAC.
-  -> Maybe BAC  -- ^ The result.
+  -> BAC
+  -> Maybe BAC
 rewire src tgts node = do
   src_arr <- arrow node src
   let nd_syms = target src_arr |> edgesND |> fmap symbol
@@ -173,8 +174,8 @@ Nothing
 relabel ::
   Symbol         -- ^ The symbol referencing to the node to relabel.
   -> Dict        -- ^ The dictionary to relabel the symbols of the node.
-  -> BAC        -- ^ The root node of BAC.
-  -> Maybe BAC  -- ^ The result.
+  -> BAC
+  -> Maybe BAC
 relabel tgt mapping node = do
   tgt_arr <- arrow node tgt
   guard $ base `Map.member` mapping && mapping ! base == base
@@ -205,14 +206,16 @@ An singleton node.
 
 Examples:
 
->>> printBAC singleton
+>>> printBAC $ fromJust $ singleton 1
 - 0->1
+
+>>> printBAC $ fromJust $ singleton 2
+- 0->2
 -}
-singleton :: BAC
-singleton = fromEdges [new_edge]
+singleton :: Symbol -> Maybe BAC
+singleton sym = if sym == base then Nothing else Just $ fromEdges [new_edge]
   where
-  new_sym = base + 1
-  new_dict = Map.singleton base new_sym
+  new_dict = Map.singleton base sym
   new_node = empty
   new_edge = Arrow {dict = new_dict, target = new_node}
 
@@ -416,8 +419,8 @@ removeInitialMorphism' tgt node = do
 
     return $ node |> removeMorphism sym2 |> fromJust
 
-  let keys = partitionSymbols node |> fmap \syms -> if tgt `elem` syms then 0 else 1
-  return $ node |> splitCategory keys |> fromJust |> (! 1)
+  let keys = partitionSymbols node |> fmap (elem tgt)
+  return $ node |> splitCategory keys |> fromJust |> (! False)
 
 
 {- |
@@ -479,8 +482,8 @@ removeObject' tgt node = do
 
     return $ node |> removeMorphism sym2 |> fromJust
 
-  let keys = partitionSymbols node |> fmap \syms -> if tgt `elem` syms then 0 else 1
-  return $ node |> splitCategory keys |> fromJust |> (! 1)
+  let keys = partitionSymbols node |> fmap (elem tgt)
+  return $ node |> splitCategory keys |> fromJust |> (! False)
 
 -- | Two tuples of symbols representing two morphisms where coforks of the first morphism
 --   are also coforks of the second morphism.  A cofork of a morphism `f` is a pair of
@@ -583,7 +586,7 @@ Examples:
 findValidCoanglesAngles ::
   Symbol      -- ^ The symbol indicating the source object of the morphism to be added.
   -> Symbol   -- ^ The symbol indicating the target object of the morphism to be added.
-  -> BAC     -- ^ The root node of BAC.
+  -> BAC      -- ^ The root node of BAC.
   -> Maybe ([[Coangle]], [[Angle]])
               -- ^ The coangles and angles need to be selected, or Nothing if it is invalid.
 findValidCoanglesAngles src tgt node = do
@@ -705,10 +708,10 @@ Split a symbol on a node.
 
 Examples:
 
->>> printBAC $ fromJust $ splitMorphism (0,2) [0,1] cone
+>>> printBAC $ fromJust $ splitMorphism (0,2) [2,7] cone
 - 0->1; 1->2
   - 0->1
-- 0->3; 1->4; 2->8; 3->6; 4->4
+- 0->3; 1->4; 2->7; 3->6; 4->4
   - 0->1; 1->2; 2->3
     &0
     - 0->1
@@ -716,12 +719,12 @@ Examples:
   - 0->4; 1->2; 2->3
     *0
 
->>> printBAC $ fromJust $ splitMorphism (3,2) [0,1] cone
+>>> printBAC $ fromJust $ splitMorphism (3,2) [5,6] cone
 - 0->1; 1->2
   - 0->1
     &0
-- 0->3; 1->4; 2->2; 3->6; 4->4; 6->2
-  - 0->1; 1->2; 2->3
+- 0->3; 1->4; 3->6; 4->4; 5->2; 6->2
+  - 0->1; 1->5; 2->3
     &1
     - 0->1
       *0
@@ -731,18 +734,15 @@ Examples:
 -}
 splitMorphism ::
   (Symbol, Symbol)  -- ^ The symbols reference to the morphism to split.
-  -> [Natural]      -- ^ The keys to classify splittable groups given by `partitionPrefix`.
+  -> [Symbol]       -- ^ The new symbols of splittable groups given by `partitionPrefix`.
   -> BAC
   -> Maybe BAC
-splitMorphism (src, tgt) splittable_keys node = do
+splitMorphism (src, tgt) splitted_syms node = do
   guard $ tgt /= base
   (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
   let splittable_groups = partitionPrefix (target src_arr) tgt
-  guard $ length splittable_groups == length splittable_keys
-
-  let src_syms = target src_arr |> symbols
-  let splitted_syms =
-        splittable_keys |> fmap (\i -> maximum src_syms * i + tgt)
+  guard $ length splittable_groups == length splitted_syms
+  guard $ target src_arr |> symbols |> filter (/= tgt) |> any (`elem` splitted_syms) |> not
 
   let res0 = fromEdges do
         edge <- target src_arr |> edges
@@ -797,6 +797,9 @@ partitionSymbols =
   .> fmap (snd .> sort)
   .> sort
 
+splitSymbol :: [Natural] -> [Symbol] -> Symbol -> [Symbol]
+splitSymbol offsets list sym = [len * offset + sym | let len = maximum list, offset <- offsets]
+
 {- |
 Split a node referenced by a symbol.
 
@@ -827,9 +830,7 @@ splitObject tgt splittable_keys node = do
   guard $ locate (root node) tgt |> (== Inner)
   res0 <- arrow node tgt |> fromJust |> target |> splitCategory splittable_keys
 
-  let splitSym :: [Symbol] -> Symbol -> [Symbol]
-      splitSym syms s =
-        splittable_keys |> fmap (\i -> maximum syms * i + s)
+  let splitter = splitSymbol splittable_keys
 
   fromInner $ node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
@@ -838,13 +839,13 @@ splitObject tgt splittable_keys node = do
       s_syms = target edge |> symbols
       r_syms = target curr |> symbols
       duplicate (s, r)
-        | dict curr ! r == tgt = splitSym s_syms s `zip` splitSym r_syms r
+        | dict curr ! r == tgt = splitter s_syms s `zip` splitter r_syms r
         | otherwise            = [(s, r)]
       duplicated_dict =
         dict edge |> Map.toList |> concatMap duplicate |> Map.fromList
     AtBoundary -> do
       let r_syms = target curr |> symbols
-      let splitted_syms = splitSym r_syms (symbol edge)
+      let splitted_syms = splitter r_syms (symbol edge)
       (sym, key) <- splitted_syms `zip` splittable_keys
       let res = res0 ! key
       let split (s, r)
@@ -861,7 +862,7 @@ Split a root node.
 Examples:
 
 >>> let crescent_1 = target $ fromJust $ arrow crescent 1
->>> traverse_ printBAC $ fromJust $ splitCategory [0,1] crescent_1
+>>> traverse_ printBAC $ fromJust $ splitCategory [False,True] crescent_1
 - 0->1; 1->2
   - 0->1
     &0
@@ -876,9 +877,10 @@ Examples:
     *0
 -}
 splitCategory ::
-  [Natural]  -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
+  Ord k
+  => [k]  -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
   -> BAC
-  -> Maybe (Map Natural BAC)
+  -> Maybe (Map k BAC)
 splitCategory splittable_keys node = do
   let splittable_groups = partitionSymbols node
   guard $ length splittable_groups == length splittable_keys
@@ -926,8 +928,7 @@ duplicateObject tgt keys node = do
   guard $ 0 `elem` keys
   let res0 = arrow node tgt |> fromJust |> target
 
-  let splitSym :: [Symbol] -> Symbol -> [Symbol]
-      splitSym syms s = keys |> fmap (\i -> maximum syms * i + s)
+  let splitter = splitSymbol keys
 
   fromInner $ node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
@@ -936,13 +937,13 @@ duplicateObject tgt keys node = do
       s_syms = target edge |> symbols
       r_syms = target curr |> symbols
       duplicate (s, r)
-        | dict curr ! r == tgt = splitSym s_syms s `zip` splitSym r_syms r
+        | dict curr ! r == tgt = splitter s_syms s `zip` splitter r_syms r
         | otherwise            = [(s, r)]
       duplicated_dict =
         dict edge |> Map.toList |> concatMap duplicate |> Map.fromList
     AtBoundary -> do
       let r_syms = target curr |> symbols
-      let splitted_syms = splitSym r_syms (symbol edge)
+      let splitted_syms = splitter r_syms (symbol edge)
       sym <- splitted_syms
       let split (s, r)
             | s == base                     = Just (base, sym)
@@ -1088,7 +1089,8 @@ Merge nodes.
 
 Examples:
 
->>> printBAC $ fromJust $ mergeObjects [2,4] [[0,1], [0,1]] crescent
+>>> crescent' = fromJust $ relabel 2 (fromList [(0,0),(1,2)]) crescent
+>>> printBAC $ fromJust $ mergeObjects [2,4] [[False,True], [False,True]] crescent'
 - 0->1; 1->2; 2->3; 5->2; 6->3
   - 0->1; 1->2; 2->2
     &0
@@ -1100,9 +1102,10 @@ Examples:
     *0
 -}
 mergeObjects ::
-  [Symbol]        -- ^ The symbols referencing the nodes to be merged.
-  -> [[Natural]]  -- ^ The merging table of nondecomposable incoming morphisms of the nodes.
-                  --   The arrows with the same key will be merged.
+  Eq k
+  => [Symbol]   -- ^ The symbols referencing the nodes to be merged.
+  -> [[k]]      -- ^ The merging table of nondecomposable incoming morphisms of the nodes.
+                --   The arrows with the same key will be merged.
   -> BAC
   -> Maybe BAC
 mergeObjects tgts keys node = do
@@ -1111,6 +1114,8 @@ mergeObjects tgts keys node = do
 
   let tgt = head tgts
   let tgt_nodes = tgts |> fmap (arrow node .> fromJust .> target)
+  merged_node <- mergeCategories tgt_nodes
+
   let tgt_pars = tgts |> fmap (suffixND node)
   let merging_arrs =
         keys
@@ -1119,18 +1124,13 @@ mergeObjects tgts keys node = do
         |> fmap (uncurry zip .> sortOn snd .> fmap fst)
         |> transpose
 
-  let merged_node = mergeCategories tgt_nodes
-  let merging_offsets = tgt_nodes |> fmap (symbols .> maximum) |> scanl (+) 0
-
   let nd_merged_dicts = Map.fromList do
         arr_arrs <- merging_arrs
         let merged_wire =
               arr_arrs |> head |> snd |> symbol |> (base,)
         let merged_dict =
               arr_arrs
-              |> fmap (snd .> dict .> Map.delete base .> Map.toList)
-              |> zip merging_offsets
-              |> concatMap (\(offset, dict) -> dict |> fmap (first (+ offset)))
+              |> concatMap (snd .> dict .> Map.delete base .> Map.toList)
               |> (merged_wire :)
               |> Map.fromList
         key <- arr_arrs |> fmap symbol2
@@ -1168,14 +1168,13 @@ Merge multiple nodes.
 
 Examples:
 
->>> printBAC (mergeCategories [singleton, singleton, empty, singleton])
+>>> printBAC $ fromJust $ mergeCategories [fromJust $ singleton 1, fromJust $ singleton 2, empty, fromJust $ singleton 3]
 - 0->1
 - 0->2
 - 0->3
 
->>> printBAC (mergeCategories [singleton, crescent])
-- 0->1
-- 0->2; 1->3; 2->4; 3->5; 5->3; 6->4; 7->5
+>>> printBAC $ fromJust $ mergeCategories [fromJust $ singleton 6, crescent]
+- 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4
   - 0->1; 1->2
     &0
     - 0->1
@@ -1188,16 +1187,22 @@ Examples:
     *0
   - 0->7; 1->6
     *2
+- 0->6
 -}
-mergeCategories :: [BAC] -> BAC
-mergeCategories nodes = fromEdges merged_edges
-  where
-  offsets = nodes |> fmap (symbols .> maximum) |> scanl (+) 0
-  merged_edges = do
-    (offset, node) <- zip offsets nodes
-    edge <- edges node
-    let dict' = dict edge |> fmap (+ offset)
-    return edge {dict = dict'}
+mergeCategories :: [BAC] -> Maybe BAC
+mergeCategories nodes = do
+  guard $ nodes |> fmap (symbols .> filter (/= base)) |> concat |> anySame |> not
+  return $ nodes |> concatMap edges |> fromEdges
+
+-- distinctNodes :: [BAC] -> [Dict]
+-- distinctNodes nodes = fromEdges merged_edges
+--   where
+--   offsets = nodes |> fmap (symbols .> maximum) |> scanl (+) 0
+--   merged_edges = do
+--     (offset, node) <- zip offsets nodes
+--     edge <- edges node
+--     let dict' = dict edge |> fmap (+ offset)
+--     return edge {dict = dict'}
 
 trimObject :: Symbol -> BAC -> Maybe BAC
 trimObject tgt node = do
@@ -1217,7 +1222,9 @@ trimObject tgt node = do
 appendObject :: Symbol -> BAC -> Maybe BAC
 appendObject src node = do
   src_arr <- arrow node src
-  let res0 = mergeCategories [target src_arr, singleton]
+  let src_node = target src_arr
+  let new_node = fromJust $ singleton (maximum (symbols src_node) + 1)
+  let res0 = fromJust $ mergeCategories [src_node, new_node]
   fromReachable res0 $
     node |> modifyUnder src \(curr, edge) lres -> case fromReachable res0 lres of
       Nothing -> return edge
