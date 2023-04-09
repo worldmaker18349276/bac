@@ -24,7 +24,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 
 import BAC.Base
-import BAC.Algorithm (expandMergingSymbols)
+import BAC.Foundamental (expandMergingSymbols)
 import Utils.Utils ((|>), (.>))
 
 type DAG p = Map p (BAC, [p])

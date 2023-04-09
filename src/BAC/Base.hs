@@ -37,33 +37,6 @@ module BAC.Base (
   symbols,
   cat,
 
-  -- -- ** Arrow #arrow#
-
-  root,
-  join,
-  divide,
-  extend,
-  Location (..),
-  locate,
-  arrow,
-  symbol,
-
-  -- ** Tuple of Arrows
-
-  arrow2,
-  symbol2,
-  prefix,
-  suffix,
-  extend2,
-  divide2,
-
-  -- ** Nondecomposable
-
-  nondecomposable,
-  edgesND,
-  prefixND,
-  suffixND,
-
   -- ** Validation #validation#
 
   validate,
@@ -71,14 +44,37 @@ module BAC.Base (
   makeBAC,
   makeArrow,
 
-  -- * Isomorphism #isomorphism#
+  -- * Arrows #arrows#
 
-  eqStruct,
-  canonicalize,
-  canonicalizeObject,
-  forwardSymbolTrieUnder,
-  backwardSymbolTrieUnder,
-  lowerIso,
+  -- ** Single Arrow #arrow#
+
+  root,
+  join,
+  arrow,
+  symbol,
+  extend,
+  divide,
+  arrows,
+  arrowsUnder,
+
+  -- ** Pair of Arrows #arrow2#
+
+  arrow2,
+  symbol2,
+  extend2,
+  divide2,
+  prefix,
+  suffix,
+
+  -- ** Relation #relation#
+
+  Location (..),
+  locate,
+  compare,
+  nondecomposable,
+  edgesND,
+  prefixND,
+  suffixND,
 
   -- * Folding #folding#
 
@@ -89,39 +85,37 @@ module BAC.Base (
   foldUnder,
   modify,
   modifyUnder,
-  arrows,
-  arrowsUnder,
   cofold,
   cofoldUnder,
 
-  -- * Non-Categorical Operations #operations#
+  -- * Restructure #restructure#
 
-  rewireEdges,
-  relabelObject,
+  rewire,
+  relabel,
 ) where
 
-import Control.Monad (MonadPlus (mzero), guard)
-import Data.Bifunctor (Bifunctor (first, second), bimap)
+import Control.Monad (guard)
+import Data.Bifunctor (Bifunctor (second), bimap)
 import Data.Foldable (Foldable (foldl'))
-import Data.List (elemIndex, sort, sortOn, transpose, intercalate)
-import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, snoc)
+import Data.List (sortOn, intercalate)
+import Data.List.Extra (allSame, groupSortOn, nubSort, snoc)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromJust, isJust, mapMaybe)
+import Data.Maybe (fromJust, mapMaybe)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (dupe)
 import GHC.Stack (HasCallStack)
 import Numeric.Natural (Natural)
-import Prelude hiding (map)
+import Prelude hiding (compare, map)
 
-import Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet)
 import Utils.Memoize (memoizeWithKey)
 import Utils.Utils (guarded, (.>), (|>))
 
 -- $setup
--- >>> import BAC.Serialize
+-- >>> import BAC
 -- >>> import BAC.Examples (cone, torus, crescent)
--- >>> import Data.Map (fromList, elems)
+-- >>> import Data.Map (fromList)
+-- >>> import Data.Bifunctor (first)
 
 -- | A tree whose edges are indexed by keys.
 newtype Tree e = Tree (Map e (Tree e)) deriving (Eq, Ord, Show)
@@ -139,19 +133,19 @@ showTree (Tree m) =
 --   It should be validated by @validate . root@.
 type BAC = Tree Dict
 
--- | The arrows of edges of the given node.
+-- | The edges of a node.
 edges :: BAC -> [Arrow]
 edges (Tree m) = m |> Map.toList |> fmap (uncurry Arrow)
 
--- | Construct a node by edges.  The structure will not be validated, use `makeBAC` instead.
+-- | Construct a BAC by edges.  The structure will not be validated, use `makeBAC` instead.
 fromEdges :: [Arrow] -> BAC
 fromEdges = fmap (\Arrow {dict, target} -> (dict, target)) .> Map.fromList .> Tree
 
--- | Arrow of a bounded acyclic category, representing a downward functor.
+-- | Arrow to a bounded acyclic category, representing a downward functor.
 --   It should be validated by `validate`, or use `makeArrow`.
 data Arrow = Arrow {dict :: Dict, target :: BAC} deriving (Eq, Ord, Show)
 
--- | Dictionary of an arrow, representing mapping between objects.
+-- | Dictionary of an arrow, representing mapping of objects between nodes.
 type Dict = Map Symbol Symbol
 
 -- | Symbol of a node, representing an object of the corresponding category.
@@ -235,6 +229,28 @@ locate arr sym
   | symbol arr == sym   = Boundary
   | sym `elem` dict arr = Inner
   | otherwise           = Outer
+
+-- | Partial order between two arrows.  They should start at the same node.
+--   It crashes with inconsistencies caused by bad data.
+--
+--   Examples:
+--
+--   >>>  fromJust (arrow cone 4) `compare` fromJust (arrow cone 6)
+--   Just LT
+--
+--   >>>  fromJust (arrow cone 4) `compare` fromJust (arrow cone 4)
+--   Just EQ
+--
+--   >>> fromJust (arrow cone 2) `compare` fromJust (arrow cone 6)
+--   Nothing
+compare :: HasCallStack => Arrow -> Arrow -> Maybe Ordering
+compare arr1 arr2 =
+  case (locate arr1 (symbol arr2), locate arr2 (symbol arr1)) of
+    (Boundary, Boundary) -> Just EQ
+    (Inner, Outer) -> Just LT
+    (Outer, Inner) -> Just GT
+    (Outer, Outer) -> Nothing
+    _ -> error "invalid state"
 
 -- | An arrow to the node referenced by the given symbol, or `Nothing` if it is outside
 --   the node.
@@ -438,144 +454,6 @@ makeBAC = fromEdges .> guarded (root .> validate)
 makeArrow :: Dict -> BAC -> Maybe Arrow
 makeArrow dict target = Arrow {dict = dict, target = target} |> guarded validate
 
--- | Structural equality, the equality of nodes up to rewiring.
---   The symbols of nodes should be the same, and equality of child nodes are not checked.
---   The node with the same structure can be unioned by merging their edges.
-eqStruct :: [BAC] -> Bool
-eqStruct = fmap edgesND .> fmap (fmap dict) .> allSame
-
--- | Find mappings to canonicalize the order of symbols of a node.  It will return
---   multiple mappings if it possesses some symmetries.
---   The absolute order has no meaning, but can be used to check the isomorphism between
---   nodes.  The relative order between these mappings forms automorphism of this BAC.
---
---   Examples:
---
---   >>> fmap elems $ canonicalize crescent
---   [[0,1,2,3,4]]
---
---   >>> fmap elems $ canonicalize $ target $ fromJust $ arrow crescent 1
---   [[0,1,2,3,4,5,6],[0,1,2,3,6,5,4],[0,3,2,1,4,5,6],[0,3,2,1,6,5,4],[0,4,5,6,1,2,3],[0,6,5,4,1,2,3],[0,4,5,6,3,2,1],[0,6,5,4,3,2,1]]
-canonicalize :: BAC -> [Dict]
-canonicalize =
-  edgesND
-  .> fmap dict
-  .> fmap Map.elems
-  .> canonicalizeEqlistSet
-  .> fmap (base :)
-  .> fmap ((`zip` [base..]) .> Map.fromList)
-
--- | Find mappings to canonicalize the order of symbols of a subnode specified by given
---   symbol.  The induced automorphisms are invariant under the mapping of incoming edges.
---   It can be used to check the upper isomorphism between objects.
---
---   Examples:
---
---   >>> fmap elems $ fromJust $ canonicalizeObject crescent 1
---   [[0,1,2,5,3,4,6],[0,3,4,6,1,2,5]]
-canonicalizeObject :: BAC -> Symbol -> Maybe [Dict]
-canonicalizeObject node tgt = do
-  guard $ tgt /= base
-  tgt_arr <- arrow node tgt
-  let keys =
-        tgt
-        |> suffixND node
-        |> fmap (snd .> dict .> fmap (: []))
-        |> foldl (Map.unionWith (++)) Map.empty
-  return $
-    target tgt_arr
-    |> edgesND
-    |> fmap dict
-    |> fmap Map.elems
-    |> canonicalizeGradedEqlistSet (keys !)
-    |> fmap (base :)
-    |> fmap ((`zip` [base..]) .> Map.fromList)
-
--- | Collect all maximum chains to a node into a trie.
---   It is a tree such that its paths correspond to maximum chains, which is represented
---   as a sequence of symbols, and each symbol indicates a nondecomposable morphism.  Just
---   like BAC, the nodes of this trie is implicitly shared.
---
---   Examples:
---
---   >>> putStr $ showTree $ fromJust $ forwardSymbolTrieUnder 6 cone
---   {3:{1:{2:{}},4:{2:{}}}}
-forwardSymbolTrieUnder :: Symbol -> BAC -> Maybe (Tree Symbol)
-forwardSymbolTrieUnder sym = fromReachable res0 . foldUnder sym \curr results ->
-  edges (target curr) `zip` results
-  |> mapMaybe (second (fromReachable res0) .> sequence)
-  |> fmap (first symbol)
-  |> filter (fst .> nondecomposable (target curr))
-  |> Map.fromList
-  |> Tree
-  where
-  res0 = Tree Map.empty
-
--- | Collect all maximum chains to a node into a reversed trie.
---   It is a tree such that its paths correspond to the reverse of maximum chains, which
---   is represented as a sequence of pairs of symbols, and each pair of symbols indicates
---   a nondecomposable morphism.  Just like BAC, the nodes of this trie is implicitly
---   shared.
---
---   Examples:
---
---   >>> putStr $ showTree $ fromJust $ backwardSymbolTrieUnder 6 cone
---   {(4,2):{(3,1):{(0,3):{}},(3,4):{(0,3):{}}}}
-backwardSymbolTrieUnder :: Symbol -> BAC -> Maybe (Tree (Symbol, Symbol))
-backwardSymbolTrieUnder sym = cofoldUnder sym \_curr results ->
-  results
-  |> filter (fst .> \(arr1, arr2) -> nondecomposable (target arr1) (symbol arr2))
-  |> fmap (first symbol2)
-  |> Map.fromList
-  |> Tree
-
-{- |
-Check lower isomorphisms for given symbols.
-
-Examples:
-
->>> lowerIso [2,4] [[0,1::Int], [0,1]] crescent
-True
--}
-lowerIso ::
-  Eq k
-  => [Symbol]  -- ^ The symbols to check.
-  -> [[k]]     -- ^ The keys to classify nondecomposable incoming morphisms.
-  -> BAC
-  -> Bool
-lowerIso [] _ _ = True
-lowerIso [_] _ _ = True
-lowerIso tgts keys node = isJust do
-  let tgt_pars = tgts |> fmap (suffixND node)
-  guard $ tgt_pars |> fmap length |> allSame
-  guard $ length keys == length tgt_pars
-  guard $ keys `zip` tgt_pars |> fmap (length `bimap` length) |> all (uncurry (==))
-
-  guard $ keys |> all (anySame .> not)
-  indices <- keys |> traverse (traverse (`elemIndex` head keys))
-  let merging_symbols =
-        zip tgt_pars indices
-        |> fmap (uncurry zip .> sortOn snd .> fmap fst)
-        |> transpose
-        |> fmap (fmap symbol2)
-  guard $ merging_symbols |> all (fmap fst .> allSame)
-
-  sequence_ $ node |> foldUnder (head tgts) \curr results -> do
-    results' <- results |> traverse sequence
-
-    let collapse = nubSort $ fmap sort do
-          (lres, edge) <- results' `zip` edges (target curr)
-          case lres of
-            AtOuter -> mzero
-            AtInner res -> res |> fmap (fmap (dict edge !))
-            AtBoundary ->
-              merging_symbols
-              |> filter (head .> fst .> (== symbol curr))
-              |> fmap (fmap snd)
-
-    guard $ collapse |> concat |> anySame |> not
-
-    return collapse
 
 -- | A value labeled by the relative position of the node.
 data Located r = AtOuter | AtBoundary | AtInner r
@@ -809,7 +687,7 @@ Rewire edges of a given node.
 
 Examples:
 
->>> printBAC $ fromJust $ rewireEdges 0 [1, 4, 3] cone
+>>> printBAC $ fromJust $ rewire 0 [1, 4, 3] cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -824,7 +702,7 @@ Examples:
 - 0->4; 1->2; 2->6
   *1
 
->>> printBAC $ fromJust $ rewireEdges 3 [1, 4, 3] cone
+>>> printBAC $ fromJust $ rewire 3 [1, 4, 3] cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -840,15 +718,15 @@ Examples:
   - 0->4; 1->2; 2->3
     *1
 
->>> rewireEdges 3 [1, 5, 3] cone
+>>> rewire 3 [1, 5, 3] cone
 Nothing
 -}
-rewireEdges ::
+rewire ::
   Symbol         -- ^ The symbol referencing to the node to rewire.
   -> [Symbol]    -- ^ The list of values and symbols of rewired edges.
   -> BAC        -- ^ The root node of BAC.
   -> Maybe BAC  -- ^ The result.
-rewireEdges src tgts node = do
+rewire src tgts node = do
   src_arr <- arrow node src
   let nd_syms = target src_arr |> edgesND |> fmap symbol
   src_edges' <- tgts |> traverse (arrow (target src_arr))
@@ -868,7 +746,7 @@ Relabel a given node.
 Examples:
 
 >>> let remap = fromList [(0,0), (1,4), (2,1), (3,2), (4,3)] :: Dict
->>> printBAC $ fromJust $ relabelObject 3 remap cone
+>>> printBAC $ fromJust $ relabel 3 remap cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -881,21 +759,21 @@ Examples:
   - 0->4; 1->1; 2->2
     *1
 
->>> relabelObject 3 (fromList [(0,0), (1,4), (2,1), (3,2)]) cone
+>>> relabel 3 (fromList [(0,0), (1,4), (2,1), (3,2)]) cone
 Nothing
 
->>> relabelObject 3 (fromList [(0,0), (1,4), (2,1), (3,2), (4,4)]) cone
+>>> relabel 3 (fromList [(0,0), (1,4), (2,1), (3,2), (4,4)]) cone
 Nothing
 
->>> relabelObject 3 (fromList [(0,3), (1,4), (2,1), (3,2), (4,0)]) cone
+>>> relabel 3 (fromList [(0,3), (1,4), (2,1), (3,2), (4,0)]) cone
 Nothing
 -}
-relabelObject ::
+relabel ::
   Symbol         -- ^ The symbol referencing to the node to relabel.
   -> Dict        -- ^ The dictionary to relabel the symbols of the node.
   -> BAC        -- ^ The root node of BAC.
   -> Maybe BAC  -- ^ The result.
-relabelObject tgt mapping node = do
+relabel tgt mapping node = do
   tgt_arr <- arrow node tgt
   guard $ base `Map.member` mapping && mapping ! base == base
   guard $ Map.keys mapping == symbols (target tgt_arr)

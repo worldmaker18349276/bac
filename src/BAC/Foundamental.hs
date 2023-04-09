@@ -3,7 +3,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module BAC.Algorithm (
+module BAC.Foundamental (
   -- * Empty, Singleton
 
   empty,
@@ -67,6 +67,7 @@ import Data.Tuple.Extra (both)
 import Numeric.Natural (Natural)
 
 import BAC.Base
+import BAC.Isomorphism
 import Utils.DisjointSet (bipartiteEqclass)
 import Utils.Utils (foldlMUncurry, guarded, (.>), (|>))
 
@@ -160,7 +161,7 @@ Examples:
 >>> removeMorphism (4, 2) cone
 Nothing
 
->>> cone' = fromJust $ rewireEdges 0 [1, 4, 3] cone
+>>> cone' = fromJust $ rewire 0 [1, 4, 3] cone
 >>> printBAC $ fromJust $ removeMorphism (0, 3) cone'
 - 0->1; 1->2
   - 0->1
@@ -175,9 +176,9 @@ printBAC $
   cone
   |> removeMorphism (3, 1)
   |> fromJust
-  |> rewireEdges 3 [4, 2, 3]
+  |> rewire 3 [4, 2, 3]
   |> fromJust
-  |> rewireEdges 0 [1, 3, 4]
+  |> rewire 0 [1, 3, 4]
   |> fromJust
   |> removeMorphism (3, 4)
   |> fromJust
@@ -262,7 +263,7 @@ Remove a morphism step by step: removing all related morphisms, then splitting c
 
 Examples:
 
->>> cone' = fromJust $ rewireEdges 0 [1, 4, 3] cone
+>>> cone' = fromJust $ rewire 0 [1, 4, 3] cone
 >>> printBAC $ fromJust $ removeInitialMorphism' 3 cone'
 - 0->1; 1->2
   - 0->1
@@ -298,7 +299,7 @@ removeInitialMorphism' tgt node = do
             |> edges
             |> fmap symbol
             |> (s2 :)
-      return $ node |> rewireEdges s1 new_edges |> fromJust
+      return $ node |> rewire s1 new_edges |> fromJust
 
     return $ node |> removeMorphism sym2 |> fromJust
 
@@ -361,7 +362,7 @@ removeObject' tgt node = do
             |> edges
             |> fmap symbol
             |> (s2 :)
-      return $ node |> rewireEdges s1 new_edges |> fromJust
+      return $ node |> rewire s1 new_edges |> fromJust
 
     return $ node |> removeMorphism sym2 |> fromJust
 
