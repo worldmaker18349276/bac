@@ -4,6 +4,11 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module BAC.Foundamental (
+  -- * Restructure #restructure#
+
+  rewire,
+  relabel,
+
   -- * Empty, Singleton
 
   empty,
@@ -70,12 +75,120 @@ import BAC.Base
 import BAC.Isomorphism
 import Utils.DisjointSet (bipartiteEqclass)
 import Utils.Utils (foldlMUncurry, guarded, (.>), (|>))
+import Data.Tuple (swap)
 
 -- $setup
 -- >>> import Data.Tuple.Extra (both)
 -- >>> import Data.Foldable (traverse_)
 -- >>> import BAC.Serialize
 -- >>> import BAC.Examples (cone, torus, crescent)
+-- >>> import Data.Map (fromList)
+
+{- |
+Rewire edges of a given node.
+
+Examples:
+
+>>> printBAC $ fromJust $ rewire 0 [1, 4, 3] cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+  - 0->4; 1->2; 2->3
+    *1
+- 0->4; 1->2; 2->6
+  *1
+
+>>> printBAC $ fromJust $ rewire 3 [1, 4, 3] cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+      &2
+  - 0->3
+    *2
+  - 0->4; 1->2; 2->3
+    *1
+
+>>> rewire 3 [1, 5, 3] cone
+Nothing
+-}
+rewire ::
+  Symbol         -- ^ The symbol referencing to the node to rewire.
+  -> [Symbol]    -- ^ The list of values and symbols of rewired edges.
+  -> BAC        -- ^ The root node of BAC.
+  -> Maybe BAC  -- ^ The result.
+rewire src tgts node = do
+  src_arr <- arrow node src
+  let nd_syms = target src_arr |> edgesND |> fmap symbol
+  src_edges' <- tgts |> traverse (arrow (target src_arr))
+  let res0 = fromEdges src_edges'
+
+  let nd_syms' = res0 |> edgesND |> fmap symbol
+  guard $ nd_syms == nd_syms'
+
+  fromReachable res0 $ node |> modifyUnder src \(_curr, edge) -> \case
+    AtOuter -> return edge
+    AtInner res -> return edge {target = res}
+    AtBoundary -> return edge {target = res0}
+
+{- |
+Relabel a given node.
+
+Examples:
+
+>>> let remap = fromList [(0,0), (1,4), (2,1), (3,2), (4,3)] :: Dict
+>>> printBAC $ fromJust $ relabel 3 remap cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->2; 2->6; 3->4; 4->4
+  - 0->3; 1->1; 2->2
+    &1
+    - 0->1
+      *0
+    - 0->2
+  - 0->4; 1->1; 2->2
+    *1
+
+>>> relabel 3 (fromList [(0,0), (1,4), (2,1), (3,2)]) cone
+Nothing
+
+>>> relabel 3 (fromList [(0,0), (1,4), (2,1), (3,2), (4,4)]) cone
+Nothing
+
+>>> relabel 3 (fromList [(0,3), (1,4), (2,1), (3,2), (4,0)]) cone
+Nothing
+-}
+relabel ::
+  Symbol         -- ^ The symbol referencing to the node to relabel.
+  -> Dict        -- ^ The dictionary to relabel the symbols of the node.
+  -> BAC        -- ^ The root node of BAC.
+  -> Maybe BAC  -- ^ The result.
+relabel tgt mapping node = do
+  tgt_arr <- arrow node tgt
+  guard $ base `Map.member` mapping && mapping ! base == base
+  guard $ Map.keys mapping == symbols (target tgt_arr)
+  let unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
+  guard $ length unmapping == length mapping
+
+  let res0 = fromEdges do
+        edge <- edges (target tgt_arr)
+        return edge {dict = mapping `cat` dict edge}
+  fromReachable res0 $ node |> modifyUnder tgt \(_curr, edge) -> \case
+    AtOuter -> return edge
+    AtInner res -> return edge {target = res}
+    AtBoundary -> return edge {dict = dict edge `cat` unmapping, target = res0}
 
 {- |
 An empty node.
