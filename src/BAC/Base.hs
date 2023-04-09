@@ -25,6 +25,8 @@ module BAC.Base (
   --
   --   See my paper for a detailed explanation.
 
+  Tree (..),
+  showTree,
   Node,
   edges,
   fromEdges,
@@ -74,6 +76,8 @@ module BAC.Base (
   eqStruct,
   canonicalize,
   canonicalizeObject,
+  forwardSymbolTrieUnder,
+  backwardSymbolTrieUnder,
   lowerIso,
 
   -- * Folding #folding#
@@ -119,17 +123,29 @@ import Utils.Utils (guarded, (.>), (|>))
 -- >>> import BAC.Examples (cone, torus, crescent)
 -- >>> import Data.Map (fromList, elems)
 
+-- | A tree whose edges are indexed by keys.
+newtype Tree e = Tree (Map e (Tree e)) deriving (Eq, Ord, Show)
+
+-- | Show tree concisely.
+showTree :: Show e => Tree e -> String
+showTree (Tree m) =
+  m
+  |> Map.toList
+  |> fmap (\(key, subnode) -> show key ++ ":" ++ showTree subnode)
+  |> intercalate ","
+  |> (\c -> "{" ++ c ++ "}")
+
 -- | The node of the tree representation of a bounded acyclic category.
 --   It should be validated by @validate . root@.
-newtype Node = Node (Map Dict Node) deriving (Eq, Ord, Show)
+type Node = Tree Dict
 
 -- | The arrows of edges of the given node.
 edges :: Node -> [Arrow]
-edges (Node m) = m |> Map.toList |> fmap (uncurry Arrow)
+edges (Tree m) = m |> Map.toList |> fmap (uncurry Arrow)
 
 -- | Construct a node by edges.  The structure will not be validated, use `makeNode` instead.
 fromEdges :: [Arrow] -> Node
-fromEdges = fmap (\Arrow {dict, target} -> (dict, target)) .> Map.fromList .> Node
+fromEdges = fmap (\Arrow {dict, target} -> (dict, target)) .> Map.fromList .> Tree
 
 -- | Arrow of a bounded acyclic category, representing a downward functor.
 --   It should be validated by `validate`, or use `makeArrow`.
@@ -475,28 +491,17 @@ canonicalizeObject node tgt = do
     |> fmap (base :)
     |> fmap ((`zip` [base..]) .> Map.fromList)
 
-newtype Tree a = Tree (Map a (Tree a)) deriving (Eq, Ord, Show)
-
-showTree :: Show a => Tree a -> String
-showTree (Tree m) =
-  intercalate "," $
-    m |> Map.toList |> fmap \(key, subnode) ->
-      show key ++ ":{" ++ showTree subnode ++ "}"
-
--- | All maximum chains to a node stored as a forward trie.
---   Maximum chain is a sequence of symbols, and each symbol indicates a nondecomposable
---   morphism.
---   Forward trie is a tree such that its paths correspond to maximum chains.
---   Just like BAC, the nodes of this trie is implicitly shared.
---
---   Also see `backwardMaxChainTrieUnder`.
+-- | Collect all maximum chains to a node into a trie.
+--   It is a tree such that its paths correspond to maximum chains, which is represented
+--   as a sequence of symbols, and each symbol indicates a nondecomposable morphism.  Just
+--   like BAC, the nodes of this trie is implicitly shared.
 --
 --   Examples:
 --
---   >>> putStr $ showTree $ fromJust $ forwardMaxChainTrieUnder 6 cone
---   3:{1:{2:{}},4:{2:{}}}
-forwardMaxChainTrieUnder :: Symbol -> Node -> Maybe (Tree Symbol)
-forwardMaxChainTrieUnder sym = fromReachable res0 . foldUnder sym \curr results ->
+--   >>> putStr $ showTree $ fromJust $ forwardSymbolTrieUnder 6 cone
+--   {3:{1:{2:{}},4:{2:{}}}}
+forwardSymbolTrieUnder :: Symbol -> Node -> Maybe (Tree Symbol)
+forwardSymbolTrieUnder sym = fromReachable res0 . foldUnder sym \curr results ->
   edges (target curr) `zip` results
   |> mapMaybe (second (fromReachable res0) .> sequence)
   |> fmap (first symbol)
@@ -506,21 +511,18 @@ forwardMaxChainTrieUnder sym = fromReachable res0 . foldUnder sym \curr results 
   where
   res0 = Tree Map.empty
 
--- | All maximum chains to a node stored as a backward trie.
---   Maximum chain is a sequence of pairs of symbols, and each pair of symbols indicates
---   a nondecomposable morphism.
---   Backward trie is a tree such that its paths correspond to the reverse of maximum
---   chains.
---   Just like BAC, the nodes of this trie is implicitly shared.
---
---   Also see `forwardMaxChainTrieUnder`.
+-- | Collect all maximum chains to a node into a reversed trie.
+--   It is a tree such that its paths correspond to the reverse of maximum chains, which
+--   is represented as a sequence of pairs of symbols, and each pair of symbols indicates
+--   a nondecomposable morphism.  Just like BAC, the nodes of this trie is implicitly
+--   shared.
 --
 --   Examples:
 --
---   >>> putStr $ showTree $ fromJust $ backwardMaxChainTrieUnder 6 cone
---   (4,2):{(3,1):{(0,3):{}},(3,4):{(0,3):{}}}
-backwardMaxChainTrieUnder :: Symbol -> Node -> Maybe (Tree (Symbol, Symbol))
-backwardMaxChainTrieUnder sym = cofoldUnder sym \_curr results ->
+--   >>> putStr $ showTree $ fromJust $ backwardSymbolTrieUnder 6 cone
+--   {(4,2):{(3,1):{(0,3):{}},(3,4):{(0,3):{}}}}
+backwardSymbolTrieUnder :: Symbol -> Node -> Maybe (Tree (Symbol, Symbol))
+backwardSymbolTrieUnder sym = cofoldUnder sym \_curr results ->
   results
   |> filter (fst .> \(arr1, arr2) -> nondecomposable (target arr1) (symbol arr2))
   |> fmap (first symbol2)
