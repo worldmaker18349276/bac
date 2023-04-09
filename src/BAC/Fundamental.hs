@@ -3,7 +3,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module BAC.Foundamental (
+module BAC.Fundamental (
   -- * Restructure #restructure#
 
   rewire,

@@ -58,7 +58,7 @@ library
     import:           warnings
 
     -- Modules exported by the library.
-    exposed-modules:  BAC, BAC.Base, BAC.Isomorphism, BAC.Foundamental, BAC.Braider, BAC.Serialize, BAC.Examples
+    exposed-modules:  BAC, BAC.Base, BAC.Isomorphism, BAC.Fundamental, BAC.Braider, BAC.Serialize, BAC.Examples
 
     -- Modules included in this library but not exported.
     other-modules:  Utils.DisjointSet, Utils.Memoize, Utils.Utils, Utils.EqlistSet
