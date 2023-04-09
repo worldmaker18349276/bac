@@ -27,7 +27,7 @@ module BAC.Base (
 
   Tree (..),
   showTree,
-  Node,
+  BAC,
   edges,
   fromEdges,
   Arrow (..),
@@ -68,7 +68,7 @@ module BAC.Base (
 
   validate,
   validateAll,
-  makeNode,
+  makeBAC,
   makeArrow,
 
   -- * Isomorphism #isomorphism#
@@ -135,21 +135,21 @@ showTree (Tree m) =
   |> intercalate ","
   |> (\c -> "{" ++ c ++ "}")
 
--- | The node of the tree representation of a bounded acyclic category.
+-- | The tree representation of a bounded acyclic category.
 --   It should be validated by @validate . root@.
-type Node = Tree Dict
+type BAC = Tree Dict
 
 -- | The arrows of edges of the given node.
-edges :: Node -> [Arrow]
+edges :: BAC -> [Arrow]
 edges (Tree m) = m |> Map.toList |> fmap (uncurry Arrow)
 
--- | Construct a node by edges.  The structure will not be validated, use `makeNode` instead.
-fromEdges :: [Arrow] -> Node
+-- | Construct a node by edges.  The structure will not be validated, use `makeBAC` instead.
+fromEdges :: [Arrow] -> BAC
 fromEdges = fmap (\Arrow {dict, target} -> (dict, target)) .> Map.fromList .> Tree
 
 -- | Arrow of a bounded acyclic category, representing a downward functor.
 --   It should be validated by `validate`, or use `makeArrow`.
-data Arrow = Arrow {dict :: Dict, target :: Node} deriving (Eq, Ord, Show)
+data Arrow = Arrow {dict :: Dict, target :: BAC} deriving (Eq, Ord, Show)
 
 -- | Dictionary of an arrow, representing mapping between objects.
 type Dict = Map Symbol Symbol
@@ -173,7 +173,7 @@ base = 0
 --
 --   >>> symbols crescent
 --   [0,1,2,3,4]
-symbols :: Node -> [Symbol]
+symbols :: BAC -> [Symbol]
 symbols = edges .> concatMap (dict .> Map.elems) .> (base :) .> nubSort
 
 -- | Concatenate two dictionaries:
@@ -185,7 +185,7 @@ cat :: HasCallStack => Dict -> Dict -> Dict
 cat = fmap . (!)
 
 -- | Root arrow of a node.
-root :: Node -> Arrow
+root :: BAC -> Arrow
 root node = Arrow {dict = id_dict, target = node}
   where
   id_dict = node |> symbols |> fmap dupe |> Map.fromList
@@ -246,7 +246,7 @@ locate arr sym
 --
 --   >>> arrow cone 5
 --   Nothing
-arrow :: Node -> Symbol -> Maybe Arrow
+arrow :: BAC -> Symbol -> Maybe Arrow
 arrow node sym = go (root node)
   where
   go arr = case locate arr sym of
@@ -279,7 +279,7 @@ symbol = dict .> (! base)
 --
 --   >>> arrow2 cone (1,2)
 --   Nothing
-arrow2 :: Node -> (Symbol, Symbol) -> Maybe (Arrow, Arrow)
+arrow2 :: BAC -> (Symbol, Symbol) -> Maybe (Arrow, Arrow)
 arrow2 node (src, tgt) = do
   src_arr <- arrow node src
   tgt_subarr <- arrow (target src_arr) tgt
@@ -304,7 +304,7 @@ symbol2 = symbol `bimap` symbol
 --   > (arr1, arr2) `elem` prefix node sym
 --   > ->  arr1 `elem` edges node
 --   > &&  symbol (arr1 `join` arr2) == sym
-prefix :: Node -> Symbol -> [(Arrow, Arrow)]
+prefix :: BAC -> Symbol -> [(Arrow, Arrow)]
 prefix node sym =
   arrow node sym
   |> maybe [] \tgt_arr ->
@@ -320,7 +320,7 @@ prefix node sym =
 --   > (arr1, arr2) `elem` suffix node sym
 --   > ->  arr2 `elem` edges (target arr1)
 --   > &&  symbol (arr1 `join` arr2) == sym
-suffix :: Node -> Symbol -> [(Arrow, Arrow)]
+suffix :: BAC -> Symbol -> [(Arrow, Arrow)]
 suffix node sym =
   node
   |> arrowsUnder sym
@@ -371,24 +371,24 @@ divide2 (arr12, arr24) (arr13, arr34) =
 --
 --   >>> nondecomposable cone 4
 --   False
-nondecomposable :: Node -> Symbol -> Bool
+nondecomposable :: BAC -> Symbol -> Bool
 nondecomposable node sym =
   (root node `locate` sym |> (/= Outer))
   && (node |> edges |> all ((`locate` sym) .> (/= Inner)))
 
 -- | Nondecomposable edges of a node.
-edgesND :: Node -> [Arrow]
+edgesND :: BAC -> [Arrow]
 edgesND node =
   node
   |> edges
   |> filter (symbol .> nondecomposable node)
 
-prefixND :: Node -> Symbol -> [(Arrow, Arrow)]
+prefixND :: BAC -> Symbol -> [(Arrow, Arrow)]
 prefixND node sym =
   prefix node sym
   |> filter (\(arr1, _) -> nondecomposable node (symbol arr1))
 
-suffixND :: Node -> Symbol -> [(Arrow, Arrow)]
+suffixND :: BAC -> Symbol -> [(Arrow, Arrow)]
 suffixND node sym =
   suffix node sym
   |> filter (\(arr1, arr2) -> nondecomposable (target arr1) (symbol arr2))
@@ -431,17 +431,17 @@ validateAll arr = validateChildren && validate arr
   validateChildren = target arr |> edges |> all validateAll
 
 -- | Make a node with validation.
-makeNode :: [Arrow] -> Maybe Node
-makeNode = fromEdges .> guarded (root .> validate)
+makeBAC :: [Arrow] -> Maybe BAC
+makeBAC = fromEdges .> guarded (root .> validate)
 
 -- | Make an arrow with validation.
-makeArrow :: Dict -> Node -> Maybe Arrow
+makeArrow :: Dict -> BAC -> Maybe Arrow
 makeArrow dict target = Arrow {dict = dict, target = target} |> guarded validate
 
 -- | Structural equality, the equality of nodes up to rewiring.
 --   The symbols of nodes should be the same, and equality of child nodes are not checked.
 --   The node with the same structure can be unioned by merging their edges.
-eqStruct :: [Node] -> Bool
+eqStruct :: [BAC] -> Bool
 eqStruct = fmap edgesND .> fmap (fmap dict) .> allSame
 
 -- | Find mappings to canonicalize the order of symbols of a node.  It will return
@@ -456,7 +456,7 @@ eqStruct = fmap edgesND .> fmap (fmap dict) .> allSame
 --
 --   >>> fmap elems $ canonicalize $ target $ fromJust $ arrow crescent 1
 --   [[0,1,2,3,4,5,6],[0,1,2,3,6,5,4],[0,3,2,1,4,5,6],[0,3,2,1,6,5,4],[0,4,5,6,1,2,3],[0,6,5,4,1,2,3],[0,4,5,6,3,2,1],[0,6,5,4,3,2,1]]
-canonicalize :: Node -> [Dict]
+canonicalize :: BAC -> [Dict]
 canonicalize =
   edgesND
   .> fmap dict
@@ -473,7 +473,7 @@ canonicalize =
 --
 --   >>> fmap elems $ fromJust $ canonicalizeObject crescent 1
 --   [[0,1,2,5,3,4,6],[0,3,4,6,1,2,5]]
-canonicalizeObject :: Node -> Symbol -> Maybe [Dict]
+canonicalizeObject :: BAC -> Symbol -> Maybe [Dict]
 canonicalizeObject node tgt = do
   guard $ tgt /= base
   tgt_arr <- arrow node tgt
@@ -500,7 +500,7 @@ canonicalizeObject node tgt = do
 --
 --   >>> putStr $ showTree $ fromJust $ forwardSymbolTrieUnder 6 cone
 --   {3:{1:{2:{}},4:{2:{}}}}
-forwardSymbolTrieUnder :: Symbol -> Node -> Maybe (Tree Symbol)
+forwardSymbolTrieUnder :: Symbol -> BAC -> Maybe (Tree Symbol)
 forwardSymbolTrieUnder sym = fromReachable res0 . foldUnder sym \curr results ->
   edges (target curr) `zip` results
   |> mapMaybe (second (fromReachable res0) .> sequence)
@@ -521,7 +521,7 @@ forwardSymbolTrieUnder sym = fromReachable res0 . foldUnder sym \curr results ->
 --
 --   >>> putStr $ showTree $ fromJust $ backwardSymbolTrieUnder 6 cone
 --   {(4,2):{(3,1):{(0,3):{}},(3,4):{(0,3):{}}}}
-backwardSymbolTrieUnder :: Symbol -> Node -> Maybe (Tree (Symbol, Symbol))
+backwardSymbolTrieUnder :: Symbol -> BAC -> Maybe (Tree (Symbol, Symbol))
 backwardSymbolTrieUnder sym = cofoldUnder sym \_curr results ->
   results
   |> filter (fst .> \(arr1, arr2) -> nondecomposable (target arr1) (symbol arr2))
@@ -541,7 +541,7 @@ lowerIso ::
   Eq k
   => [Symbol]  -- ^ The symbols to check.
   -> [[k]]     -- ^ The keys to classify nondecomposable incoming morphisms.
-  -> Node
+  -> BAC
   -> Bool
 lowerIso [] _ _ = True
 lowerIso [_] _ _ = True
@@ -615,7 +615,7 @@ fromInner _           = Nothing
 fold ::
   (Arrow -> [r] -> r)  -- ^ The function to reduce a node and the results from its child
                        --   nodes into a value.
-  -> Node              -- ^ The root node of BAC to fold.
+  -> BAC              -- ^ The root node of BAC to fold.
   -> r                 -- ^ The folding result.
 fold f = root .> memoizeWithKey symbol \self curr -> do
   res <- curr |> extend |> traverse self
@@ -641,7 +641,7 @@ foldUnder ::
   Symbol                          -- ^ The symbol referencing to the boundary.
   -> (Arrow -> [Located r] -> r)  -- ^ The reduce function.  Where the results of child
                                   --   nodes are labeled by `Located`.
-  -> Node                         -- ^ The root node of BAC to fold.
+  -> BAC                         -- ^ The root node of BAC to fold.
   -> Located r                    -- ^ The folding result, which is labeled by `Located`.
 foldUnder sym f = root .> memoizeWithKey symbol \self curr ->
   case locate curr sym of
@@ -653,12 +653,12 @@ foldUnder sym f = root .> memoizeWithKey symbol \self curr ->
 
 -- | Modify edges of BAC.
 modify ::
-  ((Arrow, Arrow) -> Node -> [Arrow])
+  ((Arrow, Arrow) -> BAC -> [Arrow])
               -- ^ The function to modify edge.  The first parameter is the original edge
               --   to modified, and the second parameter is the modified target node.  It
               --   should return a list of modified edges.
-  -> Node   -- ^ The root node of BAC to modify.
-  -> Node   -- ^ The modified result.
+  -> BAC   -- ^ The root node of BAC to modify.
+  -> BAC   -- ^ The modified result.
 modify f =
   fold \curr results -> fromEdges do
     (res, edge) <- results `zip` edges (target curr)
@@ -667,11 +667,11 @@ modify f =
 -- | Modify edges of BAC under a node.
 modifyUnder ::
   Symbol                -- ^ The symbol referencing to the boundary.
-  -> ((Arrow, Arrow) -> Located Node -> [Arrow])
+  -> ((Arrow, Arrow) -> Located BAC -> [Arrow])
                         -- ^ The modify function.  Where the results of child nodes are
                         --   labeled by `Located`.
-  -> Node               -- ^ The root node of BAC to modify.
-  -> Located Node       -- ^ The modified result, which is labeled by `Located`.
+  -> BAC               -- ^ The root node of BAC to modify.
+  -> Located BAC       -- ^ The modified result, which is labeled by `Located`.
 modifyUnder sym f =
   foldUnder sym \curr results -> fromEdges do
     (res, edge) <- results `zip` edges (target curr)
@@ -690,7 +690,7 @@ modifyUnder sym f =
 --
 --   >>> fmap symbol $ arrows torus
 --   [3,2,5,1,0]
-arrows :: Node -> [Arrow]
+arrows :: BAC -> [Arrow]
 arrows = root .> go [] .> fmap snd
   where
   go res curr
@@ -708,7 +708,7 @@ arrows = root .> go [] .> fmap snd
 --
 --   >>> fmap symbol $ arrowsUnder 5 cone
 --   []
-arrowsUnder :: Symbol -> Node -> [Arrow]
+arrowsUnder :: Symbol -> BAC -> [Arrow]
 arrowsUnder sym = root .> go [] .> fmap snd
   where
   go res curr
@@ -740,7 +740,7 @@ arrowsUnder sym = root .> go [] .> fmap snd
 --   6
 --   1
 --   2
-cofold :: (Arrow -> [((Arrow, Arrow), r)] -> r) -> Node -> [(Arrow, r)]
+cofold :: (Arrow -> [((Arrow, Arrow), r)] -> r) -> BAC -> [(Arrow, r)]
 cofold f node = go [(root node, [])] []
   where
   -- go :: [(Arrow, [((Arrow, Arrow), r)])] -> [(Arrow, r)] -> [(Arrow, r)]
@@ -779,7 +779,7 @@ cofold f node = go [(root node, [])] []
 --   3
 --   4
 --   6
-cofoldUnder :: Symbol -> (Arrow -> [((Arrow, Arrow), r)] -> r) -> Node -> Maybe r
+cofoldUnder :: Symbol -> (Arrow -> [((Arrow, Arrow), r)] -> r) -> BAC -> Maybe r
 cofoldUnder tgt f node =
   if locate (root node) tgt == Outer then Nothing else Just $ go [(root node, [])]
   where
@@ -809,7 +809,7 @@ Rewire edges of a given node.
 
 Examples:
 
->>> printNode $ fromJust $ rewireEdges 0 [1, 4, 3] cone
+>>> printBAC $ fromJust $ rewireEdges 0 [1, 4, 3] cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -824,7 +824,7 @@ Examples:
 - 0->4; 1->2; 2->6
   *1
 
->>> printNode $ fromJust $ rewireEdges 3 [1, 4, 3] cone
+>>> printBAC $ fromJust $ rewireEdges 3 [1, 4, 3] cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -846,8 +846,8 @@ Nothing
 rewireEdges ::
   Symbol         -- ^ The symbol referencing to the node to rewire.
   -> [Symbol]    -- ^ The list of values and symbols of rewired edges.
-  -> Node        -- ^ The root node of BAC.
-  -> Maybe Node  -- ^ The result.
+  -> BAC        -- ^ The root node of BAC.
+  -> Maybe BAC  -- ^ The result.
 rewireEdges src tgts node = do
   src_arr <- arrow node src
   let nd_syms = target src_arr |> edgesND |> fmap symbol
@@ -868,7 +868,7 @@ Relabel a given node.
 Examples:
 
 >>> let remap = fromList [(0,0), (1,4), (2,1), (3,2), (4,3)] :: Dict
->>> printNode $ fromJust $ relabelObject 3 remap cone
+>>> printBAC $ fromJust $ relabelObject 3 remap cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -893,8 +893,8 @@ Nothing
 relabelObject ::
   Symbol         -- ^ The symbol referencing to the node to relabel.
   -> Dict        -- ^ The dictionary to relabel the symbols of the node.
-  -> Node        -- ^ The root node of BAC.
-  -> Maybe Node  -- ^ The result.
+  -> BAC        -- ^ The root node of BAC.
+  -> Maybe BAC  -- ^ The result.
 relabelObject tgt mapping node = do
   tgt_arr <- arrow node tgt
   guard $ base `Map.member` mapping && mapping ! base == base

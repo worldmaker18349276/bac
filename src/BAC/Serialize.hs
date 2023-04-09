@@ -4,7 +4,7 @@ module BAC.Serialize (
   encodeDict,
   encodeAsYAML,
   encode,
-  printNode,
+  printBAC,
 ) where
 
 import BAC.Base hiding (modify)
@@ -38,7 +38,7 @@ countStruct curr =
   incre a [] = [(a, 1)]
   incre a ((a', n) : res) = if a == a' then (a', n+1) : res else (a', n) : incre a res
 
-makePointers :: Enum p => Node -> p -> Map Symbol p
+makePointers :: Enum p => BAC -> p -> Map Symbol p
 makePointers node p =
   root node
   |> countStruct
@@ -48,17 +48,17 @@ makePointers node p =
   |> (`zip` [p..])
   |> fromList
 
-encode :: Node -> String
+encode :: BAC -> String
 encode node =
   root node
   |> format 0
   |> (`execState` FormatterState (makePointers node 0) [] "")
   |> output
 
-printNode :: Node -> IO ()
-printNode = encode .> putStr
+printBAC :: BAC -> IO ()
+printBAC = encode .> putStr
 
-encodeAsYAML :: Node -> String
+encodeAsYAML :: BAC -> String
 encodeAsYAML node =
   root node
   |> formatYAML 0

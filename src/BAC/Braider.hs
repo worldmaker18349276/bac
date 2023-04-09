@@ -27,7 +27,7 @@ import BAC.Base
 import BAC.Algorithm (expandMergingSymbols)
 import Utils.Utils ((|>), (.>))
 
-type DAG p = Map p (Node, [p])
+type DAG p = Map p (BAC, [p])
 data BraidState p = BraidState (DAG p) [p]
 
 newtype BraiderT p m v = BraiderT {runBraiderT :: StateT (BraidState p) (MaybeT m) v}
@@ -36,7 +36,7 @@ newtype BraiderT p m v = BraiderT {runBraiderT :: StateT (BraidState p) (MaybeT 
 getTable :: Monad m => BraiderT p m (DAG p)
 getTable = BraiderT $ gets (\(BraidState table _) -> table)
 
-insertNode :: (Ord p, Monad m) => Node -> [p] -> BraiderT p m p
+insertNode :: (Ord p, Monad m) => BAC -> [p] -> BraiderT p m p
 insertNode node children = BraiderT $ do
   state <- get
   let BraidState table (p : counter') = state
@@ -104,7 +104,7 @@ braiding // eqclass_paths = do
 type Pointer = Integer
 
 -- | Make a BAC by a monad-typed builder.
-braidM :: Monad m => (forall p. (Enum p, Ord p) => BraiderT p m p) -> m (Maybe Node)
+braidM :: Monad m => (forall p. (Enum p, Ord p) => BraiderT p m p) -> m (Maybe BAC)
 braidM braiding = runMaybeT $ do
   let init = BraidState mempty [toEnum 0 :: Pointer ..]
   (p, final) <- runStateT (runBraiderT braiding) init
@@ -112,5 +112,5 @@ braidM braiding = runMaybeT $ do
   let (res, _) = table ! p
   return res
 
-braid :: (forall p. (Enum p, Ord p) => BraiderT p Identity p) -> Maybe Node
+braid :: (forall p. (Enum p, Ord p) => BraiderT p Identity p) -> Maybe BAC
 braid braiding = runIdentity (braidM braiding)

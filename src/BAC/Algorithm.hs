@@ -81,9 +81,9 @@ An empty node.
 
 Examples:
 
->>> printNode empty
+>>> printBAC empty
 -}
-empty :: Node
+empty :: BAC
 empty = fromEdges []
 
 {- |
@@ -91,10 +91,10 @@ An singleton node.
 
 Examples:
 
->>> printNode singleton
+>>> printBAC singleton
 - 0->1
 -}
-singleton :: Node
+singleton :: BAC
 singleton = fromEdges [new_edge]
   where
   new_sym = base + 1
@@ -119,7 +119,7 @@ Just ([],[(0,4)])
 -}
 missingAltPaths ::
   (Symbol, Symbol)  -- ^ The tuple of symbols indicating the morphism to be removed.
-  -> Node           -- ^ The root node of BAC.
+  -> BAC           -- ^ The root node of BAC.
   -> Maybe ([(Symbol, Symbol)], [(Symbol, Symbol)])
                     -- ^ Tuples of symbols indicating the edges need to be added.
                     --   The first list is the edges skipping the source object, and the
@@ -147,7 +147,7 @@ Remove a morphism.
 
 Examples:
 
->>> printNode $ fromJust $ removeMorphism (1, 1) cone
+>>> printBAC $ fromJust $ removeMorphism (1, 1) cone
 - 0->1
 - 0->3; 1->4; 2->2; 3->6; 4->4
   - 0->1; 1->2; 2->3
@@ -161,7 +161,7 @@ Examples:
 Nothing
 
 >>> cone' = fromJust $ rewireEdges 0 [1, 4, 3] cone
->>> printNode $ fromJust $ removeMorphism (0, 3) cone'
+>>> printBAC $ fromJust $ removeMorphism (0, 3) cone'
 - 0->1; 1->2
   - 0->1
     &0
@@ -171,7 +171,7 @@ Nothing
   - 0->2
 
 >>> :{
-printNode $
+printBAC $
   cone
   |> removeMorphism (3, 1)
   |> fromJust
@@ -198,8 +198,8 @@ printNode $
 -}
 removeMorphism ::
   (Symbol, Symbol)  -- ^ The tuple of symbols indicating the morphism to be removed.
-  -> Node
-  -> Maybe Node
+  -> BAC
+  -> Maybe BAC
 removeMorphism (src, tgt) node = do
   guard $ missingAltPaths (src, tgt) node == Just ([],[])
 
@@ -217,7 +217,7 @@ Remove a leaf node.
 
 Examples:
 
->>> printNode $ fromJust $ removeObject 6 cone
+>>> printBAC $ fromJust $ removeObject 6 cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -229,7 +229,7 @@ Examples:
   - 0->4; 1->2
     *1
 
->>> printNode $ fromJust $ removeObject 2 cone
+>>> printBAC $ fromJust $ removeObject 2 cone
 - 0->1
 - 0->3; 1->4; 3->6; 4->4
   - 0->1; 2->3
@@ -243,8 +243,8 @@ Nothing
 -}
 removeObject ::
   Symbol  -- ^ The symbol indicates the object to be removed.
-  -> Node
-  -> Maybe Node
+  -> BAC
+  -> Maybe BAC
 removeObject tgt node = do
   guard $ locate (root node) tgt |> (== Inner)
   let tgt_node = arrow node tgt |> fromJust |> target
@@ -263,7 +263,7 @@ Remove a morphism step by step: removing all related morphisms, then splitting c
 Examples:
 
 >>> cone' = fromJust $ rewireEdges 0 [1, 4, 3] cone
->>> printNode $ fromJust $ removeInitialMorphism' 3 cone'
+>>> printBAC $ fromJust $ removeInitialMorphism' 3 cone'
 - 0->1; 1->2
   - 0->1
     &0
@@ -272,7 +272,7 @@ Examples:
     *0
   - 0->2
 -}
-removeInitialMorphism' :: Symbol -> Node -> Maybe Node
+removeInitialMorphism' :: Symbol -> BAC -> Maybe BAC
 removeInitialMorphism' tgt node = do
   guard $
     missingAltPaths (0, tgt) node
@@ -311,7 +311,7 @@ Remove an object step by step: removing all related morphisms, then splitting ca
 
 Examples:
 
->>> printNode $ fromJust $ removeObject' 6 cone
+>>> printBAC $ fromJust $ removeObject' 6 cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -323,7 +323,7 @@ Examples:
   - 0->4; 1->2
     *1
 
->>> printNode $ fromJust $ removeObject' 2 cone
+>>> printBAC $ fromJust $ removeObject' 2 cone
 - 0->1
 - 0->3; 1->4; 3->6; 4->4
   - 0->1; 2->3
@@ -335,7 +335,7 @@ Examples:
 >>> removeObject' 4 cone
 Nothing
 -}
-removeObject' :: Symbol -> Node -> Maybe Node
+removeObject' :: Symbol -> BAC -> Maybe BAC
 removeObject' tgt node = do
   guard $ locate (root node) tgt |> (== Inner)
   let tgt_arr = arrow node tgt |> fromJust
@@ -381,7 +381,7 @@ type Coangle = ((Symbol, Symbol), (Symbol, Symbol))
 type Angle = ((Symbol, Symbol), (Symbol, Symbol))
 
 -- | Check whether a given value is a valid coangle.
-validateCoangle :: Node -> Coangle -> Bool
+validateCoangle :: BAC -> Coangle -> Bool
 validateCoangle node (sym_sym1, sym_sym2) = isJust do
   arr_arr1 <- arrow2 node sym_sym1
   arr_arr2 <- arrow2 node sym_sym2
@@ -394,7 +394,7 @@ validateCoangle node (sym_sym1, sym_sym2) = isJust do
     |> all allSame
 
 -- | Check whether a given value is a valid angle.
-validateAngle :: Node -> Angle -> Bool
+validateAngle :: BAC -> Angle -> Bool
 validateAngle node (sym_sym1, sym_sym2) = isJust do
   arr_arr1 <- arrow2 node sym_sym1
   arr_arr2 <- arrow2 node sym_sym2
@@ -409,7 +409,7 @@ validateAngle node (sym_sym1, sym_sym2) = isJust do
 -- | Check whether a list of angles are compatible.
 --   Angle @(f, g)@ and angle @(f', g')@ are compatible if @h . f = h . f'@ implies
 --   @h . g = h . g'@ for all `h`.
-compatibleAngles :: Node -> [Angle] -> Bool
+compatibleAngles :: BAC -> [Angle] -> Bool
 compatibleAngles node =
   traverse (\(sym_sym1, sym_sym2) -> do
     arr_arr1 <- arrow2 node sym_sym1
@@ -421,7 +421,7 @@ compatibleAngles node =
 -- | Check whether a list of coangles are compatible.
 --   Coangle @(f, g)@ and coangle @(f', g')@ are compatible if @f . h = f' . h@ implies
 --   @g . h = g' . h@ for all `h`.
-compatibleCoangles :: Node -> [Coangle] -> Bool
+compatibleCoangles :: BAC -> [Coangle] -> Bool
 compatibleCoangles _ [] = True
 compatibleCoangles node coangs =
   isJust $ sequence_ $ node |> foldUnder sym0 \curr results -> do
@@ -442,7 +442,7 @@ compatibleCoangles node coangs =
 
 -- | Check whether coangles and angles are compatible each others.
 --   Coangle @(f, g)@ and angle @(g', f')@ are compatible if @f' . f = g' . g@.
-compatibleCoanglesAngles :: Node -> [Coangle] -> [Angle] -> Bool
+compatibleCoanglesAngles :: BAC -> [Coangle] -> [Angle] -> Bool
 compatibleCoanglesAngles node coangs angs =
   isJust $
     angs |> traverse \(sym_sym1, sym_sym2) -> do
@@ -469,7 +469,7 @@ Examples:
 findValidCoanglesAngles ::
   Symbol      -- ^ The symbol indicating the source object of the morphism to be added.
   -> Symbol   -- ^ The symbol indicating the target object of the morphism to be added.
-  -> Node     -- ^ The root node of BAC.
+  -> BAC     -- ^ The root node of BAC.
   -> Maybe ([[Coangle]], [[Angle]])
               -- ^ The coangles and angles need to be selected, or Nothing if it is invalid.
 findValidCoanglesAngles src tgt node = do
@@ -497,7 +497,7 @@ Add a symbol in a node.
 
 Examples:
 
->>> printNode $ fromJust $ addMorphism 1 6 2 [0] [] cone
+>>> printBAC $ fromJust $ addMorphism 1 6 2 [0] [] cone
 - 0->1; 1->2; 2->6
   - 0->1
     &0
@@ -519,8 +519,8 @@ addMorphism ::
   -> Symbol  -- ^ The symbol to be added.
   -> [Int]   -- ^ The indices of coangles given by `findValidCoanglesAngles`.
   -> [Int]   -- ^ The indices of angles given by `findValidCoanglesAngles`.
-  -> Node
-  -> Maybe Node
+  -> BAC
+  -> Maybe BAC
 addMorphism src tgt sym src_alts tgt_alts node = do
   src_arr <- arrow node src
   tgt_arr <- arrow node tgt
@@ -575,7 +575,7 @@ Examples:
 >>> partitionPrefix cone 2
 [[(1,1)],[(3,2)]]
 -}
-partitionPrefix :: Node -> Symbol -> [[(Symbol, Symbol)]]
+partitionPrefix :: BAC -> Symbol -> [[(Symbol, Symbol)]]
 partitionPrefix node tgt =
   prefix node tgt
   |> concatMap (\(arr1, arr23) -> suffix (target arr1) (symbol arr23) |> fmap (arr1,))
@@ -591,7 +591,7 @@ Split a symbol on a node.
 
 Examples:
 
->>> printNode $ fromJust $ splitMorphism (0,2) [0,1] cone
+>>> printBAC $ fromJust $ splitMorphism (0,2) [0,1] cone
 - 0->1; 1->2
   - 0->1
 - 0->3; 1->4; 2->8; 3->6; 4->4
@@ -602,7 +602,7 @@ Examples:
   - 0->4; 1->2; 2->3
     *0
 
->>> printNode $ fromJust $ splitMorphism (3,2) [0,1] cone
+>>> printBAC $ fromJust $ splitMorphism (3,2) [0,1] cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -618,8 +618,8 @@ Examples:
 splitMorphism ::
   (Symbol, Symbol)  -- ^ The symbols reference to the morphism to split.
   -> [Natural]      -- ^ The keys to classify splittable groups given by `partitionPrefix`.
-  -> Node
-  -> Maybe Node
+  -> BAC
+  -> Maybe BAC
 splitMorphism (src, tgt) splittable_keys node = do
   guard $ tgt /= base
   (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
@@ -673,7 +673,7 @@ Examples:
 >>> partitionSymbols $ target $ fromJust $ arrow crescent 1
 [[1,2,3],[5,6,7]]
 -}
-partitionSymbols :: Node -> [[Symbol]]
+partitionSymbols :: BAC -> [[Symbol]]
 partitionSymbols =
   edges
   .> fmap (dict .> Map.elems)
@@ -688,7 +688,7 @@ Split a node referenced by a symbol.
 
 Examples:
 
->>> printNode $ fromJust $ splitObject 1 [0,1] crescent
+>>> printBAC $ fromJust $ splitObject 1 [0,1] crescent
 - 0->1; 1->2; 2->3; 3->4
   - 0->1; 1->2
     &0
@@ -707,8 +707,8 @@ Examples:
 splitObject ::
   Symbol         -- ^ The symbol referencing the node to be splitted.
   -> [Natural]   -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
-  -> Node
-  -> Maybe Node
+  -> BAC
+  -> Maybe BAC
 splitObject tgt splittable_keys node = do
   guard $ locate (root node) tgt |> (== Inner)
   res0 <- arrow node tgt |> fromJust |> target |> splitCategory splittable_keys
@@ -747,7 +747,7 @@ Split a root node.
 Examples:
 
 >>> let crescent_1 = target $ fromJust $ arrow crescent 1
->>> traverse_ printNode $ fromJust $ splitCategory [0,1] crescent_1
+>>> traverse_ printBAC $ fromJust $ splitCategory [0,1] crescent_1
 - 0->1; 1->2
   - 0->1
     &0
@@ -763,8 +763,8 @@ Examples:
 -}
 splitCategory ::
   [Natural]  -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
-  -> Node
-  -> Maybe (Map Natural Node)
+  -> BAC
+  -> Maybe (Map Natural BAC)
 splitCategory splittable_keys node = do
   let splittable_groups = partitionSymbols node
   guard $ length splittable_groups == length splittable_keys
@@ -786,7 +786,7 @@ Duplicate a node referenced by a symbol.
 
 Examples:
 
->>> printNode $ fromJust $ duplicateObject 3 [0,1] crescent
+>>> printBAC $ fromJust $ duplicateObject 3 [0,1] crescent
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4; 9->7; 13->7
   - 0->1; 1->2; 2->9
     &0
@@ -805,7 +805,7 @@ Examples:
   - 0->7; 1->6; 2->13
     *3
 -}
-duplicateObject :: Symbol -> [Natural] -> Node -> Maybe Node
+duplicateObject :: Symbol -> [Natural] -> BAC -> Maybe BAC
 duplicateObject tgt keys node = do
   guard $ locate (root node) tgt |> (== Inner)
   guard $ keys |> anySame |> not
@@ -843,7 +843,7 @@ Duplicate a node referenced by a symbol step by step.
 
 Examples:
 
->>> printNode $ fromJust $ duplicateObject' 3 [0,1] crescent
+>>> printBAC $ fromJust $ duplicateObject' 3 [0,1] crescent
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4; 9->7; 15->7
   - 0->1; 1->2; 2->9
     &0
@@ -862,7 +862,7 @@ Examples:
   - 0->7; 1->6; 2->15
     *3
 -}
-duplicateObject' :: Symbol -> [Natural] -> Node -> Maybe Node
+duplicateObject' :: Symbol -> [Natural] -> BAC -> Maybe BAC
 duplicateObject' tgt keys node = do
   guard $ locate (root node) tgt |> (== Inner)
   guard $ keys |> anySame |> not
@@ -922,7 +922,7 @@ Merge symbols on a node.
 
 Examples:
 
->>> printNode $ fromJust $ mergeMorphisms (1,[2,3,6,8]) torus
+>>> printBAC $ fromJust $ mergeMorphisms (1,[2,3,6,8]) torus
 - 0->1; 1->2; 2->3; 4->5; 7->2; 10->5
   - 0->1; 1->2; 2->2
     &0
@@ -943,8 +943,8 @@ Examples:
 -}
 mergeMorphisms ::
   (Symbol, [Symbol])  -- ^ The symbol referencing the node and symbols to be merged.
-  -> Node
-  -> Maybe Node
+  -> BAC
+  -> Maybe BAC
 mergeMorphisms (src, tgts) node = do
   guard $ notNull tgts
   src_arr <- arrow node src
@@ -974,7 +974,7 @@ Merge nodes.
 
 Examples:
 
->>> printNode $ fromJust $ mergeObjects [2,4] [[0,1], [0,1]] crescent
+>>> printBAC $ fromJust $ mergeObjects [2,4] [[0,1], [0,1]] crescent
 - 0->1; 1->2; 2->3; 5->2; 6->3
   - 0->1; 1->2; 2->2
     &0
@@ -989,8 +989,8 @@ mergeObjects ::
   [Symbol]        -- ^ The symbols referencing the nodes to be merged.
   -> [[Natural]]  -- ^ The merging table of nondecomposable incoming morphisms of the nodes.
                   --   The arrows with the same key will be merged.
-  -> Node
-  -> Maybe Node
+  -> BAC
+  -> Maybe BAC
 mergeObjects tgts keys node = do
   guard $ notNull tgts
   guard $ lowerIso tgts keys node
@@ -1054,12 +1054,12 @@ Merge multiple nodes.
 
 Examples:
 
->>> printNode (mergeCategories [singleton, singleton, empty, singleton])
+>>> printBAC (mergeCategories [singleton, singleton, empty, singleton])
 - 0->1
 - 0->2
 - 0->3
 
->>> printNode (mergeCategories [singleton, crescent])
+>>> printBAC (mergeCategories [singleton, crescent])
 - 0->1
 - 0->2; 1->3; 2->4; 3->5; 5->3; 6->4; 7->5
   - 0->1; 1->2
@@ -1075,7 +1075,7 @@ Examples:
   - 0->7; 1->6
     *2
 -}
-mergeCategories :: [Node] -> Node
+mergeCategories :: [BAC] -> BAC
 mergeCategories nodes = fromEdges merged_edges
   where
   offsets = nodes |> fmap (symbols .> maximum) |> scanl (+) 0
@@ -1085,7 +1085,7 @@ mergeCategories nodes = fromEdges merged_edges
     let dict' = dict edge |> fmap (+ offset)
     return edge {dict = dict'}
 
-trimObject :: Symbol -> Node -> Maybe Node
+trimObject :: Symbol -> BAC -> Maybe BAC
 trimObject tgt node = do
   guard $ locate (root node) tgt |> (== Inner)
   tgt_arr <- arrow node tgt
@@ -1100,7 +1100,7 @@ trimObject tgt node = do
       where
       filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
 
-appendObject :: Symbol -> Node -> Maybe Node
+appendObject :: Symbol -> BAC -> Maybe BAC
 appendObject src node = do
   src_arr <- arrow node src
   let res0 = mergeCategories [target src_arr, singleton]
@@ -1113,7 +1113,7 @@ appendObject src node = do
         new_sym' = symbols (target edge) |> maximum |> (+ 1)
         new_dict = dict edge |> Map.insert new_sym' new_sym
 
-insertObject :: (Symbol, Maybe Symbol) -> Node -> Maybe Node
+insertObject :: (Symbol, Maybe Symbol) -> BAC -> Maybe BAC
 insertObject (src, tgt) node = do
   src_arr <- arrow node src
   let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
@@ -1149,7 +1149,7 @@ insertObject (src, tgt) node = do
           )
           |> Map.fromList
 
-expandMergingSymbols :: Node -> [[Symbol]] -> [[Symbol]]
+expandMergingSymbols :: BAC -> [[Symbol]] -> [[Symbol]]
 expandMergingSymbols node =
   fmap (fmap (arrow node .> fromJust .> dict .> Map.toList))
   .> zip [0 :: Integer ..]
@@ -1162,7 +1162,7 @@ expandMergingSymbols node =
   .> fmap sort
   .> sort
 
-mergeMorphismsAggressively :: Symbol -> [[Symbol]] -> Node -> Maybe Node
+mergeMorphismsAggressively :: Symbol -> [[Symbol]] -> BAC -> Maybe BAC
 mergeMorphismsAggressively src tgts node = do
   src_arr <- arrow node src
 

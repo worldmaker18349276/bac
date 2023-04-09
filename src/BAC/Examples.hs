@@ -12,7 +12,7 @@ import Data.Maybe (fromJust)
 {- |
 ![cone](./pictures/cone-serialize.png)
 
->>> printNode cone
+>>> printBAC cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -25,7 +25,7 @@ import Data.Maybe (fromJust)
   - 0->4; 1->2; 2->3
     *1
 -}
-cone :: Node
+cone :: BAC
 cone = fromJust $ braid $ do
   y <- knot []
   b <- knot []
@@ -41,7 +41,7 @@ cone = fromJust $ braid $ do
 {- |
 ![torus](./pictures/torus-serialize.png)
 
->>> printNode torus
+>>> printBAC torus
 - 0->1; 1->2; 2->3; 3->3; 4->5; 6->3; 7->2; 8->3; 10->5
   - 0->1; 1->2; 2->3
     &0
@@ -60,7 +60,7 @@ cone = fromJust $ braid $ do
   - 0->10; 1->2; 2->8
     *2
 -}
-torus :: Node
+torus :: BAC
 torus = fromJust $ braid $ do
   t <- knot []
   c <- knot [t, t]
@@ -78,7 +78,7 @@ torus = fromJust $ braid $ do
 
 ![crescent](./pictures/crescent-serialize.png)
 
->>> printNode crescent
+>>> printBAC crescent
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4
   - 0->1; 1->2
     &0
@@ -93,7 +93,7 @@ torus = fromJust $ braid $ do
   - 0->7; 1->6
     *2
 -}
-crescent :: Node
+crescent :: BAC
 crescent = fromJust $ braid $ do
   s <- knot []
   c <- knot [s]
