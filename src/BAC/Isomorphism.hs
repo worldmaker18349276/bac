@@ -1,4 +1,5 @@
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE TupleSections #-}
 
 module BAC.Isomorphism (
   eqStruct,
@@ -84,19 +85,21 @@ canonicalizeObject node tgt = do
 
 -- | Collect all maximum chains to a node into a trie.
 --   It is a tree such that its paths correspond to maximum chains, which is represented
---   as a sequence of symbols, and each symbol indicates a nondecomposable morphism.  Just
---   like BAC, the nodes of this trie is implicitly shared.
+--   as a sequence of pairs of symbols, and each pair of symbols indicates a
+--   nondecomposable morphism.  Just like BAC, the nodes of this trie is implicitly
+--   shared.
 --
 --   Examples:
 --
 --   >>> putStr $ showTree $ fromJust $ forwardSymbolTrieUnder 6 cone
---   {3:{1:{2:{}},4:{2:{}}}}
-forwardSymbolTrieUnder :: Symbol -> BAC -> Maybe (Tree Symbol)
+--   {(0,3):{(3,1):{(4,2):{}},(3,4):{(4,2):{}}}}
+forwardSymbolTrieUnder :: Symbol -> BAC -> Maybe (Tree (Symbol, Symbol))
 forwardSymbolTrieUnder sym = fromReachable res0 . foldUnder sym \curr results ->
   edges (target curr) `zip` results
   |> mapMaybe (second (fromReachable res0) .> sequence)
   |> fmap (first symbol)
   |> filter (fst .> nondecomposable (target curr))
+  |> fmap (first (symbol curr,))
   |> Map.fromList
   |> Tree
   where
