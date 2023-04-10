@@ -7,6 +7,7 @@ module BAC.Fundamental (
   -- * Restructure #restructure#
 
   rewire,
+  addEdges,
   relabel,
 
   -- * Empty, Singleton
@@ -64,10 +65,10 @@ module BAC.Fundamental (
 
 import Control.Monad (MonadPlus (mzero), guard)
 import Data.Bifunctor (Bifunctor (first, second))
-import Data.Foldable (find)
+import Data.Foldable (find, traverse_)
 import Data.Foldable.Extra (notNull)
 import Data.List (elemIndex, elemIndices, findIndex, nub, sort, sortOn, transpose)
-import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, (!?))
+import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, (!?), groupOnKey)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, fromMaybe, isJust, mapMaybe)
@@ -128,7 +129,7 @@ Nothing
 -}
 rewire ::
   Symbol         -- ^ The symbol referencing to the node to rewire.
-  -> [Symbol]    -- ^ The list of values and symbols of rewired edges.
+  -> [Symbol]    -- ^ The list of symbols of rewired edges.
   -> BAC
   -> Maybe BAC
 rewire src tgts node = do
@@ -144,6 +145,50 @@ rewire src tgts node = do
     AtOuter -> return edge
     AtInner res -> return edge {target = res}
     AtBoundary -> return edge {target = res0}
+
+{- | Add edges.
+
+Examples:
+
+>>> printBAC $ fromJust $ cone |> addEdges [(0,6), (3,2)]
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+      &2
+  - 0->2
+    *0
+  - 0->4; 1->2; 2->3
+    *1
+- 0->6
+  *2
+-}
+addEdges ::
+  [(Symbol, Symbol)]  -- ^ The list of symbols representing the added edges.
+  -> BAC
+  -> Maybe BAC
+addEdges syms node = do
+  traverse_ (arrow2 node) syms
+  let syms' = syms |> groupOnKey fst
+  let add_list =
+        arrows node
+        |> fmap symbol
+        |> mapMaybe (`lookup` syms')
+        |> fmap (\group -> (fst (head group), fmap snd group))
+  (node, add_list) |> foldlMUncurry \(node, (src, tgts)) -> do
+    let new_syms =
+          arrow node src
+          |> fromJust
+          |> target
+          |> edges
+          |> fmap symbol
+          |> (++ tgts)
+    node |> rewire src new_syms
 
 {- |
 Relabel a given node.
@@ -279,8 +324,8 @@ Examples:
 >>> removeMorphism (4, 2) cone
 Nothing
 
->>> cone' = fromJust $ rewire 0 [1, 4, 3] cone
->>> printBAC $ fromJust $ removeMorphism (0, 3) cone'
+>>> cone' = fromJust $ addEdges [(0,4)] cone
+>>> printBAC $ fromJust $ removeMorphism (0,3) cone'
 - 0->1; 1->2
   - 0->1
     &0
@@ -292,13 +337,13 @@ Nothing
 >>> :{
 printBAC $
   cone
-  |> removeMorphism (3, 1)
+  |> removeMorphism (3,1)
   |> fromJust
-  |> rewire 3 [4, 2, 3]
+  |> addEdges [(3,2), (3,3)]
   |> fromJust
-  |> rewire 0 [1, 3, 4]
+  |> addEdges [(0,4)]
   |> fromJust
-  |> removeMorphism (3, 4)
+  |> removeMorphism (3,4)
   |> fromJust
 :}
 - 0->1; 1->2
@@ -381,7 +426,7 @@ Remove a morphism step by step: removing all related morphisms, then splitting c
 
 Examples:
 
->>> cone' = fromJust $ rewire 0 [1, 4, 3] cone
+>>> cone' = fromJust $ addEdges [(0,4)] cone
 >>> printBAC $ fromJust $ removeInitialMorphism' 3 cone'
 - 0->1; 1->2
   - 0->1
@@ -409,15 +454,8 @@ removeInitialMorphism' tgt node = do
 
   node <- (node, remove_list) |> foldlMUncurry \(node, sym2) -> do
     let ([], add_list') = node |> missingAltPaths sym2 |> fromJust
-    node <- (node, add_list') |> foldlMUncurry \(node, (s1, s2)) -> do
-      let new_edges =
-            arrow node s1
-            |> fromJust
-            |> target
-            |> edges
-            |> fmap symbol
-            |> (s2 :)
-      return $ node |> rewire s1 new_edges |> fromJust
+    node <- (node, add_list') |> foldlMUncurry \(node, add_sym) -> do
+      return $ node |> addEdges [add_sym] |> fromJust
 
     return $ node |> removeMorphism sym2 |> fromJust
 
@@ -472,15 +510,8 @@ removeObject' tgt node = do
 
   node <- (node, remove_list) |> foldlMUncurry \(node, sym2) -> do
     let (add_list, []) = node |> missingAltPaths sym2 |> fromJust
-    node <- (node, add_list) |> foldlMUncurry \(node, (s1, s2)) -> do
-      let new_edges =
-            arrow node s1
-            |> fromJust
-            |> target
-            |> edges
-            |> fmap symbol
-            |> (s2 :)
-      return $ node |> rewire s1 new_edges |> fromJust
+    node <- (node, add_list) |> foldlMUncurry \(node, add_sym) -> do
+      return $ node |> addEdges [add_sym] |> fromJust
 
     return $ node |> removeMorphism sym2 |> fromJust
 
