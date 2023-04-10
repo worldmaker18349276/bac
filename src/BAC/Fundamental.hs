@@ -21,8 +21,9 @@ module BAC.Fundamental (
   removeObject,
   removeInitialMorphism',
   removeObject',
+  trimObject,
 
-  -- * Add Morphism
+  -- * Add Morphism, Object
 
   Coangle,
   Angle,
@@ -33,6 +34,15 @@ module BAC.Fundamental (
   compatibleCoanglesAngles,
   findValidCoanglesAngles,
   addMorphism,
+  appendObject,
+  insertObject,
+
+  -- * Duplicate Morphism, Object
+
+  duplicateMorphism,
+  duplicateMorphism',
+  duplicateInitialMorphismAggressively,
+  duplicateInitialMorphismAggressively',
 
   -- * Split Morphism, Object, Category
 
@@ -43,24 +53,11 @@ module BAC.Fundamental (
   splitObject,
   splitCategory,
 
-  -- * Duplicate Morphism, Object
-
-  duplicateMorphism,
-  duplicateMorphism',
-  duplicateInitialMorphismAggressively,
-  duplicateInitialMorphismAggressively',
-
   -- * Merge Morphisms, Objects, Categories
 
   mergeMorphisms,
   mergeObjects,
   mergeCategories,
-
-  -- * Advanced Operations
-
-  trimObject,
-  appendObject,
-  insertObject,
   expandMergingSymbols,
   mergeMorphismsAggressively,
 ) where
