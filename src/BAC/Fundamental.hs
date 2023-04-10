@@ -64,12 +64,13 @@ module BAC.Fundamental (
   mergeMorphismsAggressively,
 ) where
 
+import Control.Arrow ((&&&))
 import Control.Monad (MonadPlus (mzero), guard)
 import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable (find, traverse_)
 import Data.Foldable.Extra (notNull)
 import Data.List (elemIndex, elemIndices, findIndex, nub, sort, sortOn, transpose)
-import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, (!?), groupOnKey)
+import Data.List.Extra (allSame, anySame, groupOnKey, groupSortOn, nubSort, (!?))
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, fromMaybe, isJust, mapMaybe)
@@ -180,7 +181,7 @@ addEdges syms node = do
         arrows node
         |> fmap symbol
         |> mapMaybe (`lookup` syms')
-        |> fmap (\group -> (fst (head group), fmap snd group))
+        |> fmap ((head .> fst) &&& fmap snd)
   (node, add_list) |> foldlMUncurry \(node, (src, tgts)) -> do
     let new_syms =
           arrow node src
@@ -225,7 +226,7 @@ removeEdges syms node = do
         arrows node
         |> fmap symbol
         |> mapMaybe (`lookup` syms')
-        |> fmap (\group -> (fst (head group), fmap snd group))
+        |> fmap ((head .> fst) &&& fmap snd)
   (node, remove_list) |> foldlMUncurry \(node, (src, tgts)) -> do
     let new_syms =
           arrow node src
@@ -385,9 +386,7 @@ printBAC $
   cone
   |> removeMorphism (3,1)
   |> fromJust
-  |> addEdges [(3,2), (3,3)]
-  |> fromJust
-  |> addEdges [(0,4)]
+  |> addEdges [(3,2), (3,3), (0,4)]
   |> fromJust
   |> removeMorphism (3,4)
   |> fromJust
@@ -547,11 +546,7 @@ removeObject' tgt node = do
   let remove_list =
         node
         |> arrowsUnder tgt
-        |> concatMap (\curr ->
-          curr `divide` tgt_arr
-          |> fmap (curr,)
-          |> fmap symbol2
-        )
+        |> concatMap ((id &&& (`divide` tgt_arr)) .> sequence .> fmap symbol2)
         |> filter (fst .> (/= base))
 
   node <- (node, remove_list) |> foldlMUncurry \(node, sym2) -> do
@@ -585,8 +580,8 @@ validateCoangle node (sym_sym1, sym_sym2) = isJust do
   guard $
     fst sym_sym1
     |> suffixND node
-    |> groupSortOn (\(a1, a2) -> symbol2 (a1, a2 `join` snd arr_arr1))
-    |> fmap (fmap \(a1, a2) -> symbol2 (a1, a2 `join` snd arr_arr2))
+    |> groupSortOn (second (`join` snd arr_arr1) .> symbol2)
+    |> fmap (fmap (second (`join` snd arr_arr2) .> symbol2))
     |> all allSame
 
 -- | Check whether a given value is a valid angle.
@@ -598,8 +593,8 @@ validateAngle node (sym_sym1, sym_sym2) = isJust do
   guard $
     target (snd arr_arr1)
     |> edgesND
-    |> groupSortOn (\a -> symbol (snd arr_arr1 `join` a))
-    |> fmap (fmap \a -> symbol (snd arr_arr2 `join` a))
+    |> groupSortOn (join (snd arr_arr1) .> symbol)
+    |> fmap (fmap (join (snd arr_arr2) .> symbol))
     |> all allSame
 
 -- | Check whether a list of angles are compatible.
@@ -972,8 +967,7 @@ splitCategory splittable_keys node = do
 
   return $ Map.fromList do
     (key, group) <- splitted_keys `zip` splitted_groups
-    let splitted_edges =
-          node |> edges |> filter (\edge -> symbol edge `elem` group)
+    let splitted_edges = node |> edges |> filter (symbol .> (`elem` group))
     return (key, fromEdges splitted_edges)
 
 
