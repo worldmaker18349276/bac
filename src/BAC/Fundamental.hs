@@ -42,8 +42,9 @@ module BAC.Fundamental (
   splitSymbol,
   splitObject,
   splitCategory,
-  duplicateObject,
-  duplicateObject',
+
+  duplicateMorphism,
+  duplicateMorphism',
 
   -- * Merge Morphisms, Objects, Categories
 
@@ -797,8 +798,11 @@ partitionSymbols =
   .> fmap (snd .> sort)
   .> sort
 
-splitSymbol :: [Natural] -> [Symbol] -> Symbol -> [Symbol]
-splitSymbol offsets list sym = [len * offset + sym | let len = maximum list, offset <- offsets]
+splitSymbol :: [Natural] -> Arrow -> Symbol -> [Symbol]
+splitSymbol offsets curr sym = do
+  let ran = maximum (symbols (target curr))
+  offset <- offsets
+  return $ ran * offset + sym
 
 {- |
 Split a node referenced by a symbol.
@@ -836,16 +840,13 @@ splitObject tgt splittable_keys node = do
     AtOuter -> return edge
     AtInner res -> return edge {dict = duplicated_dict, target = res}
       where
-      s_syms = target edge |> symbols
-      r_syms = target curr |> symbols
       duplicate (s, r)
-        | dict curr ! r == tgt = splitter s_syms s `zip` splitter r_syms r
+        | dict curr ! r == tgt = splitter (curr `join` edge) s `zip` splitter curr r
         | otherwise            = [(s, r)]
       duplicated_dict =
         dict edge |> Map.toList |> concatMap duplicate |> Map.fromList
     AtBoundary -> do
-      let r_syms = target curr |> symbols
-      let splitted_syms = splitter r_syms (symbol edge)
+      let splitted_syms = splitter curr (symbol edge)
       (sym, key) <- splitted_syms `zip` splittable_keys
       let res = res0 ! key
       let split (s, r)
@@ -897,140 +898,75 @@ splitCategory splittable_keys node = do
           node |> edges |> filter (\edge -> symbol edge `elem` group)
     return (key, fromEdges splitted_edges)
 
-{- |
-Duplicate a node referenced by a symbol.
 
-Examples:
+-- | Duplicate a nondecomposable symbol in a node.
+duplicateMorphism :: (Symbol, Symbol) -> [Symbol] -> BAC -> Maybe BAC
+duplicateMorphism (src, tgt) syms node = do
+  guard $ notNull syms
+  src_arr <- arrow node src
+  let src_node = target src_arr
+  guard $ locate (root src_node) tgt == Inner
+  guard $ nondecomposable src_node tgt
+  guard $
+    src_node
+    |> symbols
+    |> filter (/= tgt)
+    |> (syms ++)
+    |> anySame
+    |> not
 
->>> printBAC $ fromJust $ duplicateObject 3 [0,1] crescent
-- 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4; 9->7; 13->7
-  - 0->1; 1->2; 2->9
-    &0
-    - 0->1
-      &1
-    - 0->2
-      &2
-  - 0->3; 1->2; 2->9
-    &3
-    - 0->1
-      *1
-    - 0->2
-      *2
-  - 0->5; 1->6; 2->13
-    *0
-  - 0->7; 1->6; 2->13
-    *3
--}
-duplicateObject :: Symbol -> [Natural] -> BAC -> Maybe BAC
-duplicateObject tgt keys node = do
-  guard $ locate (root node) tgt |> (== Inner)
-  guard $ keys |> anySame |> not
-  guard $ 0 `elem` keys
-  let res0 = arrow node tgt |> fromJust |> target
+  let res0 = fromEdges do
+        edge <- edges src_node
+        if symbol edge /= tgt
+        then return edge
+        else do
+          sym <- syms
+          let dup_dict = dict edge |> Map.insert base sym
+          return $ edge {dict = dup_dict}
 
-  let splitter = splitSymbol keys
-
-  fromInner $ node |> modifyUnder tgt \(curr, edge) -> \case
+  fromReachable res0 $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
-    AtInner res -> return edge {dict = duplicated_dict, target = res}
-      where
-      s_syms = target edge |> symbols
-      r_syms = target curr |> symbols
-      duplicate (s, r)
-        | dict curr ! r == tgt = splitter s_syms s `zip` splitter r_syms r
-        | otherwise            = [(s, r)]
-      duplicated_dict =
-        dict edge |> Map.toList |> concatMap duplicate |> Map.fromList
+    AtInner res -> return edge {target = res}
     AtBoundary -> do
-      let r_syms = target curr |> symbols
-      let splitted_syms = splitter r_syms (symbol edge)
-      sym <- splitted_syms
-      let split (s, r)
-            | s == base                     = Just (base, sym)
-            | locate (root res0) s == Inner = Just (s, r)
-            | otherwise                     = Nothing
-      let splitted_dict =
-            dict edge |> Map.toList |> mapMaybe split |> Map.fromList
+      let sym' = Map.lookup tgt (dict edge) |> fromJust
+      sym <- syms
+      let splitted_dict = dict edge |> Map.delete tgt |> Map.insert sym sym'
       return edge {dict = splitted_dict, target = res0}
 
-{- |
-Duplicate a node referenced by a symbol step by step.
+-- | Duplicate a nondecomposable symbol in a node step by step.
+duplicateMorphism' :: (Symbol, Symbol) -> [Symbol] -> BAC -> Maybe BAC
+duplicateMorphism' (src, tgt) syms node = do
+  guard $ notNull syms
+  src_arr <- arrow node src
+  let src_node = target src_arr
+  guard $ locate (root src_node) tgt == Inner
+  guard $ nondecomposable src_node tgt
+  guard $
+    src_node
+    |> symbols
+    |> filter (/= tgt)
+    |> (syms ++)
+    |> anySame
+    |> not
 
-Examples:
-
->>> printBAC $ fromJust $ duplicateObject' 3 [0,1] crescent
-- 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4; 9->7; 15->7
-  - 0->1; 1->2; 2->9
-    &0
-    - 0->1
-      &1
-    - 0->2
-      &2
-  - 0->3; 1->2; 2->9
-    &3
-    - 0->1
-      *1
-    - 0->2
-      *2
-  - 0->5; 1->6; 2->15
-    *0
-  - 0->7; 1->6; 2->15
-    *3
--}
-duplicateObject' :: Symbol -> [Natural] -> BAC -> Maybe BAC
-duplicateObject' tgt keys node = do
-  guard $ locate (root node) tgt |> (== Inner)
-  guard $ keys |> anySame |> not
-  guard $ 0 `elem` keys
-
-  let tgt_arr = arrow node tgt |> fromJust
-  let split_list =
-        node
-        |> arrowsUnder tgt
-        |> concatMap (\curr -> curr `divide` tgt_arr |> fmap (curr,))
-        |> filter (\(arr1, arr2) -> not $ nondecomposable (target arr1) (symbol arr2))
-        |> fmap symbol2
-
-  let dup_list = suffixND node tgt |> fmap symbol2
-  let origin_node = node
-
-  let arrSS ss = arrow2 node ss |> fromJust |> snd
+  let arrSS = arrow2 node .> fromJust .> snd
   let joinSS ss1 ss2 = (fst ss1, symbol (arrSS ss1 `join` arrSS ss2))
-  let splitSym i (s1, s2) = (s1, maximum syms * i + s2)
-        where
-        syms = arrow origin_node s1 |> fromJust |> target |> symbols
-  node <- (node, dup_list) |> foldlMUncurry \(node, dup_ss) -> do
-    let angs = node |> findValidCoanglesAngles (fst dup_ss) tgt |> fromJust
-    let src_alts =
-          fst angs
-          |> fmap ((findIndex \(ss1, ss2) -> ss1 `joinSS` dup_ss == ss2) .> fromJust)
-    let tgt_alts =
-          snd angs
-          |> fmap ((findIndex \(ss1, ss2) -> dup_ss `joinSS` ss1 == ss2) .> fromJust)
-    let new_syms = [snd (splitSym i dup_ss) | i <- keys, i /= 0]
-    (node, new_syms) |> foldlMUncurry \(node, new_sym) ->
-      return $
-        node
-        |> addMorphism (fst dup_ss) tgt new_sym src_alts tgt_alts
-        |> fromJust
+  let angs = node |> findValidCoanglesAngles src tgt |> fromJust
+  let src_alts =
+        fst angs
+        |> fmap ((findIndex \(ss1, ss2) -> ss1 `joinSS` (src, tgt) == ss2) .> fromJust)
+  let tgt_alts =
+        snd angs
+        |> fmap ((findIndex \(ss1, ss2) -> (src, tgt) `joinSS` ss1 == ss2) .> fromJust)
+  let tgt' = (base, src) `joinSS` (src, tgt) |> snd
 
-  (node, split_list) |> foldlMUncurry \(node, split_ss) -> do
-    let (src_arr, tgt_subarr) = arrow2 node split_ss |> fromJust
-    let origin_subnode = arrow2 origin_node split_ss |> fromJust |> fst |> target
-    let splitSym' i (s1, s2) = (s1, maximum syms * i + s2)
-          where
-          syms = arrow origin_subnode s1 |> fromJust |> target |> symbols
-    let origin_symbols =
-          prefixND origin_subnode (snd split_ss) |> fmap symbol2
-    let splitted_symbols =
-          keys |> fmap (\i -> origin_symbols |> fmap (splitSym' i))
-    let splittable_keys =
-          partitionPrefix (target src_arr) (symbol tgt_subarr)
-          |> fmap head
-          |> fmap \ss ->
-            splitted_symbols |> findIndex (elem ss) |> fromJust |> (keys !!)
+  node <- (node, filter (/= tgt) syms) |> foldlMUncurry \(node, sym) ->
+    node |> addMorphism src tgt' sym src_alts tgt_alts
 
-    return $ node |> splitMorphism split_ss splittable_keys |> fromJust
+  if tgt `elem` syms
+  then return node
+  else node |> removeMorphism (src, tgt)
+
 
 {- |
 Merge symbols on a node.

@@ -378,6 +378,12 @@ divide2 (arr12, arr24) (arr13, arr34) =
 --
 --   >>> nondecomposable cone 4
 --   False
+--
+--   >>> nondecomposable cone 0
+--   True
+--
+--   >>> nondecomposable cone 10
+--   False
 nondecomposable :: BAC -> Symbol -> Bool
 nondecomposable node sym =
   (root node `locate` sym |> (/= Outer))
