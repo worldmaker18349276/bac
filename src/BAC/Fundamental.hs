@@ -8,6 +8,7 @@ module BAC.Fundamental (
 
   rewire,
   addEdges,
+  removeEdges,
   relabel,
 
   -- * Empty, Singleton
@@ -129,7 +130,7 @@ Nothing
 -}
 rewire ::
   Symbol         -- ^ The symbol referencing to the node to rewire.
-  -> [Symbol]    -- ^ The list of symbols of rewired edges.
+  -> [Symbol]    -- ^ The list of pairs of symbols of rewired edges.
   -> BAC
   -> Maybe BAC
 rewire src tgts node = do
@@ -146,7 +147,7 @@ rewire src tgts node = do
     AtInner res -> return edge {target = res}
     AtBoundary -> return edge {target = res0}
 
-{- | Add edges.
+{- | Add edges.  The structure should not change after adding edges.
 
 Examples:
 
@@ -169,7 +170,7 @@ Examples:
   *2
 -}
 addEdges ::
-  [(Symbol, Symbol)]  -- ^ The list of symbols representing the added edges.
+  [(Symbol, Symbol)]  -- ^ The list of pairs of symbols representing the added edges.
   -> BAC
   -> Maybe BAC
 addEdges syms node = do
@@ -188,6 +189,51 @@ addEdges syms node = do
           |> edges
           |> fmap symbol
           |> (++ tgts)
+    node |> rewire src new_syms
+
+{- | Remove edges.  The structure should not change after removing edges.
+
+Examples:
+
+>>> cone' = fromJust $ cone |> addEdges [(0,6), (3,2)]
+>>> printBAC $ fromJust $ cone' |> removeEdges [(0,6)]
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+  - 0->2
+    *0
+  - 0->4; 1->2; 2->3
+    *1
+-}
+removeEdges ::
+  [(Symbol, Symbol)]  -- ^ The list of pairs of symbols representing the removed edges.
+  -> BAC
+  -> Maybe BAC
+removeEdges syms node = do
+  syms |> traverse_ \sym -> do
+    (arr1, arr2) <- arrow2 node sym
+    guard $ not $ nondecomposable (target arr1) (symbol arr2)
+
+  let syms' = syms |> groupOnKey fst
+  let remove_list =
+        arrows node
+        |> fmap symbol
+        |> mapMaybe (`lookup` syms')
+        |> fmap (\group -> (fst (head group), fmap snd group))
+  (node, remove_list) |> foldlMUncurry \(node, (src, tgts)) -> do
+    let new_syms =
+          arrow node src
+          |> fromJust
+          |> target
+          |> edges
+          |> fmap symbol
+          |> filter (`notElem` tgts)
     node |> rewire src new_syms
 
 {- |
