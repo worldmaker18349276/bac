@@ -43,8 +43,8 @@ module BAC.Fundamental (
 
   duplicateMorphism,
   duplicateMorphism',
-  duplicateInitialMorphismAggressively,
-  duplicateInitialMorphismAggressively',
+  duplicateObject,
+  duplicateObject',
 
   -- * Split Morphism, Object, Category
 
@@ -1044,7 +1044,7 @@ Duplicate a node referenced by a symbol.
 
 Examples:
 
->>> printBAC $ fromJust $ duplicateInitialMorphismAggressively 3 (splitSymbol crescent [0,1]) crescent
+>>> printBAC $ fromJust $ duplicateObject 3 (splitSymbol crescent [0,1]) crescent
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4; 9->7; 13->7
   - 0->1; 1->2; 2->9
     &0
@@ -1063,8 +1063,8 @@ Examples:
   - 0->7; 1->6; 2->13
     *3
 -}
-duplicateInitialMorphismAggressively :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
-duplicateInitialMorphismAggressively tgt splitter node = do
+duplicateObject :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
+duplicateObject tgt splitter node = do
   guard $ locate (root node) tgt |> (== Inner)
   let arrs = arrowsUnder tgt node
   guard $
@@ -1107,7 +1107,7 @@ Duplicate a node referenced by a symbol step by step.
 
 Examples:
 
->>> printBAC $ fromJust $ duplicateInitialMorphismAggressively' 3 (splitSymbol crescent [0,1]) crescent
+>>> printBAC $ fromJust $ duplicateObject' 3 (splitSymbol crescent [0,1]) crescent
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4; 9->7; 13->7
   - 0->1; 1->2; 2->9
     &0
@@ -1126,8 +1126,8 @@ Examples:
   - 0->7; 1->6; 2->13
     *3
 -}
-duplicateInitialMorphismAggressively' :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
-duplicateInitialMorphismAggressively' tgt splitter node = do
+duplicateObject' :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
+duplicateObject' tgt splitter node = do
   guard $ locate (root node) tgt |> (== Inner)
   let arrs = arrowsUnder tgt node
   guard $
