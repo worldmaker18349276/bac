@@ -10,6 +10,7 @@ module BAC.Fundamental (
   addEdge,
   removeEdge,
   relabel,
+  alterSymbol,
 
   -- * Empty, Singleton
 
@@ -75,7 +76,7 @@ import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, fromMaybe, isJust, mapMaybe)
 import Data.Tuple (swap)
-import Data.Tuple.Extra (both)
+import Data.Tuple.Extra (both, dupe)
 import Numeric.Natural (Natural)
 
 import BAC.Base
@@ -260,6 +261,36 @@ relabel tgt mapping node = do
     AtOuter -> return edge
     AtInner res -> return edge {target = res}
     AtBoundary -> return edge {dict = dict edge `cat` unmapping, target = res0}
+
+{- |
+Alter a symbol in a node.
+
+Examples:
+
+>>> printBAC $ fromJust $ alterSymbol (3, 1) 5 cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 2->2; 3->6; 4->4; 5->4
+  - 0->4; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+  - 0->5; 1->2; 2->3
+    *1
+-}
+alterSymbol ::
+  (Symbol, Symbol)  -- ^ The pair of symbols to be altered.
+  -> Symbol         -- ^ The new symbol.
+  -> BAC
+  -> Maybe BAC
+alterSymbol (src, tgt) sym node = do
+  (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
+  let syms = src_arr |> target |> symbols
+  guard $ syms |> filter (/= tgt) |> notElem sym
+  let mapping = syms |> fmap dupe |> Map.fromList |> Map.insert tgt sym
+  node |> relabel src mapping
 
 {- |
 An empty node.
