@@ -17,16 +17,16 @@ module BAC.Fundamental (
   empty,
   singleton,
 
-  -- * Remove Morphism, Object
+  -- * Remove Symbol, Node
 
   missingAltPaths,
-  removeMorphism,
-  removeObject,
-  removeInitialMorphism',
-  removeObject',
-  trimObject,
+  removeNDSymbol,
+  removeLeafNode,
+  removeRootNDSymbol',
+  removeLeafNode',
+  removeNode,
 
-  -- * Add Morphism, Object
+  -- * Add Symbol, Node
 
   Coangle,
   Angle,
@@ -36,33 +36,33 @@ module BAC.Fundamental (
   compatibleCoangles,
   compatibleCoanglesAngles,
   findValidCoanglesAngles,
-  addMorphism,
-  appendObject,
-  insertObject,
+  addNDSymbol,
+  appendNode,
+  insertNode,
 
-  -- * Duplicate Morphism, Object
+  -- * Duplicate Symbol, Node
 
-  duplicateMorphism,
-  duplicateMorphism',
-  duplicateObject,
-  duplicateObject',
+  duplicateNDSymbol,
+  duplicateNDSymbol',
+  duplicateNode,
+  duplicateNode',
 
-  -- * Split Morphism, Object, Category
+  -- * Split Symbol, Node
 
   partitionPrefix,
-  splitMorphism,
-  partitionSymbols,
   splitSymbol,
-  splitObject,
-  splitCategory,
+  partitionSymbols,
+  makeSplitter,
+  splitNode,
+  splitRootNode,
 
-  -- * Merge Morphisms, Objects, Categories
+  -- * Merge Symbols, Nodes
 
-  mergeMorphisms,
-  mergeObjects,
-  mergeCategories,
+  mergeSymbols,
+  mergeNodes,
+  mergeRootNodes,
   expandMergingSymbols,
-  mergeMorphismsAggressively,
+  mergeSymbolsAggressively,
 ) where
 
 import Control.Arrow ((&&&))
@@ -149,7 +149,7 @@ rewire src tgts node = do
     AtInner res -> return edge {target = res}
     AtBoundary -> return edge {target = res0}
 
-{- | Add edges.  The structure should not change after adding edges.
+{- | Add an edge.  The categorical structure should not change after adding this edge.
 
 Examples:
 
@@ -182,7 +182,7 @@ addEdge (src, tgt) node = do
         |> (`snoc` tgt)
   node |> rewire src new_syms
 
-{- | Remove edges.  The structure should not change after removing edges.
+{- | Remove an edge.  The categorical structure should not change after removing this edge.
 
 Examples:
 
@@ -243,8 +243,8 @@ Nothing
 Nothing
 -}
 relabel ::
-  Symbol         -- ^ The symbol referencing to the node to relabel.
-  -> Dict        -- ^ The dictionary to relabel the symbols of the node.
+  Symbol    -- ^ The symbol referencing to the node to relabel.
+  -> Dict   -- ^ The dictionary to relabel the symbols of the node.
   -> BAC
   -> Maybe BAC
 relabel tgt mapping node = do
@@ -293,7 +293,7 @@ alterSymbol (src, tgt) sym node = do
   node |> relabel src mapping
 
 {- |
-An empty node.
+A node without descendant (a BAC without proper object).
 
 Examples:
 
@@ -303,7 +303,7 @@ empty :: BAC
 empty = fromEdges []
 
 {- |
-An singleton node.
+a node with only one descendant (a BAC with only one proper object).
 
 Examples:
 
@@ -361,11 +361,11 @@ missingAltPaths (src, tgt) node = do
   return (src_alts, tgt_alts)
 
 {- |
-Remove a morphism.
+Remove a nondecomposable symbol in a node (remove a non-terminal nondecomposable morphism).
 
 Examples:
 
->>> printBAC $ fromJust $ removeMorphism (1, 1) cone
+>>> printBAC $ fromJust $ removeNDSymbol (1, 1) cone
 - 0->1
 - 0->3; 1->4; 2->2; 3->6; 4->4
   - 0->1; 1->2; 2->3
@@ -375,11 +375,11 @@ Examples:
   - 0->4; 1->2; 2->3
     *0
 
->>> removeMorphism (4, 2) cone
+>>> removeNDSymbol (4, 2) cone
 Nothing
 
 >>> cone' = fromJust $ addEdge (0,4) cone
->>> printBAC $ fromJust $ removeMorphism (0,3) cone'
+>>> printBAC $ fromJust $ removeNDSymbol (0,3) cone'
 - 0->1; 1->2
   - 0->1
     &0
@@ -391,11 +391,11 @@ Nothing
 >>> :{
 printBAC $ fromJust $
   cone
-  |> removeMorphism (3,1)
+  |> removeNDSymbol (3,1)
   >>= addEdge (3,2)
   >>= addEdge (3,3)
   >>= addEdge (0,4)
-  >>= removeMorphism (3,4)
+  >>= removeNDSymbol (3,4)
 :}
 - 0->1; 1->2
   - 0->1
@@ -411,11 +411,11 @@ printBAC $ fromJust $
   - 0->2
     *1
 -}
-removeMorphism ::
+removeNDSymbol ::
   (Symbol, Symbol)  -- ^ The tuple of symbols indicating the morphism to be removed.
   -> BAC
   -> Maybe BAC
-removeMorphism (src, tgt) node = do
+removeNDSymbol (src, tgt) node = do
   guard $ missingAltPaths (src, tgt) node == Just ([],[])
 
   let src_node = arrow node src |> fromJust |> target
@@ -428,11 +428,11 @@ removeMorphism (src, tgt) node = do
       filtered_dict = dict edge |> Map.delete tgt
 
 {- |
-Remove a leaf node.
+Remove a leaf node (remove a terminal nondecomposable morphism).
 
 Examples:
 
->>> printBAC $ fromJust $ removeObject 6 cone
+>>> printBAC $ fromJust $ removeLeafNode 6 cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -444,7 +444,7 @@ Examples:
   - 0->4; 1->2
     *1
 
->>> printBAC $ fromJust $ removeObject 2 cone
+>>> printBAC $ fromJust $ removeLeafNode 2 cone
 - 0->1
 - 0->3; 1->4; 3->6; 4->4
   - 0->1; 2->3
@@ -453,14 +453,14 @@ Examples:
   - 0->4; 2->3
     *0
 
->>> removeObject 4 cone
+>>> removeLeafNode 4 cone
 Nothing
 -}
-removeObject ::
+removeLeafNode ::
   Symbol  -- ^ The symbol indicates the object to be removed.
   -> BAC
   -> Maybe BAC
-removeObject tgt node = do
+removeLeafNode tgt node = do
   guard $ locate (root node) tgt |> (== Inner)
   let tgt_node = arrow node tgt |> fromJust |> target
   guard $ tgt_node |> edges |> null
@@ -473,12 +473,14 @@ removeObject tgt node = do
       filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
 
 {- |
-Remove a morphism step by step: removing all related morphisms, then splitting category.
+Remove a nondecomposable symbol in the root node step by step (remove an initial
+nondecomposable morphism step by step: removing all related morphisms, then splitting
+category).
 
 Examples:
 
 >>> cone' = fromJust $ addEdge (0,4) cone
->>> printBAC $ fromJust $ removeInitialMorphism' 3 cone'
+>>> printBAC $ fromJust $ removeRootNDSymbol' 3 cone'
 - 0->1; 1->2
   - 0->1
     &0
@@ -487,8 +489,8 @@ Examples:
     *0
   - 0->2
 -}
-removeInitialMorphism' :: Symbol -> BAC -> Maybe BAC
-removeInitialMorphism' tgt node = do
+removeRootNDSymbol' :: Symbol -> BAC -> Maybe BAC
+removeRootNDSymbol' tgt node = do
   guard $
     missingAltPaths (0, tgt) node
     |> maybe False \(l, r) -> null l && null r
@@ -508,18 +510,19 @@ removeInitialMorphism' tgt node = do
     node <- (node, add_list') |> foldlMUncurry \(node, add_edge) -> do
       return $ node |> addEdge add_edge |> fromJust
 
-    return $ node |> removeMorphism sym2 |> fromJust
+    return $ node |> removeNDSymbol sym2 |> fromJust
 
   let keys = partitionSymbols node |> fmap (elem tgt)
-  return $ node |> splitCategory keys |> fromJust |> (! False)
+  return $ node |> splitRootNode keys |> fromJust |> (! False)
 
 
 {- |
-Remove an object step by step: removing all related morphisms, then splitting category.
+Remove an leaf node step by step (remove an terminal nondecomposable morphism step by
+stepremoving all related morphisms, then splitting category).
 
 Examples:
 
->>> printBAC $ fromJust $ removeObject' 6 cone
+>>> printBAC $ fromJust $ removeLeafNode' 6 cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -531,7 +534,7 @@ Examples:
   - 0->4; 1->2
     *1
 
->>> printBAC $ fromJust $ removeObject' 2 cone
+>>> printBAC $ fromJust $ removeLeafNode' 2 cone
 - 0->1
 - 0->3; 1->4; 3->6; 4->4
   - 0->1; 2->3
@@ -540,11 +543,11 @@ Examples:
   - 0->4; 2->3
     *0
 
->>> removeObject' 4 cone
+>>> removeLeafNode' 4 cone
 Nothing
 -}
-removeObject' :: Symbol -> BAC -> Maybe BAC
-removeObject' tgt node = do
+removeLeafNode' :: Symbol -> BAC -> Maybe BAC
+removeLeafNode' tgt node = do
   guard $ locate (root node) tgt |> (== Inner)
   let tgt_arr = arrow node tgt |> fromJust
   guard $ tgt_arr |> target |> edges |> null
@@ -560,10 +563,10 @@ removeObject' tgt node = do
     node <- (node, add_list) |> foldlMUncurry \(node, add_edge) -> do
       return $ node |> addEdge add_edge |> fromJust
 
-    return $ node |> removeMorphism sym2 |> fromJust
+    return $ node |> removeNDSymbol sym2 |> fromJust
 
   let keys = partitionSymbols node |> fmap (elem tgt)
-  return $ node |> splitCategory keys |> fromJust |> (! False)
+  return $ node |> splitRootNode keys |> fromJust |> (! False)
 
 -- | Two tuples of symbols representing two morphisms where coforks of the first morphism
 --   are also coforks of the second morphism.  A cofork of a morphism `f` is a pair of
@@ -690,11 +693,11 @@ findValidCoanglesAngles src tgt node = do
   return (src_alts, tgt_alts)
 
 {- |
-Add a symbol in a node.
+Add a nondecomposable symbol in a node (add a non-terminal nondecomposable morphism).
 
 Examples:
 
->>> printBAC $ fromJust $ addMorphism 1 6 2 [0] [] cone
+>>> printBAC $ fromJust $ addNDSymbol 1 6 2 [0] [] cone
 - 0->1; 1->2; 2->6
   - 0->1
     &0
@@ -710,7 +713,7 @@ Examples:
   - 0->4; 1->2; 2->3
     *2
 -}
-addMorphism ::
+addNDSymbol ::
   Symbol     -- ^ The symbol indicating the source object of the morphism to be added.
   -> Symbol  -- ^ The symbol indicating the target object of the morphism to be added.
   -> Symbol  -- ^ The symbol to be added.
@@ -718,7 +721,7 @@ addMorphism ::
   -> [Int]   -- ^ The indices of angles given by `findValidCoanglesAngles`.
   -> BAC
   -> Maybe BAC
-addMorphism src tgt sym src_alts tgt_alts node = do
+addNDSymbol src tgt sym src_alts tgt_alts node = do
   src_arr <- arrow node src
   tgt_arr <- arrow node tgt
   guard $ locate tgt_arr src |> (== Outer)
@@ -784,11 +787,11 @@ partitionPrefix node tgt =
   |> sort
 
 {- |
-Split a symbol on a node.
+Split a symbol on a node (split a non-terminal morphism).
 
 Examples:
 
->>> printBAC $ fromJust $ splitMorphism (0,2) [2,7] cone
+>>> printBAC $ fromJust $ splitSymbol (0,2) [2,7] cone
 - 0->1; 1->2
   - 0->1
 - 0->3; 1->4; 2->7; 3->6; 4->4
@@ -799,7 +802,7 @@ Examples:
   - 0->4; 1->2; 2->3
     *0
 
->>> printBAC $ fromJust $ splitMorphism (3,2) [5,6] cone
+>>> printBAC $ fromJust $ splitSymbol (3,2) [5,6] cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -812,12 +815,12 @@ Examples:
   - 0->4; 1->6; 2->3
     *1
 -}
-splitMorphism ::
+splitSymbol ::
   (Symbol, Symbol)  -- ^ The symbols reference to the morphism to split.
   -> [Symbol]       -- ^ The new symbols of splittable groups given by `partitionPrefix`.
   -> BAC
   -> Maybe BAC
-splitMorphism (src, tgt) splitted_syms node = do
+splitSymbol (src, tgt) splitted_syms node = do
   guard $ tgt /= base
   (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
   let splittable_groups = partitionPrefix (target src_arr) tgt
@@ -877,20 +880,20 @@ partitionSymbols =
   .> fmap (snd .> sort)
   .> sort
 
-splitSymbol :: BAC -> [Natural] -> (Symbol, Symbol) -> [Symbol]
-splitSymbol node offsets (src, tgt) = do
+makeSplitter :: BAC -> [Natural] -> (Symbol, Symbol) -> [Symbol]
+makeSplitter node offsets (src, tgt) = do
   let ran = arrow node src |> fromJust |> target |> symbols |> maximum
   offset <- offsets
   return $ ran * offset + tgt
 
 {- |
-Split a node referenced by a symbol.
+Split a node (split a terminal morphism).
 
 Examples:
 
 >>> keys = [0::Natural,1]
->>> splitter = splitSymbol crescent keys .> zip keys .> fromList
->>> printBAC $ fromJust $ splitObject 1 keys splitter crescent
+>>> splitter = makeSplitter crescent keys .> zip keys .> fromList
+>>> printBAC $ fromJust $ splitNode 1 keys splitter crescent
 - 0->1; 1->2; 2->3; 3->4
   - 0->1; 1->2
     &0
@@ -906,14 +909,14 @@ Examples:
   - 0->7; 1->6
     *2
 -}
-splitObject ::
+splitNode ::
   Ord k
   => Symbol  -- ^ The symbol referencing the node to be splitted.
   -> [k]     -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
   -> ((Symbol, Symbol) -> Map k Symbol)
   -> BAC
   -> Maybe BAC
-splitObject tgt splittable_keys splitter node = do
+splitNode tgt splittable_keys splitter node = do
   guard $ locate (root node) tgt |> (== Inner)
   let tgt_arr = arrow node tgt |> fromJust
   let splitted_keys = splittable_keys |> nubSort
@@ -936,7 +939,7 @@ splitObject tgt splittable_keys splitter node = do
     arrow node tgt
     |> fromJust
     |> target
-    |> splitCategory splittable_keys
+    |> splitRootNode splittable_keys
     |> fmap Map.elems
   let splitter' = first symbol .> splitter .> Map.elems
 
@@ -960,12 +963,12 @@ splitObject tgt splittable_keys splitter node = do
       return edge {dict = splitted_dict, target = res}
 
 {- |
-Split a root node.
+Split a root node (split a BAC).
 
 Examples:
 
 >>> let crescent_1 = target $ fromJust $ arrow crescent 1
->>> traverse_ printBAC $ fromJust $ splitCategory [False,True] crescent_1
+>>> traverse_ printBAC $ fromJust $ splitRootNode [False,True] crescent_1
 - 0->1; 1->2
   - 0->1
     &0
@@ -979,12 +982,12 @@ Examples:
   - 0->1
     *0
 -}
-splitCategory ::
+splitRootNode ::
   Ord k
   => [k]  -- ^ The keys to classify splittable groups of symbols given by `partitionSymbols`.
   -> BAC
   -> Maybe (Map k BAC)
-splitCategory splittable_keys node = do
+splitRootNode splittable_keys node = do
   let splittable_groups = partitionSymbols node
   guard $ length splittable_groups == length splittable_keys
 
@@ -1000,9 +1003,10 @@ splitCategory splittable_keys node = do
     return (key, fromEdges splitted_edges)
 
 
--- | Duplicate a nondecomposable symbol in a node.
-duplicateMorphism :: (Symbol, Symbol) -> [Symbol] -> BAC -> Maybe BAC
-duplicateMorphism (src, tgt) syms node = do
+-- | Duplicate a nondecomposable symbol in a node (duplicate a non-terminal
+--   nondecomposable morphism).
+duplicateNDSymbol :: (Symbol, Symbol) -> [Symbol] -> BAC -> Maybe BAC
+duplicateNDSymbol (src, tgt) syms node = do
   guard $ notNull syms
   src_arr <- arrow node src
   let src_node = target src_arr
@@ -1034,9 +1038,10 @@ duplicateMorphism (src, tgt) syms node = do
       let splitted_dict = dict edge |> Map.delete tgt |> Map.insert sym sym'
       return edge {dict = splitted_dict, target = res0}
 
--- | Duplicate a nondecomposable symbol in a node step by step.
-duplicateMorphism' :: (Symbol, Symbol) -> [Symbol] -> BAC -> Maybe BAC
-duplicateMorphism' (src, tgt) syms node = do
+-- | Duplicate a nondecomposable symbol in a node step by step (duplicate a non-terminal
+--   nondecomposable morphism step by step).
+duplicateNDSymbol' :: (Symbol, Symbol) -> [Symbol] -> BAC -> Maybe BAC
+duplicateNDSymbol' (src, tgt) syms node = do
   guard $ notNull syms
   src_arr <- arrow node src
   let src_node = target src_arr
@@ -1062,18 +1067,18 @@ duplicateMorphism' (src, tgt) syms node = do
         |> fmap ((findIndex \(ss1, ss2) -> (src, tgt) `joinSS` ss1 == ss2) .> fromJust)
 
   node <- (node, filter (/= tgt) syms) |> foldlMUncurry \(node, sym) ->
-    node |> addMorphism src tgt' sym src_alts tgt_alts
+    node |> addNDSymbol src tgt' sym src_alts tgt_alts
 
   if tgt `elem` syms
   then return node
-  else node |> removeMorphism (src, tgt)
+  else node |> removeNDSymbol (src, tgt)
 
 {- |
-Duplicate a node referenced by a symbol.
+Duplicate a node (duplicate initial and terminal morphisms simultaneously).
 
 Examples:
 
->>> printBAC $ fromJust $ duplicateObject 3 (splitSymbol crescent [0,1]) crescent
+>>> printBAC $ fromJust $ duplicateNode 3 (makeSplitter crescent [0,1]) crescent
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4; 9->7; 13->7
   - 0->1; 1->2; 2->9
     &0
@@ -1092,8 +1097,8 @@ Examples:
   - 0->7; 1->6; 2->13
     *3
 -}
-duplicateObject :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
-duplicateObject tgt splitter node = do
+duplicateNode :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
+duplicateNode tgt splitter node = do
   guard $ locate (root node) tgt |> (== Inner)
   let arrs = arrowsUnder tgt node
   guard $
@@ -1132,11 +1137,11 @@ duplicateObject tgt splitter node = do
       return edge {dict = splitted_dict}
 
 {- |
-Duplicate a node referenced by a symbol step by step.
+Duplicate a node step by step (duplicate a terminal morphism step by step).
 
 Examples:
 
->>> printBAC $ fromJust $ duplicateObject' 3 (splitSymbol crescent [0,1]) crescent
+>>> printBAC $ fromJust $ duplicateNode' 3 (makeSplitter crescent [0,1]) crescent
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4; 9->7; 13->7
   - 0->1; 1->2; 2->9
     &0
@@ -1155,8 +1160,8 @@ Examples:
   - 0->7; 1->6; 2->13
     *3
 -}
-duplicateObject' :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
-duplicateObject' tgt splitter node = do
+duplicateNode' :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
+duplicateNode' tgt splitter node = do
   guard $ locate (root node) tgt |> (== Inner)
   let arrs = arrowsUnder tgt node
   guard $
@@ -1192,7 +1197,7 @@ duplicateObject' tgt splitter node = do
 
   node <- (node, dup_list) |> foldlMUncurry \(node, (s1, s2)) -> do
     let syms = splitter (s1, s2)
-    node |> duplicateMorphism' (s1, s2) syms
+    node |> duplicateNDSymbol' (s1, s2) syms
 
   (node, split_list) |> foldlMUncurry \(node, (s1, s2)) -> do
     let src_arr_origin = arrow origin_node s1 |> fromJust
@@ -1216,14 +1221,14 @@ duplicateObject' tgt splitter node = do
             |> fromJust
             |> (splitted_symbols !!)
 
-    node |> splitMorphism (s1, s2) syms
+    node |> splitSymbol (s1, s2) syms
 
 {- |
-Merge symbols on a node.
+Merge symbols on a node (merge non-terminal morphisms).
 
 Examples:
 
->>> printBAC $ fromJust $ mergeMorphisms (1,[2,3,6,8]) torus
+>>> printBAC $ fromJust $ mergeSymbols (1,[2,3,6,8]) torus
 - 0->1; 1->2; 2->3; 4->5; 7->2; 10->5
   - 0->1; 1->2; 2->2
     &0
@@ -1242,11 +1247,11 @@ Examples:
   - 0->10; 1->2; 2->2
     *2
 -}
-mergeMorphisms ::
+mergeSymbols ::
   (Symbol, [Symbol])  -- ^ The symbol referencing the node and symbols to be merged.
   -> BAC
   -> Maybe BAC
-mergeMorphisms (src, tgts) node = do
+mergeSymbols (src, tgts) node = do
   guard $ notNull tgts
   src_arr <- arrow node src
   tgt_arrs <- tgts |> traverse (arrow (target src_arr))
@@ -1271,12 +1276,12 @@ mergeMorphisms (src, tgts) node = do
       dict' = dict edge |> Map.toList |> fmap (first merge) |> Map.fromList
 
 {- |
-Merge nodes.
+Merge nodes (merge terminal morphisms).
 
 Examples:
 
 >>> crescent' = fromJust $ relabel 2 (fromList [(0,0),(1,2)]) crescent
->>> printBAC $ fromJust $ mergeObjects [2,4] [[False,True], [False,True]] crescent'
+>>> printBAC $ fromJust $ mergeNodes [2,4] [[False,True], [False,True]] crescent'
 - 0->1; 1->2; 2->3; 5->2; 6->3
   - 0->1; 1->2; 2->2
     &0
@@ -1287,20 +1292,20 @@ Examples:
   - 0->5; 1->6; 2->6
     *0
 -}
-mergeObjects ::
+mergeNodes ::
   Eq k
   => [Symbol]   -- ^ The symbols referencing the nodes to be merged.
   -> [[k]]      -- ^ The merging table of nondecomposable incoming morphisms of the nodes.
                 --   The arrows with the same key will be merged.
   -> BAC
   -> Maybe BAC
-mergeObjects tgts keys node = do
+mergeNodes tgts keys node = do
   guard $ notNull tgts
   guard $ lowerIso tgts keys node
 
   let tgt = head tgts
   let tgt_nodes = tgts |> fmap (arrow node .> fromJust .> target)
-  merged_node <- mergeCategories tgt_nodes
+  merged_node <- mergeRootNodes tgt_nodes
 
   let tgt_pars = tgts |> fmap (suffixND node)
   let merging_arrs =
@@ -1350,16 +1355,16 @@ mergeObjects tgts keys node = do
       in fromEdges collapsed_edges
 
 {- |
-Merge multiple nodes.
+Merge root nodes (merge BACs).
 
 Examples:
 
->>> printBAC $ fromJust $ mergeCategories [fromJust $ singleton 1, fromJust $ singleton 2, empty, fromJust $ singleton 3]
+>>> printBAC $ fromJust $ mergeRootNodes [fromJust $ singleton 1, fromJust $ singleton 2, empty, fromJust $ singleton 3]
 - 0->1
 - 0->2
 - 0->3
 
->>> printBAC $ fromJust $ mergeCategories [fromJust $ singleton 6, crescent]
+>>> printBAC $ fromJust $ mergeRootNodes [fromJust $ singleton 6, crescent]
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4
   - 0->1; 1->2
     &0
@@ -1375,8 +1380,8 @@ Examples:
     *2
 - 0->6
 -}
-mergeCategories :: [BAC] -> Maybe BAC
-mergeCategories nodes = do
+mergeRootNodes :: [BAC] -> Maybe BAC
+mergeRootNodes nodes = do
   guard $ nodes |> fmap (symbols .> filter (/= base)) |> concat |> anySame |> not
   return $ nodes |> concatMap edges |> fromEdges
 
@@ -1390,8 +1395,9 @@ mergeCategories nodes = do
 --     let dict' = dict edge |> fmap (+ offset)
 --     return edge {dict = dict'}
 
-trimObject :: Symbol -> BAC -> Maybe BAC
-trimObject tgt node = do
+-- | Remove a node (remove initial and terminal morphisms simultaneously).
+removeNode :: Symbol -> BAC -> Maybe BAC
+removeNode tgt node = do
   guard $ locate (root node) tgt |> (== Inner)
   tgt_arr <- arrow node tgt
 
@@ -1405,12 +1411,12 @@ trimObject tgt node = do
       where
       filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
 
-appendObject :: Symbol -> BAC -> Maybe BAC
-appendObject src node = do
+appendNode :: Symbol -> BAC -> Maybe BAC
+appendNode src node = do
   src_arr <- arrow node src
   let src_node = target src_arr
   let new_node = fromJust $ singleton (maximum (symbols src_node) + 1)
-  let res0 = fromJust $ mergeCategories [src_node, new_node]
+  let res0 = fromJust $ mergeRootNodes [src_node, new_node]
   fromReachable res0 $
     node |> modifyUnder src \(curr, edge) lres -> case fromReachable res0 lres of
       Nothing -> return edge
@@ -1420,8 +1426,8 @@ appendObject src node = do
         new_sym' = symbols (target edge) |> maximum |> (+ 1)
         new_dict = dict edge |> Map.insert new_sym' new_sym
 
-insertObject :: (Symbol, Maybe Symbol) -> BAC -> Maybe BAC
-insertObject (src, tgt) node = do
+insertNode :: (Symbol, Maybe Symbol) -> BAC -> Maybe BAC
+insertNode (src, tgt) node = do
   src_arr <- arrow node src
   let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
   new_inedge <- case tgt of
@@ -1469,8 +1475,8 @@ expandMergingSymbols node =
   .> fmap sort
   .> sort
 
-mergeMorphismsAggressively :: Symbol -> [[Symbol]] -> BAC -> Maybe BAC
-mergeMorphismsAggressively src tgts node = do
+mergeSymbolsAggressively :: Symbol -> [[Symbol]] -> BAC -> Maybe BAC
+mergeSymbolsAggressively src tgts node = do
   src_arr <- arrow node src
 
   tgt_arrs <- tgts |> traverse (traverse (arrow (target src_arr)))
