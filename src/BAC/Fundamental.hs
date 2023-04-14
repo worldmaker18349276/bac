@@ -50,9 +50,9 @@ module BAC.Fundamental (
   -- * Split Symbol, Node
 
   partitionPrefix,
-  splitSymbol,
   partitionSymbols,
   makeSplitter,
+  splitSymbol,
   splitNode,
   splitRootNode,
 
@@ -1354,28 +1354,16 @@ mergeRootNodes nodes = do
   guard $ nodes |> fmap (symbols .> filter (/= base)) |> concat |> anySame |> not
   return $ nodes |> concatMap edges |> fromEdges
 
--- distinctNodes :: [BAC] -> [Dict]
--- distinctNodes nodes = fromEdges merged_edges
---   where
---   offsets = nodes |> fmap (symbols .> maximum) |> scanl (+) 0
---   merged_edges = do
---     (offset, node) <- zip offsets nodes
---     edge <- edges node
---     let dict' = dict edge |> fmap (+ offset)
---     return edge {dict = dict'}
-
 -- | Remove a node (remove initial and terminal morphisms simultaneously).
 removeNode :: Symbol -> BAC -> Maybe BAC
 removeNode tgt node = do
-  guard $ locate (root node) tgt |> (== Inner)
+  guard $ locate (root node) tgt == Inner
   tgt_arr <- arrow node tgt
+  guard $ missingAltPathsOfNode tgt node == Just []
 
   fromReachable (target tgt_arr) $ node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
-    AtBoundary -> do
-      subedge <- target edge |> edges
-      let concated_dict = dict edge `cat` dict subedge
-      return subedge {dict = concated_dict}
+    AtBoundary -> mzero
     AtInner res -> return edge {dict = filtered_dict, target = res}
       where
       filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
