@@ -445,15 +445,14 @@ removeNDSymbol (src, tgt) node = do
       where
       filtered_dict = dict edge |> Map.delete tgt
 
--- | Remove a nondecomposable symbol in the root node (remove nondecomposable initial and
---   terminal morphisms simultaneously).
+-- | Remove a nondecomposable symbol in the root node (remove a nondecomposable initial
+--   morphism).
 removeRootNDSymbol :: Symbol -> BAC -> Maybe BAC
 removeRootNDSymbol tgt = removeNDSymbol (base, tgt)
 
 {- |
-Remove a nondecomposable symbol in the root node step by step (remove an initial
-nondecomposable morphism step by step: removing all related morphisms, then splitting
-category).
+Remove a nondecomposable symbol in the root node step by step (remove a nondecomposable
+initial morphism step by step: removing all related morphisms, then splitting category).
 
 Examples:
 
@@ -494,8 +493,7 @@ removeRootNDSymbol' tgt node = do
   return $ node |> splitRootNode keys |> fromJust |> (! False)
 
 
--- | Remove a leaf node (remove initial and nondecomposable terminal morphisms
---   simultaneously).
+-- | Remove a leaf node (remove a nondecomposable terminal morphisms).
 removeLeafNode :: Symbol -> BAC -> Maybe BAC
 removeLeafNode tgt node = do
   tgt_arr <- arrow node tgt
@@ -504,8 +502,8 @@ removeLeafNode tgt node = do
   removeNode tgt node
 
 {- |
-Remove an leaf node step by step (remove an terminal nondecomposable morphism step by
-stepremoving all related morphisms, then splitting category).
+Remove an leaf node step by step (remove a nondecomposable terminal morphism step by step:
+removing all related morphisms, then splitting category).
 
 Examples:
 
@@ -1061,7 +1059,7 @@ duplicateNDSymbol' (src, tgt) syms node = do
   else node |> removeNDSymbol (src, tgt)
 
 {- |
-Duplicate a node (duplicate initial and terminal morphisms simultaneously).
+Duplicate a node (duplicate an object).
 
 Examples:
 
@@ -1124,7 +1122,7 @@ duplicateNode tgt splitter node = do
       return edge {dict = splitted_dict}
 
 {- |
-Duplicate a node step by step (duplicate a terminal morphism step by step).
+Duplicate a node step by step (duplicate an object step by step).
 
 Examples:
 
@@ -1210,9 +1208,12 @@ duplicateNode' tgt splitter node = do
 
     node |> splitSymbol (s1, s2) syms
 
+-- | Duplicate a nondecomposable symbol in the root node (duplicate an initial
+--   nondecomposable morphism).
 duplicateRootNDSymbol :: Symbol -> [Symbol] -> BAC -> Maybe BAC
 duplicateRootNDSymbol tgt = duplicateNDSymbol (base, tgt)
 
+-- | Duplicate a leaf node (duplicate a nondecomposable terminal morphism).
 duplicateLeafNode :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
 duplicateLeafNode tgt splitter node = do
   tgt_arr <- arrow node tgt
