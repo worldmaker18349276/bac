@@ -23,6 +23,8 @@ module BAC.Fundamental (
   missingAltPathsOfNode,
   removeNDSymbol,
   removeNode,
+  removeRootNDSymbol,
+  removeLeafNode,
   removeRootNDSymbol',
   removeLeafNode',
 
@@ -440,6 +442,25 @@ removeNDSymbol (src, tgt) node = do
     AtBoundary -> return edge {dict = filtered_dict, target = res0}
       where
       filtered_dict = dict edge |> Map.delete tgt
+
+-- | Remove a nondecomposable symbol in the root node (remove nondecomposable initial and
+--   terminal morphisms simultaneously).
+removeRootNDSymbol :: Symbol -> BAC -> Maybe BAC
+removeRootNDSymbol tgt node = do
+  guard $ locate (root node) tgt == Inner
+  guard $ nondecomposable node tgt
+
+  removeNDSymbol (base, tgt) node
+
+-- | Remove a leaf node (remove initial and nondecomposable terminal morphisms
+--   simultaneously).
+removeLeafNode :: Symbol -> BAC -> Maybe BAC
+removeLeafNode tgt node = do
+  guard $ locate (root node) tgt == Inner
+  tgt_arr <- arrow node tgt
+  guard $ target tgt_arr |> edges |> null
+
+  removeNode tgt node
 
 {- |
 Remove a nondecomposable symbol in the root node step by step (remove an initial
