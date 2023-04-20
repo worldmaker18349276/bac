@@ -4,13 +4,20 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module BAC.Fundamental (
+  Mutation (..),
+
   -- * Restructure #restructure#
 
   rewire,
   addEdge,
   removeEdge,
   relabel,
+  relabelRoot,
   alterSymbol,
+
+  relabelMutation,
+  relabelRootMutation,
+  alterSymbolMutation,
 
   -- * Empty, Singleton
 
@@ -71,7 +78,7 @@ module BAC.Fundamental (
 
 import Control.Arrow ((&&&))
 import Control.Monad (MonadPlus (mzero), guard)
-import Data.Bifunctor (Bifunctor (first, second))
+import Data.Bifunctor (Bifunctor (first, second, bimap))
 import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
 import Data.List (elemIndex, elemIndices, findIndex, nub, sort, sortOn, transpose)
@@ -94,6 +101,15 @@ import Utils.Utils (foldlMUncurry, guarded, (.>), (|>))
 -- >>> import BAC.Serialize
 -- >>> import BAC.Examples (cone, torus, crescent)
 -- >>> import Data.Map (fromList)
+
+-- | A mark indicating mutations of symbols.  `Permutation` indicates exchanging symbols;
+--   `Duplication` indicates duplicating a symbol; `Contraction` indicates merging
+--   symbols.  Note that `Duplication sym []` means removing a symbol; `Contraction [] sym`
+--   means adding a symbol.
+data Mutation =
+    Permutation [(Symbol, Symbol)] [(Symbol, Symbol)]
+  | Duplication  (Symbol, Symbol)  [(Symbol, Symbol)]
+  | Contraction [(Symbol, Symbol)]  (Symbol, Symbol)
 
 {- |
 Rewire edges of a given node.
@@ -219,7 +235,7 @@ removeEdge (src, tgt) node = do
   node |> rewire src new_syms
 
 {- |
-Relabel a given node.
+Relabel symbols in a given node.
 
 Examples:
 
@@ -266,6 +282,39 @@ relabel tgt mapping node = do
     AtInner res -> return edge {target = res}
     AtBoundary -> return edge {dict = dict edge `cat` unmapping, target = res0}
 
+relabelMutation :: Symbol -> Dict -> BAC -> [Mutation]
+relabelMutation tgt mapping node =
+  mapping
+  |> Map.toList
+  |> filter (fst .> (/= base))
+  |> fmap (both (tgt,))
+  |> unzip
+  |> uncurry Permutation
+  |> (: [])
+  |> if tgt == base then (++ root_mutation) else id
+  where
+  root_mutation =
+    mapping
+    |> Map.toList
+    |> concatMap \(sym, sym') ->
+      arrow node sym
+      |> fromJust
+      |> target
+      |> symbols
+      |> filter (/= base)
+      |> fmap dupe
+      |> fmap ((sym,) `bimap` (sym',))
+      |> unzip
+      |> uncurry Permutation
+      |> (: [])
+
+-- | Relabel symbols in the root node.
+relabelRoot :: Dict -> BAC -> Maybe BAC
+relabelRoot = relabel base
+
+relabelRootMutation :: Dict -> BAC -> [Mutation]
+relabelRootMutation = relabelMutation base
+
 {- |
 Alter a symbol in a node.
 
@@ -295,6 +344,23 @@ alterSymbol (src, tgt) sym node = do
   guard $ syms |> filter (/= tgt) |> notElem sym
   let mapping = syms |> fmap dupe |> Map.fromList |> Map.insert tgt sym
   node |> relabel src mapping
+
+alterSymbolMutation :: (Symbol, Symbol) -> Symbol -> BAC -> [Mutation]
+alterSymbolMutation (src, tgt) sym node =
+  [Permutation [(src, tgt)] [(src, sym)] | tgt /= base]
+  |> if src == base then (++ root_mutation) else id
+  where
+  root_mutation =
+    arrow node tgt
+    |> fromJust
+    |> target
+    |> symbols
+    |> filter (/= base)
+    |> fmap dupe
+    |> fmap ((tgt,) `bimap` (sym,))
+    |> unzip
+    |> uncurry Permutation
+    |> (: [])
 
 {- |
 A node without descendant (a BAC without proper object).
