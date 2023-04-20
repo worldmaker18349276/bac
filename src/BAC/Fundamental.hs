@@ -78,8 +78,13 @@ module BAC.Fundamental (
   partitionSymbols,
   makeSplitter,
   splitSymbol,
+  splitRootSymbol,
   splitNode,
   splitRootNode,
+
+  splitSymbolMutation,
+  splitRootSymbolMutation,
+  splitNodeMutation,
 
   -- * Merge Symbols, Nodes
 
@@ -96,7 +101,7 @@ import Data.Bifunctor (Bifunctor (first, second, bimap))
 import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
 import Data.List (elemIndex, elemIndices, findIndex, nub, sort, sortOn, transpose)
-import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, (!?), snoc)
+import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, (!?), snoc, groupOnKey)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, fromMaybe, isJust, mapMaybe)
@@ -975,6 +980,29 @@ splitSymbol (src, tgt) splitted_syms node = do
         | otherwise = [(s, r)]
       merged_dict = dict edge |> Map.toList |> concatMap merge |> Map.fromList
 
+splitSymbolMutation :: (Symbol, Symbol) -> [Symbol] -> BAC -> [Mutation]
+splitSymbolMutation (src, tgt) splitted_syms node =
+  [Duplication (src, tgt) (fmap (src,) syms)]
+  |> if src == base then (++ root_mutation) else id
+  where
+  syms = nub splitted_syms
+  splittable_groups = arrow node src |> fromJust |> target |> (`partitionPrefix` tgt)
+  splitted_groups =
+    splitted_syms `zip` splittable_groups
+    |> groupOnKey fst
+    |> fmap (second (concatMap snd))
+  root_mutation =
+    splitted_groups
+    |> fmap \(sym, group) ->
+      Permutation group (fmap (first (const sym)) group)
+
+-- | Split a symbol in the root node (split an initial morphism).
+splitRootSymbol :: Symbol -> [Symbol] -> BAC -> Maybe BAC
+splitRootSymbol tgt = splitSymbol (base, tgt)
+
+splitRootSymbolMutation :: Symbol -> [Symbol] -> BAC -> [Mutation]
+splitRootSymbolMutation tgt = splitSymbolMutation (base, tgt)
+
 {- |
 Partition symbols of a object.
 It returns a partition of `symbols` of the given node, where the objects represented by
@@ -1079,6 +1107,37 @@ splitNode tgt splittable_keys splitter node = do
       let splitted_dict =
             dict edge |> Map.toList |> mapMaybe split |> Map.fromList
       return edge {dict = splitted_dict, target = res}
+
+splitNodeMutation ::
+  Ord k
+  => Symbol
+  -> [k]
+  -> ((Symbol, Symbol) -> Map k Symbol)
+  -> BAC
+  -> [Mutation]
+splitNodeMutation tgt splittable_keys splitter node =
+  incoming_mutation ++ outgoing_mutation
+  where
+  incoming_mutation =
+    suffix node tgt
+    |> fmap symbol2
+    |> fmap \(s1, s2) ->
+      Duplication (s1, s2) (splitter (s1, s2) |> Map.elems |> fmap (s1,))
+  splittable_groups =
+    splittable_keys `zip` partitionSymbols node
+    |> concatMap sequence
+    |> fmap swap
+    |> Map.fromList
+  outgoing_mutation =
+    arrow node tgt
+    |> fromJust
+    |> target
+    |> edges
+    |> fmap symbol
+    |> id &&& fmap (\s -> splittable_groups ! s |> (splitter (tgt, s) !))
+    |> both (fmap (tgt,))
+    |> uncurry Permutation
+    |> (: [])
 
 {- |
 Split a root node (split a BAC).
