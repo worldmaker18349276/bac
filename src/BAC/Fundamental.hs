@@ -89,10 +89,14 @@ module BAC.Fundamental (
   -- * Merge Symbols, Nodes
 
   mergeSymbols,
+  mergeRootSymbols,
   mergeNodes,
   mergeRootNodes,
   expandMergingSymbols,
   mergeSymbolsAggressively,
+
+  mergeSymbolsMutation,
+  mergeRootSymbolsMutation,
 ) where
 
 import Control.Arrow ((&&&))
@@ -1506,6 +1510,26 @@ mergeSymbols (src, tgts) sym node = do
     AtBoundary -> return edge {dict = dict', target = res0}
       where
       dict' = dict edge |> Map.toList |> fmap (first merge) |> Map.fromList
+
+mergeSymbolsMutation :: (Symbol, [Symbol]) -> Symbol -> BAC -> [Mutation]
+mergeSymbolsMutation (src, tgts) sym node =
+  [Contraction (fmap (src,) tgts) (src, sym)]
+  |> if src == base then (++ root_mutation) else id
+  where
+  root_mutation =
+    arrow node (head tgts)
+    |> fromJust
+    |> target
+    |> edges
+    |> fmap symbol
+    |> fmap \s ->
+      Contraction (fmap (,s) tgts) (sym, s)
+
+mergeRootSymbols :: [Symbol] -> Symbol -> BAC -> Maybe BAC
+mergeRootSymbols tgts = mergeSymbols (base, tgts)
+
+mergeRootSymbolsMutation :: [Symbol] -> Symbol -> BAC -> [Mutation]
+mergeRootSymbolsMutation tgts = mergeSymbolsMutation (base, tgts)
 
 {- |
 Merge nodes (merge terminal morphisms).
