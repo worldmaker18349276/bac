@@ -15,6 +15,8 @@ module BAC.Fundamental (
   relabelRoot,
   alterSymbol,
 
+  addEdgeMutation,
+  removeEdgeMutation,
   relabelMutation,
   relabelRootMutation,
   alterSymbolMutation,
@@ -209,6 +211,9 @@ addEdge (src, tgt) node = do
         |> (`snoc` tgt)
   node |> rewire src new_syms
 
+addEdgeMutation :: (Symbol, Symbol) -> BAC -> [Mutation]
+addEdgeMutation (src, tgt) _node = [Contraction [] (src, tgt)]
+
 {- | Remove an edge.  The categorical structure should not change after removing this edge.
 
 Examples:
@@ -240,6 +245,9 @@ removeEdge (src, tgt) node = do
         |> fmap symbol
         |> filter (/= tgt)
   node |> rewire src new_syms
+
+removeEdgeMutation :: (Symbol, Symbol) -> BAC -> [Mutation]
+removeEdgeMutation (src, tgt) _node = [Duplication (src, tgt) []]
 
 {- |
 Relabel symbols in a given node.
@@ -291,9 +299,12 @@ relabel tgt mapping node = do
 
 relabelMutation :: Symbol -> Dict -> BAC -> [Mutation]
 relabelMutation tgt mapping node =
-  mapping
-  |> Map.toList
-  |> filter (fst .> (/= base))
+  arrow node tgt
+  |> fromJust
+  |> target
+  |> edges
+  |> fmap symbol
+  |> fmap (id &&& (mapping !))
   |> fmap (both (tgt,))
   |> unzip
   |> uncurry Permutation
@@ -307,8 +318,8 @@ relabelMutation tgt mapping node =
       arrow node sym
       |> fromJust
       |> target
-      |> symbols
-      |> filter (/= base)
+      |> edges
+      |> fmap symbol
       |> fmap dupe
       |> fmap ((sym,) `bimap` (sym',))
       |> unzip
@@ -354,15 +365,24 @@ alterSymbol (src, tgt) sym node = do
 
 alterSymbolMutation :: (Symbol, Symbol) -> Symbol -> BAC -> [Mutation]
 alterSymbolMutation (src, tgt) sym node =
-  [Permutation [(src, tgt)] [(src, sym)] | tgt /= base]
+  arrow node src
+  |> fromJust
+  |> target
+  |> edges
+  |> fmap symbol
+  |> elem tgt
+  |> (\case
+    False -> []
+    True -> [Permutation [(src, tgt)] [(src, sym)]]
+  )
   |> if src == base then (++ root_mutation) else id
   where
   root_mutation =
     arrow node tgt
     |> fromJust
     |> target
-    |> symbols
-    |> filter (/= base)
+    |> edges
+    |> fmap symbol
     |> fmap dupe
     |> fmap ((tgt,) `bimap` (sym,))
     |> unzip
@@ -527,8 +547,8 @@ removeNDSymbolMutation (src, tgt) node =
     arrow node tgt
     |> fromJust
     |> target
-    |> symbols
-    |> filter (/= base)
+    |> edges
+    |> fmap symbol
     |> fmap (tgt,)
     |> fmap (`Duplication` [])
 
@@ -851,8 +871,8 @@ addNDSymbolMutation src tgt sym _src_alts _tgt_alts node =
     arrow node tgt
     |> fromJust
     |> target
-    |> symbols
-    |> filter (/= base)
+    |> edges
+    |> fmap symbol
     |> fmap \s ->
       Duplication (tgt, s) [(tgt, s), (sym, s)]
 
@@ -1508,12 +1528,12 @@ removeNodeMutation tgt node =
   arrow node tgt
   |> fromJust
   |> target
-  |> symbols
-  |> filter (/= base)
+  |> edges
+  |> fmap symbol
   |> fmap (tgt,)
   |> fmap (`Duplication` [])
   |> (++) (
-    allSuffix node tgt
+    suffix node tgt
     |> fmap symbol2
     |> fmap (`Duplication` [])
   )
