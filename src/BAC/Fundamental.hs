@@ -54,6 +54,8 @@ module BAC.Fundamental (
   appendNode,
   insertNode,
 
+  addNDSymbolMutation,
+
   -- * Duplicate Symbol, Node
 
   duplicateNDSymbol,
@@ -839,6 +841,20 @@ addNDSymbol src tgt sym src_alts tgt_alts node = do
       where
       new_wire = find_new_wire (curr, edge)
       new_dict = dict edge |> uncurry Map.insert new_wire
+
+addNDSymbolMutation :: Symbol -> Symbol -> Symbol -> [Int] -> [Int] -> BAC -> [Mutation]
+addNDSymbolMutation src tgt sym _src_alts _tgt_alts node =
+  [Contraction [] (src, sym)]
+  |> if src == base then (++ root_mutation) else id
+  where
+  root_mutation =
+    arrow node tgt
+    |> fromJust
+    |> target
+    |> symbols
+    |> filter (/= base)
+    |> fmap \s ->
+      Duplication (tgt, s) [(tgt, s), (sym, s)]
 
 {- |
 Partition the prefixes of a morphism.
