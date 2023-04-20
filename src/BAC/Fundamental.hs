@@ -112,13 +112,14 @@ import Utils.Utils (foldlMUncurry, guarded, (.>), (|>))
 -- >>> import Data.Map (fromList)
 
 -- | A mark indicating mutations of symbols.  `Permutation` indicates exchanging symbols;
---   `Duplication` indicates duplicating a symbol; `Contraction` indicates merging
---   symbols.  Note that `Duplication sym []` means removing a symbol; `Contraction [] sym`
---   means adding a symbol.
+--   `Duplication` indicates duplicating a symbol; `Contraction` indicates merging symbols;
+--   `Deletion` indicates removing a symbol; `Insertion` indicates adding a symbol.
 data Mutation =
     Permutation [(Symbol, Symbol)] [(Symbol, Symbol)]
   | Duplication  (Symbol, Symbol)  [(Symbol, Symbol)]
   | Contraction [(Symbol, Symbol)]  (Symbol, Symbol)
+  | Deletion     (Symbol, Symbol)
+  | Insertion                       (Symbol, Symbol)
 
 {- |
 Rewire edges of a given node.
@@ -212,7 +213,7 @@ addEdge (src, tgt) node = do
   node |> rewire src new_syms
 
 addEdgeMutation :: (Symbol, Symbol) -> BAC -> [Mutation]
-addEdgeMutation (src, tgt) _node = [Contraction [] (src, tgt)]
+addEdgeMutation (src, tgt) _node = [Insertion (src, tgt)]
 
 {- | Remove an edge.  The categorical structure should not change after removing this edge.
 
@@ -247,7 +248,7 @@ removeEdge (src, tgt) node = do
   node |> rewire src new_syms
 
 removeEdgeMutation :: (Symbol, Symbol) -> BAC -> [Mutation]
-removeEdgeMutation (src, tgt) _node = [Duplication (src, tgt) []]
+removeEdgeMutation (src, tgt) _node = [Deletion (src, tgt)]
 
 {- |
 Relabel symbols in a given node.
@@ -550,7 +551,7 @@ removeNDSymbolMutation (src, tgt) node =
     |> edges
     |> fmap symbol
     |> fmap (tgt,)
-    |> fmap (`Duplication` [])
+    |> fmap Deletion
 
 -- | Remove a nondecomposable symbol in the root node (remove a nondecomposable initial
 --   morphism).
@@ -864,7 +865,7 @@ addNDSymbol src tgt sym src_alts tgt_alts node = do
 
 addNDSymbolMutation :: Symbol -> Symbol -> Symbol -> [Int] -> [Int] -> BAC -> [Mutation]
 addNDSymbolMutation src tgt sym _src_alts _tgt_alts node =
-  [Contraction [] (src, sym)]
+  [Insertion (src, sym)]
   |> if src == base then (++ root_mutation) else id
   where
   root_mutation =
@@ -1531,11 +1532,11 @@ removeNodeMutation tgt node =
   |> edges
   |> fmap symbol
   |> fmap (tgt,)
-  |> fmap (`Duplication` [])
+  |> fmap Deletion
   |> (++) (
     suffix node tgt
     |> fmap symbol2
-    |> fmap (`Duplication` [])
+    |> fmap Deletion
   )
 
 appendNode :: Symbol -> BAC -> Maybe BAC
