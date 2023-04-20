@@ -24,8 +24,8 @@ module BAC.Fundamental (
   removeNDSymbol,
   removeNode,
   removeRootNDSymbol,
-  removeLeafNode,
   removeRootNDSymbol',
+  removeLeafNode,
   removeLeafNode',
 
   -- * Add Symbol, Node
@@ -48,6 +48,8 @@ module BAC.Fundamental (
   duplicateNDSymbol',
   duplicateNode,
   duplicateNode',
+  duplicateRootNDSymbol,
+  duplicateLeafNode,
 
   -- * Split Symbol, Node
 
@@ -446,21 +448,7 @@ removeNDSymbol (src, tgt) node = do
 -- | Remove a nondecomposable symbol in the root node (remove nondecomposable initial and
 --   terminal morphisms simultaneously).
 removeRootNDSymbol :: Symbol -> BAC -> Maybe BAC
-removeRootNDSymbol tgt node = do
-  guard $ locate (root node) tgt == Inner
-  guard $ nondecomposable node tgt
-
-  removeNDSymbol (base, tgt) node
-
--- | Remove a leaf node (remove initial and nondecomposable terminal morphisms
---   simultaneously).
-removeLeafNode :: Symbol -> BAC -> Maybe BAC
-removeLeafNode tgt node = do
-  guard $ locate (root node) tgt == Inner
-  tgt_arr <- arrow node tgt
-  guard $ target tgt_arr |> edges |> null
-
-  removeNode tgt node
+removeRootNDSymbol tgt = removeNDSymbol (base, tgt)
 
 {- |
 Remove a nondecomposable symbol in the root node step by step (remove an initial
@@ -505,6 +493,15 @@ removeRootNDSymbol' tgt node = do
   let keys = partitionSymbols node |> fmap (elem tgt)
   return $ node |> splitRootNode keys |> fromJust |> (! False)
 
+
+-- | Remove a leaf node (remove initial and nondecomposable terminal morphisms
+--   simultaneously).
+removeLeafNode :: Symbol -> BAC -> Maybe BAC
+removeLeafNode tgt node = do
+  tgt_arr <- arrow node tgt
+  guard $ target tgt_arr |> edges |> null
+
+  removeNode tgt node
 
 {- |
 Remove an leaf node step by step (remove an terminal nondecomposable morphism step by
@@ -1212,6 +1209,15 @@ duplicateNode' tgt splitter node = do
             |> (splitted_symbols !!)
 
     node |> splitSymbol (s1, s2) syms
+
+duplicateRootNDSymbol :: Symbol -> [Symbol] -> BAC -> Maybe BAC
+duplicateRootNDSymbol tgt = duplicateNDSymbol (base, tgt)
+
+duplicateLeafNode :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
+duplicateLeafNode tgt splitter node = do
+  tgt_arr <- arrow node tgt
+  guard $ target tgt_arr |> edges |> null
+  duplicateNode tgt splitter node
 
 {- |
 Merge symbols on a node (merge non-terminal morphisms).
