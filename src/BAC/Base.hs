@@ -64,6 +64,7 @@ module BAC.Base (
   divide2,
   prefix,
   suffix,
+  allSuffix,
 
   -- ** Relation #relation#
 
@@ -338,6 +339,17 @@ suffix node sym =
     |> edges
     |> filter (join curr .> symbol .> (== sym))
     |> fmap (curr,)
+
+-- | Find all suffix arrows of paths from a node to a given symbol.
+allSuffix :: BAC -> Symbol -> [(Arrow, Arrow)]
+allSuffix node sym =
+  node
+  |> arrowsUnder sym
+  |> sortOn symbol
+  |> concatMap \curr ->
+    curr `divide` tgt_arr |> fmap (curr,)
+  where
+  tgt_arr = arrow node sym |> fromJust
 
 -- | Extend a tuple of arrows.
 --   It obeys the following law:

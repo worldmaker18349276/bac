@@ -35,6 +35,11 @@ module BAC.Fundamental (
   removeLeafNode,
   removeLeafNode',
 
+  removeNDSymbolMutation,
+  removeNodeMutation,
+  removeRootNDSymbolMutation,
+  removeLeafNodeMutation,
+
   -- * Add Symbol, Node
 
   Coangle,
@@ -511,10 +516,27 @@ removeNDSymbol (src, tgt) node = do
       where
       filtered_dict = dict edge |> Map.delete tgt
 
+removeNDSymbolMutation :: (Symbol, Symbol) -> BAC -> [Mutation]
+removeNDSymbolMutation (src, tgt) node =
+  [Duplication (src, tgt) []]
+  |> if src == base then (++ root_mutation) else id
+  where
+  root_mutation =
+    arrow node tgt
+    |> fromJust
+    |> target
+    |> symbols
+    |> filter (/= base)
+    |> fmap (tgt,)
+    |> fmap (`Duplication` [])
+
 -- | Remove a nondecomposable symbol in the root node (remove a nondecomposable initial
 --   morphism).
 removeRootNDSymbol :: Symbol -> BAC -> Maybe BAC
 removeRootNDSymbol tgt = removeNDSymbol (base, tgt)
+
+removeRootNDSymbolMutation :: Symbol -> BAC -> [Mutation]
+removeRootNDSymbolMutation tgt = removeNDSymbolMutation (base, tgt)
 
 {- |
 Remove a nondecomposable symbol in the root node step by step (remove a nondecomposable
@@ -566,6 +588,9 @@ removeLeafNode tgt node = do
   guard $ target tgt_arr |> edges |> null
 
   removeNode tgt node
+
+removeLeafNodeMutation :: Symbol -> BAC -> [Mutation]
+removeLeafNodeMutation = removeNodeMutation
 
 {- |
 Remove an leaf node step by step (remove a nondecomposable terminal morphism step by step:
@@ -1461,6 +1486,21 @@ removeNode tgt node = do
     AtInner res -> return edge {dict = filtered_dict, target = res}
       where
       filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
+
+removeNodeMutation :: Symbol -> BAC -> [Mutation]
+removeNodeMutation tgt node =
+  arrow node tgt
+  |> fromJust
+  |> target
+  |> symbols
+  |> filter (/= base)
+  |> fmap (tgt,)
+  |> fmap (`Duplication` [])
+  |> (++) (
+    allSuffix node tgt
+    |> fmap symbol2
+    |> fmap (`Duplication` [])
+  )
 
 appendNode :: Symbol -> BAC -> Maybe BAC
 appendNode src node = do
