@@ -1458,7 +1458,7 @@ Merge symbols on a node (merge non-terminal morphisms).
 
 Examples:
 
->>> printBAC $ fromJust $ mergeSymbols (1,[2,3,6,8]) torus
+>>> printBAC $ fromJust $ mergeSymbols (1,[2,3,6,8]) 2 torus
 - 0->1; 1->2; 2->3; 4->5; 7->2; 10->5
   - 0->1; 1->2; 2->2
     &0
@@ -1479,19 +1479,21 @@ Examples:
 -}
 mergeSymbols ::
   (Symbol, [Symbol])  -- ^ The symbol referencing the node and symbols to be merged.
+  -> Symbol           -- ^ The new symbol after merging.
   -> BAC
   -> Maybe BAC
-mergeSymbols (src, tgts) node = do
+mergeSymbols (src, tgts) sym node = do
   guard $ notNull tgts
   src_arr <- arrow node src
   tgt_arrs <- tgts |> traverse (arrow (target src_arr))
+  guard $ src_arr |> target |> symbols |> filter (`notElem` tgts) |> notElem sym
   guard $ tgt_arrs |> fmap (dict .> Map.delete base) |> allSame
   guard $
     src /= base
     || (tgt_arrs |> fmap (target .> edges .> fmap dict) |> allSame)
   guard $ suffix node src |> all \(_, edge) -> tgts |> fmap (dict edge !) |> allSame
 
-  let merge s = if s `elem` tgts then head tgts else s
+  let merge s = if s `elem` tgts then sym else s
 
   let res0 = fromEdges do
         edge <- target src_arr |> edges
