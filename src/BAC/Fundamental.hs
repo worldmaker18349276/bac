@@ -128,15 +128,13 @@ import Utils.Utils (foldlMUncurry, guarded, (.>), (|>))
 -- >>> import BAC.Examples (cone, torus, crescent)
 -- >>> import Data.Map (fromList)
 
--- | A mark indicating mutations of symbols.  `Permutation` indicates exchanging symbols;
---   `Duplication` indicates duplicating a symbol; `Contraction` indicates merging symbols;
---   `Deletion` indicates removing a symbol; `Insertion` indicates adding a symbol.
+-- | A mark indicating mutations of symbols.
 data Mutation =
-    Permutation [(Symbol, Symbol)] [(Symbol, Symbol)]
-  | Duplication  (Symbol, Symbol)  [(Symbol, Symbol)]
-  | Contraction [(Symbol, Symbol)]  (Symbol, Symbol)
-  | Deletion     (Symbol, Symbol)
-  | Insertion                       (Symbol, Symbol)
+    Transfer  [(Symbol, Symbol)] [(Symbol, Symbol)]
+  | Duplicate  (Symbol, Symbol)  [(Symbol, Symbol)]
+  | Merge     [(Symbol, Symbol)]  (Symbol, Symbol)
+  | Delete     (Symbol, Symbol)
+  | Insert                        (Symbol, Symbol)
 
 {- |
 Rewire edges of a given node.
@@ -230,7 +228,7 @@ addEdge (src, tgt) node = do
   node |> rewire src new_syms
 
 addEdgeMutation :: (Symbol, Symbol) -> BAC -> [Mutation]
-addEdgeMutation (src, tgt) _node = [Insertion (src, tgt)]
+addEdgeMutation (src, tgt) _node = [Insert (src, tgt)]
 
 {- | Remove an edge.  The categorical structure should not change after removing this edge.
 
@@ -265,7 +263,7 @@ removeEdge (src, tgt) node = do
   node |> rewire src new_syms
 
 removeEdgeMutation :: (Symbol, Symbol) -> BAC -> [Mutation]
-removeEdgeMutation (src, tgt) _node = [Deletion (src, tgt)]
+removeEdgeMutation (src, tgt) _node = [Delete (src, tgt)]
 
 {- |
 Relabel symbols in a given node.
@@ -325,7 +323,7 @@ relabelMutation tgt mapping node =
   |> fmap (id &&& (mapping !))
   |> fmap (both (tgt,))
   |> unzip
-  |> uncurry Permutation
+  |> uncurry Transfer
   |> (: [])
   |> if tgt == base then (++ root_mutation) else id
   where
@@ -341,7 +339,7 @@ relabelMutation tgt mapping node =
       |> fmap dupe
       |> fmap ((sym,) `bimap` (sym',))
       |> unzip
-      |> uncurry Permutation
+      |> uncurry Transfer
       |> (: [])
 
 -- | Relabel symbols in the root node.
@@ -391,7 +389,7 @@ alterSymbolMutation (src, tgt) sym node =
   |> elem tgt
   |> (\case
     False -> []
-    True -> [Permutation [(src, tgt)] [(src, sym)]]
+    True -> [Transfer [(src, tgt)] [(src, sym)]]
   )
   |> if src == base then (++ root_mutation) else id
   where
@@ -404,7 +402,7 @@ alterSymbolMutation (src, tgt) sym node =
     |> fmap dupe
     |> fmap ((tgt,) `bimap` (sym,))
     |> unzip
-    |> uncurry Permutation
+    |> uncurry Transfer
     |> (: [])
 
 {- |
@@ -558,7 +556,7 @@ removeNDSymbol (src, tgt) node = do
 
 removeNDSymbolMutation :: (Symbol, Symbol) -> BAC -> [Mutation]
 removeNDSymbolMutation (src, tgt) node =
-  [Duplication (src, tgt) []]
+  [Duplicate (src, tgt) []]
   |> if src == base then (++ root_mutation) else id
   where
   root_mutation =
@@ -568,7 +566,7 @@ removeNDSymbolMutation (src, tgt) node =
     |> edges
     |> fmap symbol
     |> fmap (tgt,)
-    |> fmap Deletion
+    |> fmap Delete
 
 -- | Remove a nondecomposable symbol in the root node (remove a nondecomposable initial
 --   morphism).
@@ -882,7 +880,7 @@ addNDSymbol src tgt sym src_alts tgt_alts node = do
 
 addNDSymbolMutation :: Symbol -> Symbol -> Symbol -> [Int] -> [Int] -> BAC -> [Mutation]
 addNDSymbolMutation src tgt sym _src_alts _tgt_alts node =
-  [Insertion (src, sym)]
+  [Insert (src, sym)]
   |> if src == base then (++ root_mutation) else id
   where
   root_mutation =
@@ -892,7 +890,7 @@ addNDSymbolMutation src tgt sym _src_alts _tgt_alts node =
     |> edges
     |> fmap symbol
     |> fmap \s ->
-      Duplication (tgt, s) [(tgt, s), (sym, s)]
+      Duplicate (tgt, s) [(tgt, s), (sym, s)]
 
 {- |
 Partition the prefixes of a morphism.
@@ -989,7 +987,7 @@ splitSymbol (src, tgt) splitted_syms node = do
 
 splitSymbolMutation :: (Symbol, Symbol) -> [Symbol] -> BAC -> [Mutation]
 splitSymbolMutation (src, tgt) splitted_syms node =
-  [Duplication (src, tgt) (fmap (src,) syms)]
+  [Duplicate (src, tgt) (fmap (src,) syms)]
   |> if src == base then (++ root_mutation) else id
   where
   syms = nub splitted_syms
@@ -1001,7 +999,7 @@ splitSymbolMutation (src, tgt) splitted_syms node =
   root_mutation =
     splitted_groups
     |> fmap \(sym, group) ->
-      Permutation group (fmap (first (const sym)) group)
+      Transfer group (fmap (first (const sym)) group)
 
 -- | Split a symbol in the root node (split an initial morphism).
 splitRootSymbol :: Symbol -> [Symbol] -> BAC -> Maybe BAC
@@ -1129,7 +1127,7 @@ splitNodeMutation tgt splittable_keys splitter node =
     suffix node tgt
     |> fmap symbol2
     |> fmap \(s1, s2) ->
-      Duplication (s1, s2) (splitter (s1, s2) |> Map.elems |> fmap (s1,))
+      Duplicate (s1, s2) (splitter (s1, s2) |> Map.elems |> fmap (s1,))
   splittable_groups =
     splittable_keys `zip` partitionSymbols node
     |> concatMap sequence
@@ -1143,7 +1141,7 @@ splitNodeMutation tgt splittable_keys splitter node =
     |> fmap symbol
     |> id &&& fmap (\s -> splittable_groups ! s |> (splitter (tgt, s) !))
     |> both (fmap (tgt,))
-    |> uncurry Permutation
+    |> uncurry Transfer
     |> (: [])
 
 {- |
@@ -1224,7 +1222,7 @@ duplicateNDSymbol (src, tgt) syms node = do
 
 duplicateNDSymbolMutation :: (Symbol, Symbol) -> [Symbol] -> BAC -> [Mutation]
 duplicateNDSymbolMutation (src, tgt) syms node =
-  [Duplication (src, tgt) (fmap (src,) syms)]
+  [Duplicate (src, tgt) (fmap (src,) syms)]
   |> if src == base then (++ root_mutation) else id
   where
   root_mutation =
@@ -1234,7 +1232,7 @@ duplicateNDSymbolMutation (src, tgt) syms node =
     |> edges
     |> fmap symbol
     |> fmap \s ->
-      Duplication (tgt, s) (fmap (,s) syms)
+      Duplicate (tgt, s) (fmap (,s) syms)
 
 -- | Duplicate a nondecomposable symbol in a node step by step (duplicate a non-terminal
 --   nondecomposable morphism step by step).
@@ -1343,7 +1341,7 @@ duplicateNodeMutation tgt splitter node = incoming_mutation ++ outgoing_mutation
     |> fmap \(s1, s2) ->
       splitter (s1, s2)
       |> fmap (s1,)
-      |> Duplication (s1, s2)
+      |> Duplicate (s1, s2)
   outgoing_mutation =
     arrow node tgt
     |> fromJust
@@ -1353,7 +1351,7 @@ duplicateNodeMutation tgt splitter node = incoming_mutation ++ outgoing_mutation
     |> fmap \s ->
       splitter (tgt, s)
       |> fmap (,s)
-      |> Duplication (tgt, s)
+      |> Duplicate (tgt, s)
 
 {- |
 Duplicate a node step by step (duplicate an object step by step).
@@ -1516,7 +1514,7 @@ mergeSymbols (src, tgts) sym node = do
 
 mergeSymbolsMutation :: (Symbol, [Symbol]) -> Symbol -> BAC -> [Mutation]
 mergeSymbolsMutation (src, tgts) sym node =
-  [Contraction (fmap (src,) tgts) (src, sym)]
+  [Merge (fmap (src,) tgts) (src, sym)]
   |> if src == base then (++ root_mutation) else id
   where
   root_mutation =
@@ -1526,7 +1524,7 @@ mergeSymbolsMutation (src, tgts) sym node =
     |> edges
     |> fmap symbol
     |> fmap \s ->
-      Contraction (fmap (,s) tgts) (sym, s)
+      Merge (fmap (,s) tgts) (sym, s)
 
 mergeRootSymbols :: [Symbol] -> Symbol -> BAC -> Maybe BAC
 mergeRootSymbols tgts = mergeSymbols (base, tgts)
@@ -1637,7 +1635,7 @@ mergeNodesMutation tgts_keys merger node = incoming_mutation ++ outgoing_mutatio
   incoming_mutation =
     zipped_suffix
     |> fmap (sequence &&& (fst &&& merger))
-    |> fmap (uncurry Contraction)
+    |> fmap (uncurry Merge)
   outgoing_mutation =
     tgts
     |> concatMap (\tgt ->
@@ -1650,7 +1648,7 @@ mergeNodesMutation tgts_keys merger node = incoming_mutation ++ outgoing_mutatio
     |> \old_edges ->
       old_edges
       |> fmap (first (const (merger (base, tgts))))
-      |> Permutation old_edges
+      |> Transfer old_edges
       |> (: [])
 
 mergeLeafNodes ::
@@ -1717,11 +1715,11 @@ removeNodeMutation tgt node =
   |> edges
   |> fmap symbol
   |> fmap (tgt,)
-  |> fmap Deletion
+  |> fmap Delete
   |> (++) (
     suffix node tgt
     |> fmap symbol2
-    |> fmap Deletion
+    |> fmap Delete
   )
 
 appendNode :: Symbol -> BAC -> Maybe BAC
