@@ -53,8 +53,10 @@ module BAC.Fundamental (
   compatibleCoanglesAngles,
   findValidCoanglesAngles,
   addNDSymbol,
-  appendNode,
-  insertNode,
+  makeInserter,
+  addLeafNode,
+  addParentNode,
+  addParentNodeUnderRoot,
 
   addNDSymbolMutation,
 
@@ -1722,56 +1724,76 @@ removeNodeMutation tgt node =
     |> fmap Delete
   )
 
-appendNode :: Symbol -> BAC -> Maybe BAC
-appendNode src node = do
+addLeafNode :: Symbol -> (Symbol -> Symbol) -> BAC -> Maybe BAC
+addLeafNode src inserter node = do
   src_arr <- arrow node src
   let src_node = target src_arr
-  let new_node = fromJust $ singleton (maximum (symbols src_node) + 1)
+  let sym = inserter src
+  guard $ sym `notElem` symbols src_node
+  guard $
+    arrowsUnder src node |> all \curr ->
+      target curr |> symbols |> notElem (inserter (symbol curr))
+
+  let new_node = fromJust $ singleton sym
   let res0 = fromJust $ mergeRootNodes [src_node, new_node]
   fromReachable res0 $
     node |> modifyUnder src \(curr, edge) lres -> case fromReachable res0 lres of
       Nothing -> return edge
       Just res -> return edge {dict = new_dict, target = res}
         where
-        new_sym = symbols (target curr) |> maximum |> (+ 1)
-        new_sym' = symbols (target edge) |> maximum |> (+ 1)
+        new_sym = inserter (symbol curr)
+        new_sym' = inserter (symbol (curr `join` edge))
         new_dict = dict edge |> Map.insert new_sym' new_sym
 
-insertNode :: (Symbol, Maybe Symbol) -> BAC -> Maybe BAC
-insertNode (src, tgt) node = do
-  src_arr <- arrow node src
-  let new_sym = target src_arr |> symbols |> maximum |> (+ 1)
-  new_inedge <- case tgt of
-    Just tgt -> do
-      guard $ tgt /= base
-      tgt_arr <- arrow (target src_arr) tgt
-      let new_outdict = target tgt_arr |> symbols |> fmap (\s -> (s, s+1)) |> Map.fromList
-      let new_outedge = Arrow {dict = new_outdict, target = target tgt_arr}
-      let new_node = fromEdges [new_outedge]
-      let new_indict = dict tgt_arr |> Map.mapKeys (+ 1) |> Map.insert base new_sym
-      return Arrow {dict = new_indict, target = new_node}
-    Nothing ->
-      return Arrow {dict = Map.singleton base new_sym, target = empty}
+makeInserter :: BAC -> (Symbol, Symbol) -> Symbol
+makeInserter node (src, tgt) =
+  arrow node src |> fromJust |> target |> symbols |> maximum |> (+ tgt)
 
-  let res0 = fromEdges $ edges (target src_arr) ++ [new_inedge]
+addParentNode :: (Symbol, Symbol) -> Symbol -> ((Symbol, Symbol) -> Symbol) -> BAC -> Maybe BAC
+addParentNode (src, tgt) tgt' inserter node = do
+  (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
+  let tgt_arr = src_arr `join` tgt_subarr
+  guard $ tgt /= base
 
-  fromReachable res0 $ node |> modifyUnder src \(curr, edge) res ->
-    case fromReachable res0 res of
+  let sym = inserter (src, tgt)
+  guard $ tgt' `notElem` symbols (target tgt_subarr)
+  guard $ sym `notElem` symbols (target src_arr)
+  guard $
+    arrowsUnder src node |> all \curr ->
+      curr `divide` tgt_arr
+      |> fmap (symbol .> (symbol curr,) .> inserter)
+      |> (++ symbols (target curr))
+      |> anySame
+      |> not
+
+  let new_outdict =
+        target tgt_subarr |> symbols |> fmap dupe |> Map.fromList |> Map.insert base tgt'
+  let new_outedge = Arrow {dict = new_outdict, target = target tgt_subarr}
+  let new_node = fromEdges [new_outedge]
+  let new_indict = dict tgt_subarr |> Map.insert tgt' sym
+  let new_inedge = Arrow {dict = new_indict, target = new_node}
+  let res0 = fromEdges $ edges (target src_arr) `snoc` new_inedge
+
+  fromReachable res0 $
+    node |> modifyUnder src \(curr, edge) lres -> case fromReachable res0 lres of
       Nothing -> return edge
       Just res -> return edge {dict = dict', target = res}
         where
-        newSym syms = (+) (maximum syms + 1)
-        s_syms = target curr |> symbols
-        r_syms = target edge |> symbols
+        sym0 = symbol curr
+        sym = symbol (curr `join` edge)
         dict' =
           dict edge
           |> Map.toList
           |> concatMap (\(s, r) ->
-            if dict curr ! r == src
-            then [(s, r), (newSym s_syms s, newSym r_syms r)]
+            if dict curr ! r == tgt
+            then [(s, r), (inserter (sym, s), inserter (sym0, r))]
             else [(s, r)]
           )
           |> Map.fromList
+
+addParentNodeUnderRoot :: Symbol -> Symbol -> Symbol -> BAC -> Maybe BAC
+addParentNodeUnderRoot tgt tgt' sym = addParentNode (base, tgt) tgt' (const sym)
+
 
 expandMergingSymbols :: BAC -> [[Symbol]] -> [[Symbol]]
 expandMergingSymbols node =
