@@ -1,5 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE TupleSections #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 
 module BAC.Isomorphism (
   eqStruct,
@@ -7,16 +8,17 @@ module BAC.Isomorphism (
   canonicalizeObject,
   forwardSymbolTrieUnder,
   backwardSymbolTrieUnder,
-  lowerIso,
+  zipSuffix,
 ) where
 
+import Control.Arrow ((&&&))
 import Control.Monad (MonadPlus (mzero), guard)
 import Data.Bifunctor (Bifunctor (first, second), bimap)
-import Data.List (elemIndex, sort, sortOn, transpose)
-import Data.List.Extra (allSame, anySame, nubSort)
+import Data.List (sort, transpose)
+import Data.List.Extra (allSame, anySame, nubSortOn, nubOn, groupSortOn)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust, mapMaybe)
+import Data.Maybe (fromJust, mapMaybe)
 import Prelude hiding (compare, map)
 
 import Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet)
@@ -124,49 +126,74 @@ backwardSymbolTrieUnder sym = cofoldUnder sym \_curr results ->
   |> Tree
 
 {- |
-Check lower isomorphisms for given symbols.
+Zip all suffixes of given nodes.
+It can be used to check lower isomorphisms for given symbols.
 
 Examples:
 
->>> lowerIso [2,4] [[0,1::Int], [0,1]] crescent
-True
+>>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffix [(2,[0,1::Int]),(4,[0,1])] crescent
+[(1,[1,3]),(1,[5,7]),(0,[2,4])]
+
+>>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffix [(3,[0,1::Int])] crescent
+[(2,[1]),(4,[1]),(1,[2]),(1,[6]),(0,[3])]
+
+>>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffix [(0,[]::[Int])] crescent
+[]
 -}
-lowerIso ::
-  Eq k
-  => [Symbol]  -- ^ The symbols to check.
-  -> [[k]]     -- ^ The keys to classify nondecomposable incoming morphisms.
+zipSuffix ::
+  Ord k
+  => [(Symbol, [k])]
+      -- ^ The symbols to check and the keys to classify nondecomposable incoming morphisms.
   -> BAC
-  -> Bool
-lowerIso [] _ _ = True
-lowerIso [_] _ _ = True
-lowerIso tgts keys node = isJust do
-  let tgt_pars = tgts |> fmap (suffixND node)
-  guard $ tgt_pars |> fmap length |> allSame
-  guard $ length keys == length tgt_pars
-  guard $ keys `zip` tgt_pars |> fmap (length `bimap` length) |> all (uncurry (==))
+  -> Maybe [(Arrow, [Arrow])]
+zipSuffix [] _ = Just []
+zipSuffix tgts_keys node = do
+  guard $ tgts_keys |> all (snd .> anySame .> not)
+  guard $ tgts_keys |> fmap (snd .> sort) |> allSame
+  guard $ tgts_keys |> all (fst .> locate (root node) .> (/= Outer))
 
-  guard $ keys |> all (anySame .> not)
-  indices <- keys |> traverse (traverse (`elemIndex` head keys))
-  let merging_symbols =
-        zip tgt_pars indices
-        |> fmap (uncurry zip .> sortOn snd .> fmap fst)
-        |> transpose
-        |> fmap (fmap symbol2)
-  guard $ merging_symbols |> all (fmap fst .> allSame)
+  let pars_keys = tgts_keys |> fmap (first (suffixND node))
+  guard $ pars_keys |> fmap (fst .> length) |> allSame
+  guard $ pars_keys |> fmap (length `bimap` length) |> all (uncurry (==))
+  guard $
+    pars_keys
+    |> concatMap (uncurry zip)
+    |> groupSortOn snd
+    |> all (fmap (fst .> fst .> symbol) .> allSame)
 
-  sequence_ $ node |> foldUnder (head tgts) \curr results -> do
-    results' <- results |> traverse sequence
+  let zipped_nd_suffix =
+        pars_keys
+        |> concatMap (uncurry zip)
+        |> groupSortOn snd
+        |> fmap (fmap fst)
+        |> fmap ((head .> fst) &&& fmap snd)
 
-    let collapse = nubSort $ fmap sort do
-          (lres, edge) <- results' `zip` edges (target curr)
-          case lres of
-            AtOuter -> mzero
-            AtInner res -> res |> fmap (fmap (dict edge !))
-            AtBoundary ->
-              merging_symbols
-              |> filter (head .> fst .> (== symbol curr))
-              |> fmap (fmap snd)
+  let tgts = tgts_keys |> fmap fst
 
-    guard $ collapse |> concat |> anySame |> not
+  fromJust $ fromReachable (Just []) $
+    node |> foldUnder (head tgts) \curr results -> do
+      results' <- results |> traverse sequence
 
-    return collapse
+      let collapse = nubSortOn (fmap symbol) do
+            (lres, edge) <- results' `zip` edges (target curr)
+            let sym0 = symbol curr
+            let sym = symbol (curr `join` edge)
+            case lres of
+              AtInner res ->
+                res
+                |> filter (fst .> symbol .> (== sym))
+                |> fmap (snd .> fmap (join edge))
+              _ | sym `elem` tgts ->
+                zipped_nd_suffix
+                |> filter (fst .> symbol .> (== sym0))
+                |> fmap snd
+              _otherwise -> mzero
+
+      guard $ collapse |> transpose |> all (anySame .> not)
+
+      return $
+        results'
+        |> mapMaybe fromInner
+        |> concat
+        |> nubOn (symbol `bimap` fmap symbol)
+        |> (++ fmap (curr,) collapse)

@@ -104,7 +104,7 @@ import Control.Monad (MonadPlus (mzero), guard)
 import Data.Bifunctor (Bifunctor (first, second, bimap))
 import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
-import Data.List (elemIndex, elemIndices, findIndex, nub, sort, sortOn, transpose)
+import Data.List (elemIndices, findIndex, nub, sort, transpose)
 import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, (!?), snoc, groupOnKey)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
@@ -1537,7 +1537,7 @@ Merge nodes (merge terminal morphisms).
 Examples:
 
 >>> crescent' = fromJust $ relabel 2 (fromList [(0,0),(1,2)]) crescent
->>> printBAC $ fromJust $ mergeNodes [2,4] [[False,True], [False,True]] crescent'
+>>> printBAC $ fromJust $ mergeNodes [(2,[False,True]),(4,[False,True])] (snd .> head) crescent'
 - 0->1; 1->2; 2->3; 5->2; 6->3
   - 0->1; 1->2; 2->2
     &0
@@ -1549,66 +1549,76 @@ Examples:
     *0
 -}
 mergeNodes ::
-  Eq k
-  => [Symbol]   -- ^ The symbols referencing the nodes to be merged.
-  -> [[k]]      -- ^ The merging table of nondecomposable incoming morphisms of the nodes.
-                --   The arrows with the same key will be merged.
+  Ord k
+  => [(Symbol, [k])]   -- ^ The symbols referencing the nodes to be merged and the keys to
+                       --   classify nondecomposable incoming morphisms.
+  -> ((Symbol, [Symbol]) -> Symbol)
+                       -- ^ The merger of symbols.
   -> BAC
   -> Maybe BAC
-mergeNodes tgts keys node = do
-  guard $ notNull tgts
-  guard $ lowerIso tgts keys node
+mergeNodes tgts_keys merger node = do
+  guard $ notNull tgts_keys
+  guard $ tgts_keys |> fmap fst |> anySame |> not
 
-  let tgt = head tgts
+  zipped_suffix <- zipSuffix tgts_keys node
+  guard $
+    zipped_suffix
+    |> groupSortOn (fst .> symbol)
+    |> fmap ((head .> fst) &&& fmap snd)
+    |> all \(curr, groups) ->
+      let
+        sym0 = symbol curr
+        syms = groups |> concat |> fmap symbol
+        syms' = groups |> fmap (fmap symbol .> (sym0,) .> merger)
+      in
+        curr
+        |> target
+        |> symbols
+        |> filter (`notElem` syms)
+        |> (++ syms')
+        |> anySame
+        |> not
+
+  let tgts = tgts_keys |> fmap fst
   let tgt_nodes = tgts |> fmap (arrow node .> fromJust .> target)
   merged_node <- mergeRootNodes tgt_nodes
 
-  let tgt_pars = tgts |> fmap (suffixND node)
-  let merging_arrs =
-        keys
-        |> fmap (fmap ((`elemIndex` head keys) .> fromJust))
-        |> zip tgt_pars
-        |> fmap (uncurry zip .> sortOn snd .> fmap fst)
-        |> transpose
-
-  let nd_merged_dicts = Map.fromList do
-        arr_arrs <- merging_arrs
-        let merged_wire =
-              arr_arrs |> head |> snd |> symbol |> (base,)
+  let merged_syms_dicts = Map.fromList do
+        (curr, arrs) <- zipped_suffix
+        let sym0 = symbol curr
+        let syms = fmap symbol arrs
+        let sym' = merger (sym0, syms)
         let merged_dict =
-              arr_arrs
-              |> concatMap (snd .> dict .> Map.delete base .> Map.toList)
-              |> (merged_wire :)
-              |> Map.fromList
-        key <- arr_arrs |> fmap symbol2
-        return (key, merged_dict)
-
-  let find_merged_dict (arr1, arr23) =
-        suffixND (target arr1) (symbol arr23)
-        |> head
-        |> \(arr2, arr3) ->
-          (arr1 `join` arr2, arr3)
-          |> symbol2
-          |> (`Map.lookup` nd_merged_dicts)
-          |> fromJust
-          |> cat (dict arr2)
+              arrs
+              |> fmap dict
+              |> foldl Map.union Map.empty
+              |> Map.insert base sym'
+        sym <- syms
+        return ((sym0, sym), (sym', merged_dict))
 
   fromReachable node $
-    node |> foldUnder tgt \curr results ->
-      let collapsed_edges = do
-            (res, edge) <- results `zip` edges (target curr)
-            let is_tgt = symbol (curr `join` edge) `elem` tgts
-            let collapsed_node =
-                  if is_tgt
-                  then merged_node
-                  else res |> fromInner |> fromMaybe (target edge)
-            let collapsed_dict =
-                  if is_tgt
-                  then find_merged_dict (curr, edge)
-                  else dict edge |> Map.filter (\sym -> dict curr ! sym `notElem` tail tgts)
-            return edge {dict = collapsed_dict, target = collapsed_node}
-
-      in fromEdges collapsed_edges
+    node |> foldUnder (head tgts) \curr results -> fromEdges do
+      (res, edge) <- results `zip` edges (target curr)
+      let sym0 = symbol curr
+      let sym = symbol (curr `join` edge)
+      let collapsed_node =
+            if sym `elem` tgts
+            then merged_node
+            else res |> fromInner |> fromMaybe (target edge)
+      let collapsed_dict =
+            if sym `elem` tgts
+            then snd (merged_syms_dicts ! (sym0, symbol edge))
+            else
+              dict edge
+              |> Map.toList
+              |> fmap (\(s1, s2) ->
+                (
+                  Map.lookup (sym, s1) merged_syms_dicts |> maybe s1 fst,
+                  Map.lookup (sym0, s2) merged_syms_dicts |> maybe s2 fst
+                )
+              )
+              |> Map.fromList
+      return edge {dict = collapsed_dict, target = collapsed_node}
 
 {- |
 Merge root nodes (merge BACs).
