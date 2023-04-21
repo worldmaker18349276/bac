@@ -91,12 +91,15 @@ module BAC.Fundamental (
   mergeSymbols,
   mergeRootSymbols,
   mergeNodes,
+  mergeLeafNodes,
   mergeRootNodes,
   expandMergingSymbols,
   mergeSymbolsAggressively,
 
   mergeSymbolsMutation,
   mergeRootSymbolsMutation,
+  mergeNodesMutation,
+  mergeLeafNodesMutation,
 ) where
 
 import Control.Arrow ((&&&))
@@ -1619,6 +1622,47 @@ mergeNodes tgts_keys merger node = do
               )
               |> Map.fromList
       return edge {dict = collapsed_dict, target = collapsed_node}
+
+mergeNodesMutation ::
+  Ord k => [(Symbol, [k])] -> ((Symbol, [Symbol]) -> Symbol) -> BAC -> [Mutation]
+mergeNodesMutation tgts_keys merger node = incoming_mutation ++ outgoing_mutation
+  where
+  tgts = tgts_keys |> fmap fst
+  tgt_suffix = suffix node (head tgts) |> fmap symbol2
+  zipped_suffix =
+    zipSuffix tgts_keys node
+    |> fromJust
+    |> fmap (symbol `bimap` fmap symbol)
+    |> filter (second head .> (`elem` tgt_suffix))
+  incoming_mutation =
+    zipped_suffix
+    |> fmap (sequence &&& (fst &&& merger))
+    |> fmap (uncurry Contraction)
+  outgoing_mutation =
+    tgts
+    |> concatMap (\tgt ->
+      arrow node tgt
+      |> fromJust
+      |> target
+      |> edges
+      |> fmap (symbol .> (tgt,))
+    )
+    |> \old_edges ->
+      old_edges
+      |> fmap (first (const (merger (base, tgts))))
+      |> Permutation old_edges
+      |> (: [])
+
+mergeLeafNodes ::
+  Ord k => [(Symbol, [k])] -> ((Symbol, [Symbol]) -> Symbol) -> BAC -> Maybe BAC
+mergeLeafNodes tgts_keys merger node = do
+  tgt_nodes <- tgts_keys |> fmap fst |> traverse (arrow node .> fmap target)
+  guard $ tgt_nodes |> all (edges .> null)
+  mergeNodes tgts_keys merger node
+
+mergeLeafNodesMutation ::
+  Ord k => [(Symbol, [k])] -> ((Symbol, [Symbol]) -> Symbol) -> BAC -> [Mutation]
+mergeLeafNodesMutation = mergeNodesMutation
 
 {- |
 Merge root nodes (merge BACs).
