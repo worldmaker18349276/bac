@@ -56,12 +56,12 @@ module BAC.Fundamental (
   makeInserter,
   addLeafNode,
   addParentNode,
-  addParentNodeUnderRoot,
+  addParentNodeOnRoot,
 
   addNDSymbolMutation,
   addLeafNodeMutation,
   addParentNodeMutation,
-  addParentNodeUnderRootMutation,
+  addParentNodeOnRootMutation,
 
   -- * Duplicate Symbol, Node
 
@@ -1807,11 +1807,11 @@ addParentNodeMutation (src, tgt) tgt' inserter node =
   src_tgt = (src, tgt) |> arrow2 node |> fromJust |> uncurry join |> symbol
   sym' = inserter (base, src_tgt)
 
-addParentNodeUnderRoot :: Symbol -> Symbol -> Symbol -> BAC -> Maybe BAC
-addParentNodeUnderRoot tgt tgt' sym = addParentNode (base, tgt) tgt' (const sym)
+addParentNodeOnRoot :: Symbol -> Symbol -> Symbol -> BAC -> Maybe BAC
+addParentNodeOnRoot tgt tgt' sym = addParentNode (base, tgt) tgt' (const sym)
 
-addParentNodeUnderRootMutation :: Symbol -> Symbol -> Symbol -> BAC -> [Mutation]
-addParentNodeUnderRootMutation tgt tgt' sym =
+addParentNodeOnRootMutation :: Symbol -> Symbol -> Symbol -> BAC -> [Mutation]
+addParentNodeOnRootMutation tgt tgt' sym =
   addParentNodeMutation (base, tgt) tgt' (const sym)
 
 
