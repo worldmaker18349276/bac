@@ -59,6 +59,9 @@ module BAC.Fundamental (
   addParentNodeUnderRoot,
 
   addNDSymbolMutation,
+  addLeafNodeMutation,
+  addParentNodeMutation,
+  addParentNodeUnderRootMutation,
 
   -- * Duplicate Symbol, Node
 
@@ -1745,11 +1748,15 @@ addLeafNode src inserter node = do
         new_sym' = inserter (symbol (curr `join` edge))
         new_dict = dict edge |> Map.insert new_sym' new_sym
 
+addLeafNodeMutation :: Symbol -> (Symbol -> Symbol) -> BAC -> [Mutation]
+addLeafNodeMutation src inserter _node = [Insert (src, inserter src)]
+
 makeInserter :: BAC -> (Symbol, Symbol) -> Symbol
 makeInserter node (src, tgt) =
   arrow node src |> fromJust |> target |> symbols |> maximum |> (+ tgt)
 
-addParentNode :: (Symbol, Symbol) -> Symbol -> ((Symbol, Symbol) -> Symbol) -> BAC -> Maybe BAC
+addParentNode ::
+  (Symbol, Symbol) -> Symbol -> ((Symbol, Symbol) -> Symbol) -> BAC -> Maybe BAC
 addParentNode (src, tgt) tgt' inserter node = do
   (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
   let tgt_arr = src_arr `join` tgt_subarr
@@ -1791,8 +1798,21 @@ addParentNode (src, tgt) tgt' inserter node = do
           )
           |> Map.fromList
 
+addParentNodeMutation ::
+  (Symbol, Symbol) -> Symbol -> ((Symbol, Symbol) -> Symbol) -> BAC -> [Mutation]
+addParentNodeMutation (src, tgt) tgt' inserter node =
+  [Insert (src, sym), Insert (sym', tgt')]
+  where
+  sym = inserter (src, tgt)
+  src_tgt = (src, tgt) |> arrow2 node |> fromJust |> uncurry join |> symbol
+  sym' = inserter (base, src_tgt)
+
 addParentNodeUnderRoot :: Symbol -> Symbol -> Symbol -> BAC -> Maybe BAC
 addParentNodeUnderRoot tgt tgt' sym = addParentNode (base, tgt) tgt' (const sym)
+
+addParentNodeUnderRootMutation :: Symbol -> Symbol -> Symbol -> BAC -> [Mutation]
+addParentNodeUnderRootMutation tgt tgt' sym =
+  addParentNodeMutation (base, tgt) tgt' (const sym)
 
 
 expandMergingSymbols :: BAC -> [[Symbol]] -> [[Symbol]]
