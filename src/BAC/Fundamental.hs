@@ -94,13 +94,11 @@ module BAC.Fundamental (
   mergeSymbols,
   mergeSymbolsOnRoot,
   mergeNodes,
-  mergeLeafNodes,
   mergeRootNodes,
 
   mergeSymbolsMutation,
   mergeSymbolsOnRootMutation,
   mergeNodesMutation,
-  mergeLeafNodesMutation,
 ) where
 
 import Control.Arrow ((&&&))
@@ -1452,17 +1450,6 @@ mergeNodesMutation tgts_keys merger node = incoming_mutation ++ outgoing_mutatio
       |> fmap (first (const (merger (base, tgts))))
       |> Transfer old_edges
       |> (: [])
-
-mergeLeafNodes ::
-  Ord k => [(Symbol, [k])] -> ((Symbol, [Symbol]) -> Symbol) -> BAC -> Maybe BAC
-mergeLeafNodes tgts_keys merger node = do
-  tgt_nodes <- tgts_keys |> fmap fst |> traverse (arrow node .> fmap target)
-  guard $ tgt_nodes |> all (edges .> null)
-  mergeNodes tgts_keys merger node
-
-mergeLeafNodesMutation ::
-  Ord k => [(Symbol, [k])] -> ((Symbol, [Symbol]) -> Symbol) -> BAC -> [Mutation]
-mergeLeafNodesMutation = mergeNodesMutation
 
 {- |
 Merge root nodes (merge BACs).
