@@ -386,18 +386,16 @@ alterSymbol (src, tgt) sym node = do
 
 alterSymbolMutation :: (Symbol, Symbol) -> Symbol -> BAC -> [Mutation]
 alterSymbolMutation (src, tgt) sym node =
-  arrow node src
-  |> fromJust
-  |> target
-  |> edges
-  |> fmap symbol
-  |> elem tgt
-  |> (\case
-    False -> []
-    True -> [Transfer [(src, tgt)] [(src, sym)]]
-  )
+  [Transfer [(src, tgt)] [(src, sym)] | is_edge]
   |> if src == base then (++ root_mutation) else id
   where
+  is_edge =
+    arrow node src
+    |> fromJust
+    |> target
+    |> edges
+    |> fmap symbol
+    |> elem tgt
   root_mutation =
     arrow node tgt
     |> fromJust
@@ -562,7 +560,7 @@ removeNDSymbol (src, tgt) node = do
 
 removeNDSymbolMutation :: (Symbol, Symbol) -> BAC -> [Mutation]
 removeNDSymbolMutation (src, tgt) node =
-  [Duplicate (src, tgt) []]
+  [Delete (src, tgt)]
   |> if src == base then (++ root_mutation) else id
   where
   root_mutation =
@@ -994,9 +992,16 @@ splitSymbol (src, tgt) splitted_syms node = do
 
 splitSymbolMutation :: (Symbol, Symbol) -> [Symbol] -> BAC -> [Mutation]
 splitSymbolMutation (src, tgt) splitted_syms node =
-  [Duplicate (src, tgt) (fmap (src,) syms)]
+  [Duplicate (src, tgt) (fmap (src,) syms) | is_edge]
   |> if src == base then (++ root_mutation) else id
   where
+  is_edge =
+    arrow node src
+    |> fromJust
+    |> target
+    |> edges
+    |> fmap symbol
+    |> elem tgt
   syms = nub splitted_syms
   splittable_groups = arrow node src |> fromJust |> target |> (`partitionPrefix` tgt)
   splitted_groups =
@@ -1521,17 +1526,26 @@ mergeSymbols (src, tgts) sym node = do
 
 mergeSymbolsMutation :: (Symbol, [Symbol]) -> Symbol -> BAC -> [Mutation]
 mergeSymbolsMutation (src, tgts) sym node =
-  [Merge (fmap (src,) tgts) (src, sym)]
+  [Merge (fmap (src,) tgts') (src, sym) | notNull tgts']
   |> if src == base then (++ root_mutation) else id
   where
-  root_mutation =
-    arrow node (head tgts)
+  tgts' =
+    arrow node src
     |> fromJust
     |> target
     |> edges
     |> fmap symbol
-    |> fmap \s ->
-      Merge (fmap (,s) tgts) (sym, s)
+    |> filter (`elem` tgts)
+  root_mutation =
+    tgts
+    |> fmap \tgt ->
+      arrow node tgt
+      |> fromJust
+      |> target
+      |> edges
+      |> fmap symbol
+      |> fmap (tgt,) &&& fmap (sym,)
+      |> uncurry Transfer
 
 mergeRootSymbols :: [Symbol] -> Symbol -> BAC -> Maybe BAC
 mergeRootSymbols tgts = mergeSymbols (base, tgts)
