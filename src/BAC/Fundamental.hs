@@ -1828,42 +1828,57 @@ expandMergingSymbols node =
   .> fmap sort
   .> sort
 
-mergeSymbolsAggressively :: Symbol -> [[Symbol]] -> BAC -> Maybe BAC
-mergeSymbolsAggressively src tgts node = do
+mergeSymbolsAggressively ::
+  (Symbol, [[Symbol]]) -> ((Symbol, [Symbol]) -> Symbol) -> BAC -> Maybe BAC
+mergeSymbolsAggressively (src, tgts) merger node = do
   src_arr <- arrow node src
 
   tgt_arrs <- tgts |> traverse (traverse (arrow (target src_arr)))
   guard $ tgt_arrs |> all (fmap target .> allSame)
 
-  let mergeSymbol tgts' s = tgts' |> find (elem s) |> fmap head |> fromMaybe s
+  let validateMerger curr merging_lists =
+        target curr
+        |> symbols
+        |> filter (`notElem` concat merging_lists)
+        |> (++ fmap ((symbol curr,) .> merger) merging_lists)
+        |> anySame
+        |> not
 
   let merging_lists = expandMergingSymbols (target src_arr) tgts
+  guard $ validateMerger src_arr merging_lists
+
+  let mergeSymbol (src', tgts') s = tgts' |> find (elem s) |> maybe s ((src',) .> merger)
   let merged_node = fromEdges do
-        arr <- target src_arr |> edges
-        let merged_dict = dict arr |> fmap (mergeSymbol merging_lists)
-        return arr {dict = merged_dict}
+        edge <- target src_arr |> edges
+        let merged_dict = dict edge |> fmap (mergeSymbol (src, merging_lists))
+        return edge {dict = merged_dict}
   let res0 = (merged_node, merging_lists)
 
   lres <- sequence $
     node |> foldUnder src \curr results -> do
-      results' <- traverse sequence results
-      let merging_lists_of = fromReachable res0 .> fmap snd .> fromMaybe []
+      let sym0 = symbol curr
+      results' <-
+        traverse sequence results
+        |> fmap (fmap (fromReachable res0 .> maybe (Nothing, []) (first Just)))
       let merging_lists =
-            results'
-            |> concatMap merging_lists_of
-            |> zip (target curr |> edges |> fmap dict)
-            |> fmap (sequence .> fmap (uncurry (!)))
+            target curr
+            |> edges
+            |> fmap dict
+            |> (`zip` fmap snd results')
+            |> concatMap (sequence .> fmap (sequence .> fmap (uncurry (!))))
             |> expandMergingSymbols (target curr)
+      guard $ validateMerger curr merging_lists
+
       let merged_node = fromEdges do
-            (lres, edge) <- results' `zip` edges (target curr)
+            ((lres, merging_lists'), edge) <- results' `zip` edges (target curr)
+            let sym = symbol (curr `join` edge)
             let merged_dict =
                   dict edge
-                  |> fmap (mergeSymbol merging_lists)
-                  |> Map.mapKeys (mergeSymbol (merging_lists_of lres))
-            case fromReachable res0 lres of
-              Nothing -> return edge {dict = merged_dict}
-              Just (res, _) -> return edge {dict = merged_dict, target = res}
+                  |> fmap (mergeSymbol (sym0, merging_lists))
+                  |> Map.mapKeys (mergeSymbol (sym, merging_lists'))
+            let res = fromMaybe (target edge) lres
+            return edge {dict = merged_dict, target = res}
       return (merged_node, merging_lists)
 
-  fromReachable merged_node $ fmap fst lres
+  fromReachable res0 lres |> fmap fst
 
