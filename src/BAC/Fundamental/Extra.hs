@@ -1,4 +1,5 @@
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
@@ -9,6 +10,9 @@ module BAC.Fundamental.Extra (
   duplicateNDSymbol',
   duplicateNode',
 
+  removePrefix,
+  removeSuffix,
+
   expandMergingSymbols,
   mergeSymbolsAggressively,
 ) where
@@ -16,7 +20,7 @@ module BAC.Fundamental.Extra (
 import Control.Arrow (first, (&&&))
 import Control.Monad (guard)
 import Data.Foldable (find)
-import Data.List (sort, findIndex, transpose)
+import Data.List (findIndex, sort, transpose)
 import Data.List.Extra (allSame, anySame, notNull)
 import Data.Map ((!))
 import qualified Data.Map.Strict as Map
@@ -25,7 +29,7 @@ import Data.Maybe (fromJust, fromMaybe)
 import BAC.Base
 import BAC.Fundamental
 import Utils.DisjointSet (bipartiteEqclass)
-import Utils.Utils ((.>), (|>), foldlMUncurry)
+import Utils.Utils ((.>), (|>), foldlMUncurry, guarded)
 
 -- $setup
 -- >>> import Data.Tuple.Extra (both)
@@ -251,6 +255,61 @@ duplicateNode' tgt splitter node = do
             |> (splitted_symbols !!)
 
     node |> splitSymbol (s1, s2) syms
+
+
+removePrefix :: (Symbol, Symbol) -> BAC -> Maybe BAC
+removePrefix (src, tgt) node = do
+  (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
+  let src_node = target src_arr
+  let remove_list = arrowsUnder tgt src_node |> fmap symbol |> filter (/= base) |> (tgt :)
+
+  let res0 =
+        target src_arr
+        |> edges
+        |> filter (dict .> notElem tgt)
+        |> fromEdges
+  let syms0 = symbols res0
+  guard $ symbols src_node |> filter (`notElem` remove_list) |> (== syms0)
+
+  fromReachable res0 $
+    node |> modifyUnder src \(_curr, edge) -> \case
+      AtOuter -> return edge
+      AtInner res -> return edge {target = res}
+      AtBoundary -> return edge {dict = dict', target = res0}
+        where
+        dict' = dict edge |> Map.filterWithKey \s _ -> s `elem` syms0
+
+removeSuffix :: (Symbol, Symbol) -> BAC -> Maybe BAC
+removeSuffix (src, tgt) node = do
+  (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
+  let tgt_arr = src_arr `join` tgt_subarr
+  let tgt' = symbol tgt_arr
+  let tgt_node = target tgt_subarr
+
+  lres <- sequence $
+    node |> foldUnder tgt' \curr results -> do
+      let is_outside = null (src_arr `divide` curr)
+      let remove_list = if is_outside then [] else curr `divide` tgt_arr |> fmap symbol
+
+      results' <- traverse sequence results
+
+      let res = fromEdges do
+            (lres, edge) <- results' `zip` edges (target curr)
+            case lres of
+              AtOuter -> return edge
+              AtBoundary -> guarded (const is_outside) edge
+              AtInner res ->
+                if null (src_arr `divide` (curr `join` edge))
+                then return edge {target = res}
+                else return edge {dict = dict', target = res}
+                where
+                dict' = target edge |> symbols |> foldr Map.delete (dict edge)
+
+      guard $ symbols (target curr) |> filter (`notElem` remove_list) |> (== symbols res)
+
+      return res
+
+  fromReachable tgt_node lres
 
 
 expandMergingSymbols :: BAC -> [[Symbol]] -> [[Symbol]]
