@@ -465,13 +465,13 @@ missingAltPathsOfArrow (src, tgt) node = do
   (src_arr, tgt_arr) <- arrow2 node (src, tgt)
   guard $ nondecomposable (target src_arr) tgt
   let src_alts = nubSort do
-        (arr1, arr2) <- src |> suffixND node
+        (arr1, arr2) <- suffixND node src
         guard $
           suffix (target arr1) (symbol (arr2 `join` tgt_arr))
           |> all (first (join arr1) .> symbol2 .> (== (src, tgt)))
         return $ symbol2 (arr1, arr2 `join` tgt_arr)
   let tgt_alts = nubSort do
-        arr <- target tgt_arr |> edgesND
+        arr <- edgesND (target tgt_arr)
         guard $
           prefix (target src_arr) (symbol (tgt_arr `join` arr))
           |> all (fst .> (src_arr,) .> symbol2 .> (== (src, tgt)))
@@ -484,8 +484,8 @@ missingAltPathsOfNode ::
   -> Maybe [(Symbol, Symbol)]
                     -- ^ Tuples of symbols indicating the edges need to be added.
 missingAltPathsOfNode src node = arrow node src |> fmap \src_arr -> do
-  let outedges = target src_arr |> edgesND
-  (arr1, arr2) <- src |> suffixND node
+  let outedges = edgesND (target src_arr)
+  (arr1, arr2) <- suffixND node src
   arr3 <- outedges
   guard $
     suffix (target arr1) (symbol (arr2 `join` arr3))
@@ -548,9 +548,10 @@ removeNDSymbol ::
   -> BAC
   -> Maybe BAC
 removeNDSymbol (src, tgt) node = do
+  src_node <- arrow node src |> fmap target
+  guard $ nondecomposable src_node tgt
   guard $ missingAltPathsOfArrow (src, tgt) node == Just ([],[])
 
-  let src_node = arrow node src |> fromJust |> target
   let res0 = src_node |> edges |> filter (\edge -> symbol edge /= tgt) |> fromEdges
   fromReachable res0 $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
@@ -599,6 +600,7 @@ Examples:
 -}
 removeRootNDSymbol' :: Symbol -> BAC -> Maybe BAC
 removeRootNDSymbol' tgt node = do
+  guard $ nondecomposable node tgt
   guard $
     missingAltPathsOfArrow (0, tgt) node
     |> maybe False \(l, r) -> null l && null r

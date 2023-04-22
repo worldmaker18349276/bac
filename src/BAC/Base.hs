@@ -345,7 +345,6 @@ allSuffix :: BAC -> Symbol -> [(Arrow, Arrow)]
 allSuffix node sym =
   node
   |> arrowsUnder sym
-  |> sortOn symbol
   |> concatMap \curr ->
     curr `divide` tgt_arr |> fmap (curr,)
   where
