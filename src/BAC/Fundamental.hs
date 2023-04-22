@@ -4,6 +4,8 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module BAC.Fundamental (
+  -- * Mutations
+
   Mutation (..),
 
   -- * Restructure #restructure#
@@ -12,13 +14,13 @@ module BAC.Fundamental (
   addEdge,
   removeEdge,
   relabel,
-  relabelRoot,
+  relabelOnRoot,
   alterSymbol,
 
   addEdgeMutation,
   removeEdgeMutation,
   relabelMutation,
-  relabelRootMutation,
+  relabelOnRootMutation,
   alterSymbolMutation,
 
   -- * Empty, Singleton
@@ -32,12 +34,12 @@ module BAC.Fundamental (
   missingAltPathsOfNode,
   removeNDSymbol,
   removeNode,
-  removeRootNDSymbol,
+  removeNDSymbolOnRoot,
   removeLeafNode,
 
   removeNDSymbolMutation,
   removeNodeMutation,
-  removeRootNDSymbolMutation,
+  removeNDSymbolOnRootMutation,
   removeLeafNodeMutation,
 
   -- * Add Symbol, Node
@@ -65,12 +67,12 @@ module BAC.Fundamental (
 
   duplicateNDSymbol,
   duplicateNode,
-  duplicateRootNDSymbol,
+  duplicateNDSymbolOnRoot,
   duplicateLeafNode,
 
   duplicateNDSymbolMutation,
   duplicateNodeMutation,
-  duplicateRootNDSymbolMutation,
+  duplicateNDSymbolOnRootMutation,
   duplicateLeafNodeMutation,
 
   -- * Split Symbol, Node
@@ -79,24 +81,24 @@ module BAC.Fundamental (
   partitionSymbols,
   makeSplitter,
   splitSymbol,
-  splitRootSymbol,
+  splitSymbolOnRoot,
   splitNode,
   splitRootNode,
 
   splitSymbolMutation,
-  splitRootSymbolMutation,
+  splitSymbolOnRootMutation,
   splitNodeMutation,
 
   -- * Merge Symbols, Nodes
 
   mergeSymbols,
-  mergeRootSymbols,
+  mergeSymbolsOnRoot,
   mergeNodes,
   mergeLeafNodes,
   mergeRootNodes,
 
   mergeSymbolsMutation,
-  mergeRootSymbolsMutation,
+  mergeSymbolsOnRootMutation,
   mergeNodesMutation,
   mergeLeafNodesMutation,
 ) where
@@ -342,11 +344,11 @@ relabelMutation tgt mapping node =
       |> (: [])
 
 -- | Relabel symbols in the root node.
-relabelRoot :: Dict -> BAC -> Maybe BAC
-relabelRoot = relabel base
+relabelOnRoot :: Dict -> BAC -> Maybe BAC
+relabelOnRoot = relabel base
 
-relabelRootMutation :: Dict -> BAC -> [Mutation]
-relabelRootMutation = relabelMutation base
+relabelOnRootMutation :: Dict -> BAC -> [Mutation]
+relabelOnRootMutation = relabelMutation base
 
 {- |
 Alter a symbol in a node.
@@ -568,11 +570,11 @@ removeNDSymbolMutation (src, tgt) node =
 
 -- | Remove a nondecomposable symbol in the root node (remove a nondecomposable initial
 --   morphism).
-removeRootNDSymbol :: Symbol -> BAC -> Maybe BAC
-removeRootNDSymbol tgt = removeNDSymbol (base, tgt)
+removeNDSymbolOnRoot :: Symbol -> BAC -> Maybe BAC
+removeNDSymbolOnRoot tgt = removeNDSymbol (base, tgt)
 
-removeRootNDSymbolMutation :: Symbol -> BAC -> [Mutation]
-removeRootNDSymbolMutation tgt = removeNDSymbolMutation (base, tgt)
+removeNDSymbolOnRootMutation :: Symbol -> BAC -> [Mutation]
+removeNDSymbolOnRootMutation tgt = removeNDSymbolMutation (base, tgt)
 
 
 -- | Remove a leaf node (remove a nondecomposable terminal morphisms).
@@ -914,11 +916,11 @@ splitSymbolMutation (src, tgt) splitted_syms node =
       Transfer group (fmap (first (const sym)) group)
 
 -- | Split a symbol in the root node (split an initial morphism).
-splitRootSymbol :: Symbol -> [Symbol] -> BAC -> Maybe BAC
-splitRootSymbol tgt = splitSymbol (base, tgt)
+splitSymbolOnRoot :: Symbol -> [Symbol] -> BAC -> Maybe BAC
+splitSymbolOnRoot tgt = splitSymbol (base, tgt)
 
-splitRootSymbolMutation :: Symbol -> [Symbol] -> BAC -> [Mutation]
-splitRootSymbolMutation tgt = splitSymbolMutation (base, tgt)
+splitSymbolOnRootMutation :: Symbol -> [Symbol] -> BAC -> [Mutation]
+splitSymbolOnRootMutation tgt = splitSymbolMutation (base, tgt)
 
 {- |
 Partition symbols of a object.
@@ -1233,11 +1235,11 @@ duplicateNodeMutation tgt splitter node = incoming_mutation ++ outgoing_mutation
 
 -- | Duplicate a nondecomposable symbol in the root node (duplicate an initial
 --   nondecomposable morphism).
-duplicateRootNDSymbol :: Symbol -> [Symbol] -> BAC -> Maybe BAC
-duplicateRootNDSymbol tgt = duplicateNDSymbol (base, tgt)
+duplicateNDSymbolOnRoot :: Symbol -> [Symbol] -> BAC -> Maybe BAC
+duplicateNDSymbolOnRoot tgt = duplicateNDSymbol (base, tgt)
 
-duplicateRootNDSymbolMutation :: Symbol -> [Symbol] -> BAC -> [Mutation]
-duplicateRootNDSymbolMutation tgt = duplicateNDSymbolMutation (base, tgt)
+duplicateNDSymbolOnRootMutation :: Symbol -> [Symbol] -> BAC -> [Mutation]
+duplicateNDSymbolOnRootMutation tgt = duplicateNDSymbolMutation (base, tgt)
 
 -- | Duplicate a leaf node (duplicate a nondecomposable terminal morphism).
 duplicateLeafNode :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
@@ -1326,11 +1328,11 @@ mergeSymbolsMutation (src, tgts) sym node =
       |> fmap (tgt,) &&& fmap (sym,)
       |> uncurry Transfer
 
-mergeRootSymbols :: [Symbol] -> Symbol -> BAC -> Maybe BAC
-mergeRootSymbols tgts = mergeSymbols (base, tgts)
+mergeSymbolsOnRoot :: [Symbol] -> Symbol -> BAC -> Maybe BAC
+mergeSymbolsOnRoot tgts = mergeSymbols (base, tgts)
 
-mergeRootSymbolsMutation :: [Symbol] -> Symbol -> BAC -> [Mutation]
-mergeRootSymbolsMutation tgts = mergeSymbolsMutation (base, tgts)
+mergeSymbolsOnRootMutation :: [Symbol] -> Symbol -> BAC -> [Mutation]
+mergeSymbolsOnRootMutation tgts = mergeSymbolsMutation (base, tgts)
 
 {- |
 Merge nodes (merge terminal morphisms).

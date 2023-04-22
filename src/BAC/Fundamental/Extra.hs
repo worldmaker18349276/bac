@@ -3,7 +3,7 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module BAC.Fundamental.Extra (
-  removeRootNDSymbol',
+  removeNDSymbolOnRoot',
   removeLeafNode',
 
   duplicateNDSymbol',
@@ -41,7 +41,7 @@ initial morphism step by step: removing all related morphisms, then splitting ca
 Examples:
 
 >>> cone' = fromJust $ addEdge (0,4) cone
->>> printBAC $ fromJust $ removeRootNDSymbol' 3 cone'
+>>> printBAC $ fromJust $ removeNDSymbolOnRoot' 3 cone'
 - 0->1; 1->2
   - 0->1
     &0
@@ -50,8 +50,8 @@ Examples:
     *0
   - 0->2
 -}
-removeRootNDSymbol' :: Symbol -> BAC -> Maybe BAC
-removeRootNDSymbol' tgt node = do
+removeNDSymbolOnRoot' :: Symbol -> BAC -> Maybe BAC
+removeNDSymbolOnRoot' tgt node = do
   guard $ nondecomposable node tgt
   guard $
     missingAltPathsOfArrow (0, tgt) node
