@@ -22,7 +22,7 @@ module BAC.Fundamental.Extra (
 
 import Control.Arrow (first, (&&&))
 import Control.Monad (guard)
-import Data.Foldable (find)
+import Data.Foldable (find, traverse_)
 import Data.List (findIndex, sort, transpose)
 import Data.List.Extra (allSame, anySame, notNull)
 import Data.Map ((!))
@@ -301,10 +301,11 @@ removeSuffix (src, tgt) node = do
             case lres of
               AtOuter -> return edge
               AtBoundary -> guarded (const is_outside) edge
-              AtInner res ->
-                if null (src_arr `divide` (curr `join` edge))
-                then return edge {target = res}
-                else return edge {dict = dict', target = res}
+              AtInner res | null (src_arr `divide` (curr `join` edge)) ->
+                return edge {target = res}
+              AtInner res | null (src_arr `divide` (curr `join` edge)) ->
+                return edge {target = res}
+              AtInner res -> return edge {dict = dict', target = res}
                 where
                 dict' = target edge |> symbols |> foldr Map.delete (dict edge)
 
@@ -327,8 +328,7 @@ duplicatePrefix (src, tgt) splitter node = do
   guard $ dup_list |> fmap splitter |> fmap length |> all (== len)
   guard $
     symbols src_node
-    |> filter (`notElem` dup_list)
-    |> (++ concatMap splitter dup_list)
+    |> concatMap (\sym -> if sym `elem` dup_list then splitter sym else [sym])
     |> anySame
     |> not
 
@@ -336,32 +336,30 @@ duplicatePrefix (src, tgt) splitter node = do
         edge <- edges (target src_arr)
         if symbol edge `notElem` dup_list
         then return edge
-        else do
-          dict' <-
-            dict edge
-            |> fmap (\sym ->
-              if sym `elem` dup_list
-              then splitter sym
-              else replicate len sym
-            )
-            |> Map.toList
-            |> fmap sequence
-            |> transpose
-            |> fmap Map.fromList
-          return edge {dict = dict'}
+        else
+          dict edge
+          |> fmap (\sym ->
+            if sym `elem` dup_list
+            then splitter sym
+            else replicate len sym
+          )
+          |> Map.toList
+          |> fmap sequence
+          |> transpose
+          |> fmap Map.fromList
+          |> fmap \dict' -> edge {dict = dict'}
 
   fromReachable res0 $
     node |> modifyUnder src \(_curr, edge) -> \case
       AtOuter -> return edge
       AtInner res -> return edge {target = res}
-      AtBoundary -> return edge {dict = dict', target = res0}
-        where
-        dict' =
-          dict edge
-          |> Map.toList
-          |> concatMap (\(s, r) ->
-            if s `elem` dup_list then [(s', r) | s' <- splitter s] else [(s, r)])
-          |> Map.fromList
+      AtBoundary ->
+        dict edge
+        |> Map.toList
+        |> fmap (first \sym -> if sym `elem` dup_list then splitter sym else [sym])
+        |> concatMap (\(syms, sym') -> syms |> fmap (,sym'))
+        |> Map.fromList
+        |> \dict' -> return edge {dict = dict', target = res0}
 
 duplicateSuffix :: (Symbol, Symbol) -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
 duplicateSuffix (src, tgt) splitter node = do
@@ -371,21 +369,22 @@ duplicateSuffix (src, tgt) splitter node = do
   let len = splitter (src, tgt) |> length
 
   guard $ len /= 0
-  guard $
-    arrowsUnder src_node tgt
-    |> all \arr ->
-      let
-        dup_list = arr `divide` tgt_subarr |> fmap symbol
-        dup_syms = dup_list |> fmap (symbol arr,) |> fmap splitter
-        same_len = dup_syms |> fmap length |> all (== len)
-      in
-        target arr
-        |> symbols
-        |> filter (`notElem` dup_list)
-        |> (++ concat dup_syms)
-        |> anySame
-        |> not
-        |> (same_len &&)
+
+  arrowsUnder src_node tgt |> traverse_ \arr -> do
+    let dup_list = arr `divide` tgt_subarr |> fmap symbol
+      
+    guard $
+      dup_list
+      |> fmap (symbol arr,)
+      |> fmap splitter
+      |> fmap length
+      |> all (== len)
+    guard $
+      target arr
+      |> symbols
+      |> concatMap (\sym -> if sym `elem` dup_list then splitter (symbol arr, sym) else [sym])
+      |> anySame
+      |> not
 
   let tgt_arr = src_arr `join` tgt_subarr
   let tgt' = symbol tgt_arr
@@ -399,39 +398,30 @@ duplicateSuffix (src, tgt) splitter node = do
 
       case lres of
         AtOuter -> return edge
+        AtBoundary | is_outside -> return edge
         AtBoundary -> do
-          guard $ not is_outside
           sym <- splitter (symbol curr, symbol edge)
           let dict' = dict edge |> Map.insert base sym
           return edge {dict = dict'}
+        AtInner res | null (src_arr `divide` (curr `join` edge)) ->
+          return edge {target = res}
+        AtInner res | is_outside ->
+          dict edge
+          |> Map.toList
+          |> fmap (first \s -> if s `elem` dup_list' then splitter (sym', s) else [s])
+          |> concatMap (\(s, r) -> s |> fmap (,r))
+          |> Map.fromList
+          |> \dict' -> return edge {dict = dict', target = res}
         AtInner res ->
-          if null (src_arr `divide` (curr `join` edge))
-          then return edge {target = res}
-          else if is_outside
-          then
-            dict edge
-            |> Map.toList
-            |> concatMap (\(s, r) ->
-              if s `elem` dup_list'
-              then splitter (sym', s) |> fmap (,r)
-              else [(s, r)]
-            )
-            |> Map.fromList
-            |> \dict' -> return edge {dict = dict', target = res}
-
-          else
-            dict edge
-            |> Map.toList
-            |> fmap (\(s, r) ->
-              if s == base
-              then replicate len base `zip` splitter (sym, symbol edge)
-              else if s `elem` dup_list'
-              then splitter (sym', s) `zip` splitter (sym, r)
-              else replicate len (s, r)
-            )
-            |> transpose
-            |> fmap Map.fromList
-            |> fmap \dict' -> edge {dict = dict', target = res}
+          dict edge
+          |> Map.toList
+          |> concatMap (\(s, r) ->
+            if s `elem` dup_list'
+            then splitter (sym', s) `zip` splitter (sym, r)
+            else [(s, r)]
+          )
+          |> Map.fromList
+          |> \dict' -> return edge {dict = dict', target = res}
 
 
 expandMergingSymbols :: BAC -> [[Symbol]] -> [[Symbol]]
