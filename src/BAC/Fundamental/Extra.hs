@@ -121,8 +121,7 @@ removeLeafNode' tgt node = do
   guard $ tgt_arr |> target |> edges |> null
 
   let remove_list =
-        node
-        |> arrowsUnder tgt
+        arrowsUnder node tgt
         |> concatMap ((id &&& (`divide` tgt_arr)) .> sequence .> fmap symbol2)
         |> filter (fst .> (/= base))
 
@@ -199,7 +198,7 @@ Examples:
 duplicateNode' :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
 duplicateNode' tgt splitter node = do
   guard $ locate (root node) tgt |> (== Inner)
-  let arrs = arrowsUnder tgt node
+  let arrs = arrowsUnder node tgt
   guard $
     arrs
     |> concatMap (\arr ->
@@ -223,8 +222,7 @@ duplicateNode' tgt splitter node = do
   let tgt_subarr = arrow node tgt |> fromJust
   let dup_list = suffixND node tgt |> fmap symbol2
   let split_list =
-        node
-        |> arrowsUnder tgt
+        arrowsUnder node tgt
         |> concatMap (\arr -> arr `divide` tgt_subarr |> fmap (arr,))
         |> fmap symbol2
         |> filter (`notElem` dup_list)
@@ -265,7 +263,7 @@ removePrefix (src, tgt) node = do
   guard $ tgt /= base
   (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
   let src_node = target src_arr
-  let remove_list = arrowsUnder tgt src_node |> fmap symbol |> filter (/= base) |> (tgt :)
+  let remove_list = arrowsUnder src_node tgt |> fmap symbol |> filter (/= base) |> (tgt :)
 
   let res0 =
         target src_arr
@@ -322,7 +320,7 @@ duplicatePrefix (src, tgt) splitter node = do
   guard $ tgt /= base
   (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
   let src_node = target src_arr
-  let dup_list = arrowsUnder tgt src_node |> fmap symbol |> filter (/= base) |> (tgt :)
+  let dup_list = arrowsUnder src_node tgt |> fmap symbol |> filter (/= base) |> (tgt :)
 
   let len = splitter tgt |> length
   guard $ len /= 0
@@ -374,7 +372,7 @@ duplicateSuffix (src, tgt) splitter node = do
 
   guard $ len /= 0
   guard $
-    arrowsUnder tgt src_node
+    arrowsUnder src_node tgt
     |> all \arr ->
       let
         dup_list = arr `divide` tgt_subarr |> fmap symbol

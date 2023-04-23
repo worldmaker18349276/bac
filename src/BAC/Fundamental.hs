@@ -983,7 +983,7 @@ splitNode tgt splittable_keys splitter node = do
   guard $ locate (root node) tgt |> (== Inner)
   let tgt_arr = arrow node tgt |> fromJust
   let splitted_keys = splittable_keys |> nubSort
-  let arrs = arrowsUnder tgt node
+  let arrs = arrowsUnder node tgt
   guard $
     arrs
     |> concatMap ((id &&& (`divide` tgt_arr)) .> sequence .> fmap symbol2)
@@ -1173,7 +1173,7 @@ Examples:
 duplicateNode :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
 duplicateNode tgt splitter node = do
   guard $ locate (root node) tgt |> (== Inner)
-  let arrs = arrowsUnder tgt node
+  let arrs = arrowsUnder node tgt
   guard $
     arrs
     |> concatMap (\arr ->
@@ -1518,7 +1518,7 @@ addLeafNode src inserter node = do
   let sym = inserter src
   guard $ sym `notElem` symbols src_node
   guard $
-    arrowsUnder src node |> all \curr ->
+    arrowsUnder node src |> all \curr ->
       target curr |> symbols |> notElem (inserter (symbol curr))
 
   let new_node = fromJust $ singleton sym
@@ -1550,7 +1550,7 @@ addParentNode (src, tgt) tgt' inserter node = do
   guard $ tgt' `notElem` symbols (target tgt_subarr)
   guard $ sym `notElem` symbols (target src_arr)
   guard $
-    arrowsUnder src node |> all \curr ->
+    arrowsUnder node src |> all \curr ->
       curr `divide` tgt_arr
       |> fmap (symbol .> (symbol curr,) .> inserter)
       |> (++ symbols (target curr))

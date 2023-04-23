@@ -330,8 +330,7 @@ prefix node sym =
 --   > &&  symbol (arr1 `join` arr2) == sym
 suffix :: BAC -> Symbol -> [(Arrow, Arrow)]
 suffix node sym =
-  node
-  |> arrowsUnder sym
+  arrowsUnder node sym
   |> sortOn symbol
   |> concatMap \curr ->
     curr
@@ -343,8 +342,7 @@ suffix node sym =
 -- | Find all suffix arrows of paths from a node to a given symbol.
 allSuffix :: BAC -> Symbol -> [(Arrow, Arrow)]
 allSuffix node sym =
-  node
-  |> arrowsUnder sym
+  arrowsUnder node sym
   |> concatMap \curr ->
     curr `divide` tgt_arr |> fmap (curr,)
   where
@@ -589,13 +587,13 @@ arrows = root .> go [] .> fmap snd
 --
 --   Examples:
 --
---   >>> fmap symbol $ arrowsUnder 6 cone
+--   >>> fmap symbol $ arrowsUnder cone 6
 --   [4,3,0]
 --
---   >>> fmap symbol $ arrowsUnder 5 cone
+--   >>> fmap symbol $ arrowsUnder cone 5
 --   []
-arrowsUnder :: Symbol -> BAC -> [Arrow]
-arrowsUnder sym = root .> go [] .> fmap snd
+arrowsUnder :: BAC -> Symbol -> [Arrow]
+arrowsUnder node sym = node |> root |> go [] |> fmap snd
   where
   go res curr
     | locate curr sym /= Inner = res
