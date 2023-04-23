@@ -2,7 +2,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
-module BAC.Isomorphism (
+module BAC.Fundamental.Zip (
   eqStruct,
   canonicalize,
   canonicalizeObject,

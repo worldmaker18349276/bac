@@ -23,8 +23,8 @@ import Data.Map.Strict (Map, insert, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 
-import BAC.Base
-import BAC.Fundamental.Extra (expandMergingSymbols)
+import BAC.Base hiding (empty)
+import BAC.Fundamental (expandMergingSymbols)
 import Utils.Utils ((|>), (.>))
 
 type DAG p = Map p (BAC, [p])

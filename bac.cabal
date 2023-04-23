@@ -61,15 +61,26 @@ library
     exposed-modules:
         BAC,
         BAC.Base,
-        BAC.Isomorphism,
         BAC.Fundamental,
-        BAC.Fundamental.Extra,
         BAC.Braider,
         BAC.Serialize,
         BAC.Examples
 
     -- Modules included in this library but not exported.
-    other-modules:  Utils.DisjointSet, Utils.Memoize, Utils.Utils, Utils.EqlistSet
+    other-modules:
+        BAC.Fundamental.Mutation,
+        BAC.Fundamental.Restructure,
+        BAC.Fundamental.Remove,
+        BAC.Fundamental.Add,
+        BAC.Fundamental.Duplicate,
+        BAC.Fundamental.Split,
+        BAC.Fundamental.Merge,
+        BAC.Fundamental.Zip,
+        BAC.FundamentalStepByStep,
+        Utils.DisjointSet,
+        Utils.Memoize,
+        Utils.Utils,
+        Utils.EqlistSet
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

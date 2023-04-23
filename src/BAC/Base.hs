@@ -35,6 +35,8 @@ module BAC.Base (
   base,
   symbols,
   cat,
+  empty,
+  singleton,
 
   -- ** Validation #validation#
 
@@ -169,6 +171,34 @@ symbols = edges .> concatMap (dict .> Map.elems) .> (base :) .> nubSort
 --   It may crash if given dictionaries are not composable.
 cat :: HasCallStack => Dict -> Dict -> Dict
 cat = fmap . (!)
+
+{- |
+A node without descendant (a BAC without proper object).
+
+Examples:
+
+>>> printBAC empty
+-}
+empty :: BAC
+empty = fromEdges []
+
+{- |
+a node with only one descendant (a BAC with only one proper object).
+
+Examples:
+
+>>> printBAC $ fromJust $ singleton 1
+- 0->1
+
+>>> printBAC $ fromJust $ singleton 2
+- 0->2
+-}
+singleton :: Symbol -> Maybe BAC
+singleton sym = if sym == base then Nothing else Just $ fromEdges [new_edge]
+  where
+  new_dict = Map.singleton base sym
+  new_node = empty
+  new_edge = Arrow {dict = new_dict, target = new_node}
 
 -- | Root arrow of a node.
 root :: BAC -> Arrow
