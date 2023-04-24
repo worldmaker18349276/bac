@@ -24,15 +24,16 @@ module BAC.Fundamental.Add (
   addParentNodeOnRootMutation,
 ) where
 
+import Control.Arrow ((&&&))
 import Control.Monad (MonadPlus (mzero), guard)
 import Data.Bifunctor (Bifunctor (second))
 import Data.Foldable (find)
 import Data.List (sort)
-import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, (!?), snoc)
+import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, snoc, (!?))
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, isJust)
-import Data.Tuple.Extra (both, dupe)
+import Data.Tuple.Extra (both)
 
 import BAC.Base
 import BAC.Fundamental.Mutation
@@ -328,15 +329,40 @@ makeInserter :: BAC -> (Symbol, Symbol) -> Symbol
 makeInserter node (src, tgt) =
   arrow node src |> fromJust |> target |> symbols |> maximum |> (+ tgt)
 
+{- |
+Insert a node in the middle of an arrow (add an object).
+
+Examples:
+
+>>> printBAC $ fromJust $ addParentNode (3,1) 5 (+1) (makeInserter cone) cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4; 5->9
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+  - 0->4; 1->2; 2->3
+    *1
+  - 0->5; 1->1; 2->2; 3->3
+    - 0->1; 1->2; 2->3
+      *1
+-}
 addParentNode ::
-  (Symbol, Symbol) -> Symbol -> ((Symbol, Symbol) -> Symbol) -> BAC -> Maybe BAC
-addParentNode (src, tgt) tgt' inserter node = do
+  (Symbol, Symbol)
+  -> Symbol
+  -> (Symbol -> Symbol)
+  -> ((Symbol, Symbol) -> Symbol)
+  -> BAC
+  -> Maybe BAC
+addParentNode (src, tgt) sym shifter inserter node = do
   (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
   let tgt_arr = src_arr `join` tgt_subarr
   guard $ tgt /= base
 
-  let sym = inserter (src, tgt)
-  guard $ tgt' `notElem` symbols (target tgt_subarr)
+  guard $ symbols (target tgt_subarr) |> fmap shifter |> (base :) |> anySame |> not
   guard $ sym `notElem` symbols (target src_arr)
   guard $
     arrowsUnder node src |> all \curr ->
@@ -346,43 +372,43 @@ addParentNode (src, tgt) tgt' inserter node = do
       |> anySame
       |> not
 
-  let new_outdict =
-        target tgt_subarr |> symbols |> fmap dupe |> Map.fromList |> Map.insert base tgt'
+  let new_outdict = target tgt_subarr |> symbols |> fmap (id &&& shifter) |> Map.fromList
   let new_outedge = Arrow {dict = new_outdict, target = target tgt_subarr}
   let new_node = fromEdges [new_outedge]
-  let new_indict = dict tgt_subarr |> Map.insert tgt' sym
+  let new_indict = dict tgt_subarr |> Map.mapKeys shifter |> Map.insert base sym
   let new_inedge = Arrow {dict = new_indict, target = new_node}
   let res0 = fromEdges $ edges (target src_arr) `snoc` new_inedge
 
   fromReachable res0 $
-    node |> modifyUnder src \(curr, edge) lres -> case fromReachable res0 lres of
-      Nothing -> return edge
-      Just res -> return edge {dict = dict', target = res}
+    node |> modifyUnder src \(curr, edge) -> \case
+      AtOuter -> return edge
+      AtBoundary -> return edge {dict = new_dict, target = res0}
         where
-        sym0 = symbol curr
-        sym = symbol (curr `join` edge)
-        dict' =
-          dict edge
-          |> Map.toList
-          |> concatMap (\(s, r) ->
-            if dict curr ! r == tgt
-            then [(s, r), (inserter (sym, s), inserter (sym0, r))]
-            else [(s, r)]
-          )
-          |> Map.fromList
+        new_sym = inserter (symbol curr, symbol edge)
+        new_dict = dict edge |> Map.insert sym new_sym
+      AtInner res -> return edge {dict = new_dict, target = res}
+        where
+        new_wires =
+          (curr `join` edge) `divide` src_arr
+          |> fmap (\subarr -> ((curr `join` edge, subarr), (curr, edge `join` subarr)))
+          |> fmap (both (symbol2 .> inserter))
+        new_dict = new_wires |> foldr (uncurry Map.insert) (dict edge)
 
 addParentNodeMutation ::
-  (Symbol, Symbol) -> Symbol -> ((Symbol, Symbol) -> Symbol) -> BAC -> [Mutation]
-addParentNodeMutation (src, tgt) tgt' inserter node =
-  [Insert (src, sym), Insert (sym', tgt')]
+  (Symbol, Symbol)
+  -> Symbol
+  -> (Symbol -> Symbol)
+  -> ((Symbol, Symbol) -> Symbol)
+  -> BAC
+  -> [Mutation]
+addParentNodeMutation (src, tgt) sym shifter inserter node =
+  [Insert (src, sym), Insert (inserter (base, src_tgt), shifter base)]
   where
-  sym = inserter (src, tgt)
   src_tgt = (src, tgt) |> arrow2 node |> fromJust |> uncurry join |> symbol
-  sym' = inserter (base, src_tgt)
 
-addParentNodeOnRoot :: Symbol -> Symbol -> Symbol -> BAC -> Maybe BAC
-addParentNodeOnRoot tgt tgt' sym = addParentNode (base, tgt) tgt' (const sym)
+addParentNodeOnRoot :: Symbol -> Symbol -> (Symbol -> Symbol) -> BAC -> Maybe BAC
+addParentNodeOnRoot tgt sym shifter = addParentNode (base, tgt) sym shifter undefined
 
-addParentNodeOnRootMutation :: Symbol -> Symbol -> Symbol -> BAC -> [Mutation]
-addParentNodeOnRootMutation tgt tgt' sym =
-  addParentNodeMutation (base, tgt) tgt' (const sym)
+addParentNodeOnRootMutation :: Symbol -> Symbol -> (Symbol -> Symbol) -> BAC -> [Mutation]
+addParentNodeOnRootMutation tgt sym shifter =
+  addParentNodeMutation (base, tgt) sym shifter undefined
