@@ -290,7 +290,13 @@ Examples:
   - 0->4; 1->2; 2->3; 3->8
     *1
 -}
-addLeafNode :: Symbol -> Symbol -> ((Symbol, Symbol) -> Symbol) -> BAC -> Maybe BAC
+addLeafNode ::
+  Symbol             -- ^ The symbol referenced to the node to append.
+  -> Symbol          -- ^ The symbol referenced to the added node.
+  -> ((Symbol, Symbol) -> Symbol)
+                     -- ^ The function to insert symbol to all ancestor nodes.
+  -> BAC
+  -> Maybe BAC
 addLeafNode src sym inserter node = do
   src_arr <- arrow node src
   let src_node = target src_arr
@@ -351,10 +357,11 @@ Examples:
       *1
 -}
 addParentNode ::
-  (Symbol, Symbol)
-  -> Symbol
-  -> (Symbol -> Symbol)
+  (Symbol, Symbol)       -- ^ The symbols indicate the arrow to be interpolated.
+  -> Symbol              -- ^ The symbol referenced the added node.
+  -> (Symbol -> Symbol)  -- ^ The dictionary of the edge of the added node.
   -> ((Symbol, Symbol) -> Symbol)
+                         -- ^ The function to insert symbol to all ancestor nodes.
   -> BAC
   -> Maybe BAC
 addParentNode (src, tgt) sym shifter inserter node = do
