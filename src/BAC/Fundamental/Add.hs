@@ -256,29 +256,73 @@ addNDSymbolMutation src tgt sym _src_alts _tgt_alts node =
     |> fmap \s ->
       Duplicate (tgt, s) [(tgt, s), (sym, s)]
 
-addLeafNode :: Symbol -> (Symbol -> Symbol) -> BAC -> Maybe BAC
-addLeafNode src inserter node = do
+{- |
+Add a leaf node to a node (add a terminal nondecomposable morphism).
+
+Examples:
+
+>>> printBAC $ fromJust $ addLeafNode 2 1 (makeInserter cone) cone
+- 0->1; 1->2; 2->8
+  - 0->1; 1->2
+    &0
+    - 0->1
+- 0->3; 1->4; 2->2; 3->6; 4->4; 6->8
+  - 0->1; 1->2; 2->3; 3->6
+    &1
+    - 0->1; 1->3
+      *0
+    - 0->2
+  - 0->4; 1->2; 2->3; 3->6
+    *1
+
+>>> printBAC $ fromJust $ addLeafNode 4 3 (makeInserter cone) cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4; 5->10; 8->10
+  - 0->1; 1->2; 2->3; 3->5
+    &1
+    - 0->1
+      *0
+    - 0->2
+    - 0->3
+  - 0->4; 1->2; 2->3; 3->8
+    *1
+-}
+addLeafNode :: Symbol -> Symbol -> ((Symbol, Symbol) -> Symbol) -> BAC -> Maybe BAC
+addLeafNode src sym inserter node = do
   src_arr <- arrow node src
   let src_node = target src_arr
-  let sym = inserter src
   guard $ sym `notElem` symbols src_node
   guard $
     arrowsUnder node src |> all \curr ->
-      target curr |> symbols |> notElem (inserter (symbol curr))
+      curr `divide` src_arr
+      |> fmap symbol
+      |> fmap (symbol curr,)
+      |> fmap inserter
+      |> (++ symbols (target curr))
+      |> anySame
+      |> not
 
   let new_node = fromJust $ singleton sym
   let res0 = fromEdges (edges src_node ++ edges new_node)
   fromReachable res0 $
-    node |> modifyUnder src \(curr, edge) lres -> case fromReachable res0 lres of
-      Nothing -> return edge
-      Just res -> return edge {dict = new_dict, target = res}
+    node |> modifyUnder src \(curr, edge) -> \case
+      AtOuter -> return edge
+      AtBoundary -> return edge {dict = new_dict, target = res0}
         where
-        new_sym = inserter (symbol curr)
-        new_sym' = inserter (symbol (curr `join` edge))
-        new_dict = dict edge |> Map.insert new_sym' new_sym
+        new_sym = inserter (symbol curr, symbol edge)
+        new_dict = dict edge |> Map.insert sym new_sym
+      AtInner res -> return edge {dict = new_dict, target = res}
+        where
+        new_wires =
+          (curr `join` edge) `divide` src_arr
+          |> fmap (\subarr -> ((curr `join` edge, subarr), (curr, edge `join` subarr)))
+          |> fmap (both (symbol2 .> inserter))
+        new_dict = new_wires |> foldr (uncurry Map.insert) (dict edge)
 
-addLeafNodeMutation :: Symbol -> (Symbol -> Symbol) -> BAC -> [Mutation]
-addLeafNodeMutation src inserter _node = [Insert (src, inserter src)]
+addLeafNodeMutation :: Symbol -> Symbol -> ((Symbol, Symbol) -> Symbol) -> BAC -> [Mutation]
+addLeafNodeMutation src sym _inserter _node = [Insert (src, sym)]
 
 makeInserter :: BAC -> (Symbol, Symbol) -> Symbol
 makeInserter node (src, tgt) =
