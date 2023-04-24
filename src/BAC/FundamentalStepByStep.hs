@@ -13,8 +13,7 @@ module BAC.FundamentalStepByStep (
 import Control.Arrow ((&&&))
 import Control.Monad (guard)
 import Data.List (findIndex, transpose)
-import Data.List.Extra (allSame, anySame, notNull)
-import Data.Map ((!))
+import Data.List.Extra (allSame, anySame, notNull, groupSortOn)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust)
 
@@ -70,8 +69,8 @@ removeNDSymbolOnRoot' tgt node = do
 
     return $ node |> removeNDSymbol sym2 |> fromJust
 
-  let keys = partitionSymbols node |> fmap (elem tgt)
-  return $ node |> splitRootNode keys |> fromJust |> (! False)
+  let keys = partitionSymbols node |> zip [0..] |> groupSortOn (snd .> elem tgt) |> fmap (fmap fst)
+  return $ node |> splitRootNode keys |> fromJust |> head
 
 {- |
 Remove an leaf node step by step (remove a nondecomposable terminal morphism step by step:
@@ -121,8 +120,8 @@ removeLeafNode' tgt node = do
 
     return $ node |> removeNDSymbol sym2 |> fromJust
 
-  let keys = partitionSymbols node |> fmap (elem tgt)
-  return $ node |> splitRootNode keys |> fromJust |> (! False)
+  let keys = partitionSymbols node |> zip [0..] |> groupSortOn (snd .> elem tgt) |> fmap (fmap fst)
+  return $ node |> splitRootNode keys |> fromJust |> head
 
 
 -- | Duplicate a nondecomposable symbol in a node step by step (duplicate a non-terminal
@@ -238,11 +237,15 @@ duplicateNode' tgt splitter node = do
     let syms =
           partitionPrefix (target src_arr) s2
           |> fmap head
-          |> fmap \splittable_prefix ->
+          |> fmap (\splittable_prefix ->
             splitted_prefixes
             |> findIndex (elem splittable_prefix)
             |> fromJust
             |> (splitted_symbols !!)
+          )
+          |> (`zip` [0..])
+          |> groupSortOn fst
+          |> fmap (head .> fst &&& fmap snd)
 
     node |> splitSymbol (s1, s2) syms
 
