@@ -3,27 +3,27 @@ module BAC.Fundamental (
 
   module BAC.Fundamental.Restructure,
 
-  -- * Remove Symbol, Node
+  -- * Remove #remove#
 
   module BAC.Fundamental.Remove,
 
-  -- * Add Symbol, Node
+  -- * Add #add#
 
   module BAC.Fundamental.Add,
 
-  -- * Duplicate Symbol, Node
+  -- * Duplicate #duplicate#
 
   module BAC.Fundamental.Duplicate,
 
-  -- * Split Symbol, Node
+  -- * Split #split#
 
   module BAC.Fundamental.Split,
 
-  -- * Merge Symbols, Nodes
+  -- * Merge #merge#
 
   module BAC.Fundamental.Merge,
 
-  -- * Zip
+  -- * Zip #zip#
 
   module BAC.Fundamental.Zip,
 ) where
