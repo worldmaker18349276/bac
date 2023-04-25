@@ -76,7 +76,6 @@ library
         BAC.Fundamental.Split,
         BAC.Fundamental.Merge,
         BAC.Fundamental.Zip,
-        BAC.FundamentalStepByStep,
         Utils.DisjointSet,
         Utils.Memoize,
         Utils.Utils,
