@@ -33,7 +33,7 @@ Rewire edges of a given node.
 
 Examples:
 
->>> printBAC $ fromJust $ rewire 0 [1, 4, 3] cone
+>>> printBAC $ fromJust $ rewire (0, [1,4,3]) cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -48,7 +48,7 @@ Examples:
 - 0->4; 1->2; 2->6
   *1
 
->>> printBAC $ fromJust $ rewire 3 [1, 4, 3] cone
+>>> printBAC $ fromJust $ rewire (3, [1,4,3]) cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -64,15 +64,14 @@ Examples:
   - 0->4; 1->2; 2->3
     *1
 
->>> rewire 3 [1, 5, 3] cone
+>>> rewire (3, [1,5,3]) cone
 Nothing
 -}
 rewire ::
-  Symbol         -- ^ The symbol referencing to the node to rewire.
-  -> [Symbol]    -- ^ The list of pairs of symbols of rewired edges.
+  (Symbol, [Symbol])  -- ^ The list of pairs of symbols of rewired edges.
   -> BAC
   -> Maybe BAC
-rewire src tgts node = do
+rewire (src, tgts) node = do
   src_arr <- arrow node src
   let nd_syms = target src_arr |> edgesND |> fmap symbol
   src_edges' <- tgts |> traverse (arrow (target src_arr))
@@ -117,7 +116,7 @@ addEdge (src, tgt) node = do
         |> edges
         |> fmap symbol
         |> (`snoc` tgt)
-  node |> rewire src new_syms
+  node |> rewire (src, new_syms)
 
 {- | Remove an edge.  The categorical structure should not change after removing this edge.
 
@@ -149,7 +148,7 @@ removeEdge (src, tgt) node = do
         |> edges
         |> fmap symbol
         |> filter (/= tgt)
-  node |> rewire src new_syms
+  node |> rewire (src, new_syms)
 
 {- |
 Relabel symbols in a given node.
