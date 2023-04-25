@@ -18,7 +18,6 @@ module BAC.Fundamental.Add (
   addParentNodeOnRoot,
 ) where
 
-import Control.Arrow ((&&&))
 import Control.Monad (mzero, guard)
 import Data.Bifunctor (second)
 import Data.Foldable (find)
@@ -36,6 +35,7 @@ import Utils.Utils (guarded, (.>), (|>))
 -- >>> import Data.Tuple.Extra (both)
 -- >>> import Data.Foldable (traverse_)
 -- >>> import Data.Map (fromList)
+-- >>> import Control.Arrow ((&&&))
 -- >>> import BAC.Serialize
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
@@ -312,7 +312,8 @@ Insert a node in the middle of an arrow (add an object).
 
 Examples:
 
->>> printBAC $ fromJust $ addParentNode (3,1) 5 (+1) (makeShifter cone 1) cone
+>>> mapping = arrow cone 4 |> fromJust |> target |> symbols |> fmap (id &&& (+1)) |> Map.fromList
+>>> printBAC $ fromJust $ addParentNode (3,1) 5 mapping (makeShifter cone 1) cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -331,17 +332,18 @@ Examples:
 addParentNode ::
   (Symbol, Symbol)       -- ^ The symbols indicate the arrow to be interpolated.
   -> Symbol              -- ^ The symbol referenced the added node.
-  -> (Symbol -> Symbol)  -- ^ The dictionary of the edge of the added node.
+  -> Dict                -- ^ The dictionary of the edge of the added node.
   -> ((Symbol, Symbol) -> Symbol)
                          -- ^ The function to insert symbol to all ancestor nodes.
   -> BAC
   -> Maybe BAC
-addParentNode (src, tgt) sym shifter inserter node = do
+addParentNode (src, tgt) sym mapping inserter node = do
   (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
   let tgt_arr = src_arr `join` tgt_subarr
   guard $ tgt /= base
 
-  guard $ symbols (target tgt_subarr) |> fmap shifter |> (base :) |> anySame |> not
+  guard $ symbols (target tgt_subarr) |> (== Map.keys mapping)
+  guard $ Map.elems mapping |> (base :) |> anySame |> not
   guard $ sym `notElem` symbols (target src_arr)
   guard $
     arrowsUnder node src |> all \curr ->
@@ -351,10 +353,9 @@ addParentNode (src, tgt) sym shifter inserter node = do
       |> anySame
       |> not
 
-  let new_outdict = target tgt_subarr |> symbols |> fmap (id &&& shifter) |> Map.fromList
-  let new_outedge = Arrow {dict = new_outdict, target = target tgt_subarr}
+  let new_outedge = Arrow {dict = mapping, target = target tgt_subarr}
   let new_node = fromEdges [new_outedge]
-  let new_indict = dict tgt_subarr |> Map.mapKeys shifter |> Map.insert base sym
+  let new_indict = dict tgt_subarr |> Map.mapKeys (mapping !) |> Map.insert base sym
   let new_inedge = Arrow {dict = new_indict, target = new_node}
   let res0 = fromEdges $ edges (target src_arr) `snoc` new_inedge
 
@@ -373,5 +374,5 @@ addParentNode (src, tgt) sym shifter inserter node = do
           |> fmap (both (symbol2 .> inserter))
         new_dict = new_wires |> foldr (uncurry Map.insert) (dict edge)
 
-addParentNodeOnRoot :: Symbol -> Symbol -> (Symbol -> Symbol) -> BAC -> Maybe BAC
-addParentNodeOnRoot tgt sym shifter = addParentNode (base, tgt) sym shifter undefined
+addParentNodeOnRoot :: Symbol -> Symbol -> Dict -> BAC -> Maybe BAC
+addParentNodeOnRoot tgt sym mapping = addParentNode (base, tgt) sym mapping undefined
