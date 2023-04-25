@@ -4,8 +4,6 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module BAC.Fundamental.Remove (
-  missingAltPathsOfArrow,
-  missingAltPathsOfNode,
   removeNDSymbol,
   removeNode,
   removeNDSymbolOnRoot,
@@ -19,9 +17,7 @@ module BAC.Fundamental.Remove (
   removeLeafNodeMutation,
 ) where
 
-import Control.Monad (MonadPlus (mzero), guard)
-import Data.Bifunctor (Bifunctor (first))
-import Data.List.Extra (nubSort)
+import Control.Monad (guard)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust)
@@ -40,79 +36,24 @@ import Utils.Utils ((.>), (|>), guarded)
 
 
 {- |
-Find all missing alternative paths for a nondecomposable morphism, which are necessary for
-removing this morphism.
-
-Examples:
-
->>> missingAltPathsOfArrow (3,1) cone
-Just ([],[])
-
->>> missingAltPathsOfArrow (4,2) cone
-Just ([(3,3)],[])
-
->>> missingAltPathsOfArrow (0,3) cone
-Just ([],[(0,4)])
--}
-missingAltPathsOfArrow ::
-  (Symbol, Symbol)  -- ^ The tuple of symbols indicating the morphism to be removed.
-  -> BAC            -- ^ The root node of BAC.
-  -> Maybe ([(Symbol, Symbol)], [(Symbol, Symbol)])
-                    -- ^ Tuples of symbols indicating the edges need to be added.
-                    --   The first list is the edges skipping the source object, and the
-                    --   second list is the edges skipping the target object.
-missingAltPathsOfArrow (src, tgt) node = do
-  guard $ tgt /= base
-  (src_arr, tgt_arr) <- arrow2 node (src, tgt)
-  guard $ nondecomposable (target src_arr) tgt
-  let src_alts = nubSort do
-        (arr1, arr2) <- suffixND node src
-        guard $
-          suffix (target arr1) (symbol (arr2 `join` tgt_arr))
-          |> all (first (join arr1) .> symbol2 .> (== (src, tgt)))
-        return $ symbol2 (arr1, arr2 `join` tgt_arr)
-  let tgt_alts = nubSort do
-        arr <- edgesND (target tgt_arr)
-        guard $
-          prefix (target src_arr) (symbol (tgt_arr `join` arr))
-          |> all (fst .> (src_arr,) .> symbol2 .> (== (src, tgt)))
-        return $ symbol2 (src_arr, tgt_arr `join` arr)
-  return (src_alts, tgt_alts)
-
-missingAltPathsOfNode ::
-  Symbol            -- ^ The symbol indicating the object to be removed.
-  -> BAC            -- ^ The root node of BAC.
-  -> Maybe [(Symbol, Symbol)]
-                    -- ^ Tuples of symbols indicating the edges need to be added.
-missingAltPathsOfNode src node = arrow node src |> fmap \src_arr -> do
-  let outedges = edgesND (target src_arr)
-  (arr1, arr2) <- suffixND node src
-  arr3 <- outedges
-  guard $
-    suffix (target arr1) (symbol (arr2 `join` arr3))
-    |> all (first (join arr1) .> symbol2 .> (== (src, symbol arr3)))
-  return $ symbol2 (arr1, arr2 `join` arr3)
-
-{- |
 Remove a nondecomposable symbol in a node (remove a non-terminal nondecomposable morphism).
 
 Examples:
 
->>> printBAC $ fromJust $ removeNDSymbol (1, 1) cone
+>>> printBAC $ fromJust $ removeNDSymbol (1,1) cone
 - 0->1
+- 0->2
+  &0
 - 0->3; 1->4; 2->2; 3->6; 4->4
   - 0->1; 1->2; 2->3
-    &0
+    &1
     - 0->1
+      *0
     - 0->2
   - 0->4; 1->2; 2->3
-    *0
+    *1
 
->>> removeNDSymbol (4, 2) cone
-Nothing
-
->>> cone' = fromJust $ addEdge (0,4) cone
->>> printBAC $ fromJust $ removeNDSymbol (0,3) cone'
+>>> printBAC $ fromJust $ removeNDSymbol (0,3) cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -121,15 +62,7 @@ Nothing
     *0
   - 0->2
 
->>> :{
-printBAC $ fromJust $
-  cone
-  |> removeNDSymbol (3,1)
-  >>= addEdge (3,2)
-  >>= addEdge (3,3)
-  >>= addEdge (0,4)
-  >>= removeNDSymbol (3,4)
-:}
+>>> printBAC $ cone |> removeNDSymbol (3,1) |> fromJust |> removeNDSymbol (3,4) |> fromJust
 - 0->1; 1->2
   - 0->1
     &0
@@ -149,15 +82,21 @@ removeNDSymbol ::
   -> BAC
   -> Maybe BAC
 removeNDSymbol (src, tgt) node = do
-  src_node <- arrow node src |> fmap target
-  guard $ nondecomposable src_node tgt
-  guard $ missingAltPathsOfArrow (src, tgt) node == Just ([],[])
+  (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
+  guard $ nondecomposable (target src_arr) tgt
 
-  let res0 = src_node |> edges |> filter (\edge -> symbol edge /= tgt) |> fromEdges
+  let res0 = fromEdges do
+        edge <- edges (target src_arr)
+        if symbol edge /= tgt
+        then return edge
+        else do
+          subedge <- target edge |> edges
+          return $ edge `join` subedge
+
   fromReachable res0 $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner res -> return edge {target = res}
-    AtBoundary -> return edge {dict = filtered_dict, target = res0}
+    AtBoundary -> [edge {dict = filtered_dict, target = res0}, edge `join` tgt_subarr]
       where
       filtered_dict = dict edge |> Map.delete tgt
 
@@ -189,11 +128,12 @@ removeNode :: Symbol -> BAC -> Maybe BAC
 removeNode tgt node = do
   guard $ locate (root node) tgt == Inner
   tgt_arr <- arrow node tgt
-  guard $ missingAltPathsOfNode tgt node == Just []
 
   fromReachable (target tgt_arr) $ node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
-    AtBoundary -> mzero
+    AtBoundary -> do
+      subedge <- target edge |> edges
+      return $ edge `join` subedge
     AtInner res -> return edge {dict = filtered_dict, target = res}
       where
       filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
