@@ -1,6 +1,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module BAC.Fundamental.Split (
   partitionPrefix,
@@ -19,7 +20,7 @@ module BAC.Fundamental.Split (
 import Control.Arrow ((&&&))
 import Control.Monad (guard)
 import Data.List (sort)
-import Data.List.Extra (anySame, notNull)
+import Data.List.Extra (anySame)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe, fromMaybe)
@@ -29,6 +30,7 @@ import Numeric.Natural (Natural)
 
 import BAC.Base
 import BAC.Fundamental.Mutation
+import BAC.Fundamental.Restructure
 import Utils.DisjointSet (bipartiteEqclass)
 import Utils.Utils ((.>), (|>))
 
@@ -113,12 +115,6 @@ splitSymbol (src, tgt) splitted_syms node = do
     |> (++ fmap fst splitted_syms)
     |> anySame
     |> not
-  guard $
-    target src_arr
-    |> edges
-    |> fmap symbol
-    |> elem tgt
-    |> (|| all (snd .> notNull) splitted_syms)
 
   let splitter =
         splitted_syms
@@ -127,6 +123,8 @@ splitSymbol (src, tgt) splitted_syms node = do
         |> concatMap sequence
         |> fmap swap
         |> Map.fromList
+
+  node <- addEdge (src, tgt) node
 
   let res0 = fromEdges do
         edge <- target src_arr |> edges
@@ -234,7 +232,6 @@ splitNode ::
 splitNode tgt partition node = do
   guard $ locate (root node) tgt |> (== Inner)
   let tgt_arr = arrow node tgt |> fromJust
-  -- let splitted_keys = partition |> nubSort
   let splitter = partition |> fmap fst |> sequence
   guard $
     arrowsUnder node tgt
