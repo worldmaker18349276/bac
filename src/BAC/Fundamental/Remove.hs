@@ -1,6 +1,5 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module BAC.Fundamental.Remove (
@@ -10,26 +9,20 @@ module BAC.Fundamental.Remove (
   removeLeafNode,
   removePrefix,
   removeSuffix,
-
-  removeNDSymbolMutation,
-  removeNodeMutation,
-  removeNDSymbolOnRootMutation,
-  removeLeafNodeMutation,
 ) where
 
 import Control.Monad (guard)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromJust)
 
 import BAC.Base
-import BAC.Fundamental.Mutation
 import Utils.Utils ((.>), (|>), guarded)
 
 -- $setup
 -- >>> import Data.Tuple.Extra (both)
 -- >>> import Data.Foldable (traverse_)
 -- >>> import Data.Map (fromList)
+-- >>> import Data.Maybe (fromJust)
 -- >>> import BAC.Serialize
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
@@ -100,27 +93,10 @@ removeNDSymbol (src, tgt) node = do
       where
       filtered_dict = dict edge |> Map.delete tgt
 
-removeNDSymbolMutation :: (Symbol, Symbol) -> BAC -> [Mutation]
-removeNDSymbolMutation (src, tgt) node =
-  [Delete (src, tgt)]
-  |> if src == base then (++ root_mutation) else id
-  where
-  root_mutation =
-    arrow node tgt
-    |> fromJust
-    |> target
-    |> edges
-    |> fmap symbol
-    |> fmap (tgt,)
-    |> fmap Delete
-
 -- | Remove a nondecomposable symbol in the root node (remove a nondecomposable initial
 --   morphism).
 removeNDSymbolOnRoot :: Symbol -> BAC -> Maybe BAC
 removeNDSymbolOnRoot tgt = removeNDSymbol (base, tgt)
-
-removeNDSymbolOnRootMutation :: Symbol -> BAC -> [Mutation]
-removeNDSymbolOnRootMutation tgt = removeNDSymbolMutation (base, tgt)
 
 
 -- | Remove a node (remove initial and terminal morphisms simultaneously).
@@ -138,21 +114,6 @@ removeNode tgt node = do
       where
       filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
 
-removeNodeMutation :: Symbol -> BAC -> [Mutation]
-removeNodeMutation tgt node =
-  arrow node tgt
-  |> fromJust
-  |> target
-  |> edges
-  |> fmap symbol
-  |> fmap (tgt,)
-  |> fmap Delete
-  |> (++) (
-    suffix node tgt
-    |> fmap symbol2
-    |> fmap Delete
-  )
-
 -- | Remove a leaf node (remove a nondecomposable terminal morphisms).
 removeLeafNode :: Symbol -> BAC -> Maybe BAC
 removeLeafNode tgt node = do
@@ -160,9 +121,6 @@ removeLeafNode tgt node = do
   guard $ target tgt_arr |> edges |> null
 
   removeNode tgt node
-
-removeLeafNodeMutation :: Symbol -> BAC -> [Mutation]
-removeLeafNodeMutation = removeNodeMutation
 
 
 removePrefix :: (Symbol, Symbol) -> BAC -> Maybe BAC

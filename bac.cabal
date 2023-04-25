@@ -68,7 +68,6 @@ library
 
     -- Modules included in this library but not exported.
     other-modules:
-        BAC.Fundamental.Mutation,
         BAC.Fundamental.Restructure,
         BAC.Fundamental.Remove,
         BAC.Fundamental.Add,

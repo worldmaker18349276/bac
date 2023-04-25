@@ -11,17 +11,12 @@ module BAC.Fundamental.Split (
   splitSymbolOnRoot,
   splitNode,
   splitRootNode,
-
-  splitSymbolMutation,
-  splitSymbolOnRootMutation,
-  splitNodeMutation,
 ) where
 
-import Control.Arrow ((&&&))
 import Control.Monad (guard)
 import Data.List (sort)
 import Data.List.Extra (anySame)
-import Data.Map.Strict (Map, (!))
+import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe, fromMaybe)
 import Data.Tuple (swap)
@@ -29,7 +24,6 @@ import Data.Tuple.Extra (both)
 import Numeric.Natural (Natural)
 
 import BAC.Base
-import BAC.Fundamental.Mutation
 import BAC.Fundamental.Restructure
 import Utils.DisjointSet (bipartiteEqclass)
 import Utils.Utils ((.>), (|>))
@@ -149,26 +143,9 @@ splitSymbol (src, tgt) splitted_syms node = do
         | otherwise = [(s, r)]
       merged_dict = dict edge |> Map.toList |> concatMap merge |> Map.fromList
 
-splitSymbolMutation :: (Symbol, Symbol) -> [(Symbol, [Int])] -> BAC -> [Mutation]
-splitSymbolMutation (src, tgt) splitted_syms node =
-  [Duplicate (src, tgt) (fmap (src,) syms) | tgt `elem` prefixes]
-  |> if src == base then (++ root_mutation) else id
-  where
-  prefixes =
-    arrow node src
-    |> fromJust
-    |> target
-    |> edges
-    |> fmap symbol
-  syms = fmap fst splitted_syms
-  root_mutation = prefixes |> fmap \s -> Duplicate (src, s) (fmap (,s) syms)
-
 -- | Split a symbol in the root node (split an initial morphism).
 splitSymbolOnRoot :: Symbol -> [(Symbol, [Int])] -> BAC -> Maybe BAC
 splitSymbolOnRoot tgt = splitSymbol (base, tgt)
-
-splitSymbolOnRootMutation :: Symbol -> [(Symbol, [Int])] -> BAC -> [Mutation]
-splitSymbolOnRootMutation tgt = splitSymbolMutation (base, tgt)
 
 {- |
 Partition symbols of a object.
@@ -265,37 +242,6 @@ splitNode tgt partition node = do
       let splitted_dict =
             dict edge |> Map.toList |> mapMaybe split |> Map.fromList
       return edge {dict = splitted_dict, target = res}
-
-splitNodeMutation ::
-  Ord k
-  => Symbol
-  -> [k]
-  -> ((Symbol, Symbol) -> Map k Symbol)
-  -> BAC
-  -> [Mutation]
-splitNodeMutation tgt splittable_keys splitter node =
-  incoming_mutation ++ outgoing_mutation
-  where
-  incoming_mutation =
-    suffix node tgt
-    |> fmap symbol2
-    |> fmap \(s1, s2) ->
-      splitter (s1, s2) |> Map.elems |> fmap (s1,) |> Duplicate (s1, s2)
-  splittable_groups =
-    splittable_keys `zip` partitionSymbols node
-    |> concatMap sequence
-    |> fmap swap
-    |> Map.fromList
-  outgoing_mutation =
-    arrow node tgt
-    |> fromJust
-    |> target
-    |> edges
-    |> fmap symbol
-    |> id &&& fmap (\s -> splittable_groups ! s |> (splitter (tgt, s) !))
-    |> both (fmap (tgt,))
-    |> uncurry Transfer
-    |> (: [])
 
 {- |
 Split a root node (split a BAC).

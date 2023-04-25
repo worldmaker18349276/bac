@@ -1,8 +1,4 @@
 module BAC.Fundamental (
-  -- * Mutations
-
-  module BAC.Fundamental.Mutation,
-
   -- * Restructure #restructure#
 
   module BAC.Fundamental.Restructure,
@@ -32,7 +28,6 @@ module BAC.Fundamental (
   module BAC.Fundamental.Zip,
 ) where
 
-import BAC.Fundamental.Mutation
 import BAC.Fundamental.Restructure
 import BAC.Fundamental.Remove
 import BAC.Fundamental.Add

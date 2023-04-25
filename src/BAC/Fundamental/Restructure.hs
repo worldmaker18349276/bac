@@ -1,40 +1,29 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TupleSections #-}
 
 module BAC.Fundamental.Restructure (
   rewire,
   addEdge,
   removeEdge,
   relabel,
-  relabelOnRoot,
   alterSymbol,
-
-  addEdgeMutation,
-  removeEdgeMutation,
-  relabelMutation,
-  relabelOnRootMutation,
-  alterSymbolMutation,
 ) where
 
-import Control.Arrow ((&&&))
 import Control.Monad (guard)
-import Data.Bifunctor (Bifunctor (bimap))
 import Data.List.Extra (snoc)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromJust)
 import Data.Tuple (swap)
-import Data.Tuple.Extra (both, dupe)
+import Data.Tuple.Extra (dupe)
 
 import BAC.Base
-import BAC.Fundamental.Mutation
 import Utils.Utils ((|>))
 
 -- $setup
 -- >>> import Data.Tuple.Extra (both)
 -- >>> import Data.Foldable (traverse_)
 -- >>> import Data.Map (fromList)
+-- >>> import Data.Maybe (fromJust)
 -- >>> import BAC.Serialize
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
@@ -130,9 +119,6 @@ addEdge (src, tgt) node = do
         |> (`snoc` tgt)
   node |> rewire src new_syms
 
-addEdgeMutation :: (Symbol, Symbol) -> BAC -> [Mutation]
-addEdgeMutation (src, tgt) _node = [Insert (src, tgt)]
-
 {- | Remove an edge.  The categorical structure should not change after removing this edge.
 
 Examples:
@@ -164,9 +150,6 @@ removeEdge (src, tgt) node = do
         |> fmap symbol
         |> filter (/= tgt)
   node |> rewire src new_syms
-
-removeEdgeMutation :: (Symbol, Symbol) -> BAC -> [Mutation]
-removeEdgeMutation (src, tgt) _node = [Delete (src, tgt)]
 
 {- |
 Relabel symbols in a given node.
@@ -216,42 +199,6 @@ relabel tgt mapping node = do
     AtInner res -> return edge {target = res}
     AtBoundary -> return edge {dict = dict edge `cat` unmapping, target = res0}
 
-relabelMutation :: Symbol -> Dict -> BAC -> [Mutation]
-relabelMutation tgt mapping node =
-  arrow node tgt
-  |> fromJust
-  |> target
-  |> edges
-  |> fmap symbol
-  |> fmap (id &&& (mapping !))
-  |> fmap (both (tgt,))
-  |> unzip
-  |> uncurry Transfer
-  |> (: [])
-  |> if tgt == base then (++ root_mutation) else id
-  where
-  root_mutation =
-    mapping
-    |> Map.toList
-    |> concatMap \(sym, sym') ->
-      arrow node sym
-      |> fromJust
-      |> target
-      |> edges
-      |> fmap symbol
-      |> fmap dupe
-      |> fmap ((sym,) `bimap` (sym',))
-      |> unzip
-      |> uncurry Transfer
-      |> (: [])
-
--- | Relabel symbols in the root node.
-relabelOnRoot :: Dict -> BAC -> Maybe BAC
-relabelOnRoot = relabel base
-
-relabelOnRootMutation :: Dict -> BAC -> [Mutation]
-relabelOnRootMutation = relabelMutation base
-
 {- |
 Alter a symbol in a node.
 
@@ -281,27 +228,3 @@ alterSymbol (src, tgt) sym node = do
   guard $ syms |> filter (/= tgt) |> notElem sym
   let mapping = syms |> fmap dupe |> Map.fromList |> Map.insert tgt sym
   node |> relabel src mapping
-
-alterSymbolMutation :: (Symbol, Symbol) -> Symbol -> BAC -> [Mutation]
-alterSymbolMutation (src, tgt) sym node =
-  [Transfer [(src, tgt)] [(src, sym)] | is_edge]
-  |> if src == base then (++ root_mutation) else id
-  where
-  is_edge =
-    arrow node src
-    |> fromJust
-    |> target
-    |> edges
-    |> fmap symbol
-    |> elem tgt
-  root_mutation =
-    arrow node tgt
-    |> fromJust
-    |> target
-    |> edges
-    |> fmap symbol
-    |> fmap dupe
-    |> fmap ((tgt,) `bimap` (sym,))
-    |> unzip
-    |> uncurry Transfer
-    |> (: [])

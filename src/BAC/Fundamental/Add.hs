@@ -17,11 +17,6 @@ module BAC.Fundamental.Add (
   addLeafNode,
   addParentNode,
   addParentNodeOnRoot,
-
-  addNDSymbolMutation,
-  addLeafNodeMutation,
-  addParentNodeMutation,
-  addParentNodeOnRootMutation,
 ) where
 
 import Control.Arrow ((&&&))
@@ -36,7 +31,6 @@ import Data.Maybe (fromJust, isJust)
 import Data.Tuple.Extra (both)
 
 import BAC.Base
-import BAC.Fundamental.Mutation
 import Utils.Utils (guarded, (.>), (|>))
 
 -- $setup
@@ -243,20 +237,6 @@ addNDSymbol src tgt sym src_alts tgt_alts node = do
       new_wire = find_new_wire (curr, edge)
       new_dict = dict edge |> uncurry Map.insert new_wire
 
-addNDSymbolMutation :: Symbol -> Symbol -> Symbol -> [Int] -> [Int] -> BAC -> [Mutation]
-addNDSymbolMutation src tgt sym _src_alts _tgt_alts node =
-  [Insert (src, sym)]
-  |> if src == base then (++ root_mutation) else id
-  where
-  root_mutation =
-    arrow node tgt
-    |> fromJust
-    |> target
-    |> edges
-    |> fmap symbol
-    |> fmap \s ->
-      Duplicate (tgt, s) [(tgt, s), (sym, s)]
-
 {- |
 Add a leaf node to a node (add a terminal nondecomposable morphism).
 
@@ -328,9 +308,6 @@ addLeafNode src sym inserter node = do
           |> fmap (both (symbol2 .> inserter))
         new_dict = new_wires |> foldr (uncurry Map.insert) (dict edge)
 
-addLeafNodeMutation :: Symbol -> Symbol -> ((Symbol, Symbol) -> Symbol) -> BAC -> [Mutation]
-addLeafNodeMutation src sym _inserter _node = [Insert (src, sym)]
-
 makeInserter :: BAC -> (Symbol, Symbol) -> Symbol
 makeInserter node (src, tgt) =
   arrow node src |> fromJust |> target |> symbols |> maximum |> (+ tgt)
@@ -401,21 +378,5 @@ addParentNode (src, tgt) sym shifter inserter node = do
           |> fmap (both (symbol2 .> inserter))
         new_dict = new_wires |> foldr (uncurry Map.insert) (dict edge)
 
-addParentNodeMutation ::
-  (Symbol, Symbol)
-  -> Symbol
-  -> (Symbol -> Symbol)
-  -> ((Symbol, Symbol) -> Symbol)
-  -> BAC
-  -> [Mutation]
-addParentNodeMutation (src, tgt) sym shifter inserter node =
-  [Insert (src, sym), Insert (inserter (base, src_tgt), shifter base)]
-  where
-  src_tgt = (src, tgt) |> arrow2 node |> fromJust |> uncurry join |> symbol
-
 addParentNodeOnRoot :: Symbol -> Symbol -> (Symbol -> Symbol) -> BAC -> Maybe BAC
 addParentNodeOnRoot tgt sym shifter = addParentNode (base, tgt) sym shifter undefined
-
-addParentNodeOnRootMutation :: Symbol -> Symbol -> (Symbol -> Symbol) -> BAC -> [Mutation]
-addParentNodeOnRootMutation tgt sym shifter =
-  addParentNodeMutation (base, tgt) sym shifter undefined

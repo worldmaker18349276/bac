@@ -10,11 +10,6 @@ module BAC.Fundamental.Duplicate (
   duplicateLeafNode,
   duplicatePrefix,
   duplicateSuffix,
-
-  duplicateNDSymbolMutation,
-  duplicateNodeMutation,
-  duplicateNDSymbolOnRootMutation,
-  duplicateLeafNodeMutation,
 ) where
 
 import Control.Monad (guard)
@@ -25,7 +20,6 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust)
 
 import BAC.Base
-import BAC.Fundamental.Mutation
 import Utils.Utils ((.>), (|>))
 import Control.Arrow (first)
 import Data.Foldable (traverse_)
@@ -72,20 +66,6 @@ duplicateNDSymbol (src, tgt) syms node = do
       sym <- syms
       let splitted_dict = dict edge |> Map.delete tgt |> Map.insert sym sym'
       return edge {dict = splitted_dict, target = res0}
-
-duplicateNDSymbolMutation :: (Symbol, Symbol) -> [Symbol] -> BAC -> [Mutation]
-duplicateNDSymbolMutation (src, tgt) syms node =
-  [Duplicate (src, tgt) (fmap (src,) syms)]
-  |> if src == base then (++ root_mutation) else id
-  where
-  root_mutation =
-    arrow node tgt
-    |> fromJust
-    |> target
-    |> edges
-    |> fmap symbol
-    |> fmap \s ->
-      Duplicate (tgt, s) (fmap (,s) syms)
 
 {- |
 Duplicate a node (duplicate an object).
@@ -150,35 +130,11 @@ duplicateNode tgt splitter node = do
       let splitted_dict = dict edge |> Map.insert base sym
       return edge {dict = splitted_dict}
 
-duplicateNodeMutation :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> [Mutation]
-duplicateNodeMutation tgt splitter node = incoming_mutation ++ outgoing_mutation
-  where
-  incoming_mutation =
-    suffix node tgt
-    |> fmap symbol2
-    |> fmap \(s1, s2) ->
-      splitter (s1, s2)
-      |> fmap (s1,)
-      |> Duplicate (s1, s2)
-  outgoing_mutation =
-    arrow node tgt
-    |> fromJust
-    |> target
-    |> edges
-    |> fmap symbol
-    |> fmap \s ->
-      splitter (tgt, s)
-      |> fmap (,s)
-      |> Duplicate (tgt, s)
-
 
 -- | Duplicate a nondecomposable symbol in the root node (duplicate an initial
 --   nondecomposable morphism).
 duplicateNDSymbolOnRoot :: Symbol -> [Symbol] -> BAC -> Maybe BAC
 duplicateNDSymbolOnRoot tgt = duplicateNDSymbol (base, tgt)
-
-duplicateNDSymbolOnRootMutation :: Symbol -> [Symbol] -> BAC -> [Mutation]
-duplicateNDSymbolOnRootMutation tgt = duplicateNDSymbolMutation (base, tgt)
 
 -- | Duplicate a leaf node (duplicate a nondecomposable terminal morphism).
 duplicateLeafNode :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
@@ -186,9 +142,6 @@ duplicateLeafNode tgt splitter node = do
   tgt_arr <- arrow node tgt
   guard $ target tgt_arr |> edges |> null
   duplicateNode tgt splitter node
-
-duplicateLeafNodeMutation :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> [Mutation]
-duplicateLeafNodeMutation = duplicateNodeMutation
 
 
 duplicatePrefix :: (Symbol, Symbol) -> (Symbol -> [Symbol]) -> BAC -> Maybe BAC

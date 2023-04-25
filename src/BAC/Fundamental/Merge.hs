@@ -10,15 +10,11 @@ module BAC.Fundamental.Merge (
   mergeRootNodes,
   expandMergingSymbols,
   mergeSymbolsAggressively,
-
-  mergeSymbolsMutation,
-  mergeSymbolsOnRootMutation,
-  mergeNodesMutation,
 ) where
 
 import Control.Arrow ((&&&))
 import Control.Monad (guard)
-import Data.Bifunctor (Bifunctor (first, second, bimap))
+import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable.Extra (notNull)
 import Data.List.Extra (allSame, anySame, groupSortOn)
 import Data.Map.Strict ((!))
@@ -26,7 +22,6 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, fromMaybe)
 
 import BAC.Base
-import BAC.Fundamental.Mutation
 import BAC.Fundamental.Zip
 import Utils.Utils ((.>), (|>))
 import Data.Foldable (find)
@@ -96,34 +91,8 @@ mergeSymbols (src, tgts) sym node = do
       where
       dict' = dict edge |> Map.toList |> fmap (first merge) |> Map.fromList
 
-mergeSymbolsMutation :: (Symbol, [Symbol]) -> Symbol -> BAC -> [Mutation]
-mergeSymbolsMutation (src, tgts) sym node =
-  [Merge (fmap (src,) tgts') (src, sym) | notNull tgts']
-  |> if src == base then (++ root_mutation) else id
-  where
-  tgts' =
-    arrow node src
-    |> fromJust
-    |> target
-    |> edges
-    |> fmap symbol
-    |> filter (`elem` tgts)
-  root_mutation =
-    tgts
-    |> fmap \tgt ->
-      arrow node tgt
-      |> fromJust
-      |> target
-      |> edges
-      |> fmap symbol
-      |> fmap (tgt,) &&& fmap (sym,)
-      |> uncurry Transfer
-
 mergeSymbolsOnRoot :: [Symbol] -> Symbol -> BAC -> Maybe BAC
 mergeSymbolsOnRoot tgts = mergeSymbols (base, tgts)
-
-mergeSymbolsOnRootMutation :: [Symbol] -> Symbol -> BAC -> [Mutation]
-mergeSymbolsOnRootMutation tgts = mergeSymbolsMutation (base, tgts)
 
 {- |
 Merge nodes (merge terminal morphisms).
@@ -213,36 +182,6 @@ mergeNodes tgts_keys merger node = do
               )
               |> Map.fromList
       return edge {dict = collapsed_dict, target = collapsed_node}
-
-mergeNodesMutation ::
-  Ord k => [(Symbol, [k])] -> ((Symbol, [Symbol]) -> Symbol) -> BAC -> [Mutation]
-mergeNodesMutation tgts_keys merger node = incoming_mutation ++ outgoing_mutation
-  where
-  tgts = tgts_keys |> fmap fst
-  tgt_suffix = suffix node (head tgts) |> fmap symbol2
-  zipped_suffix =
-    zipSuffix tgts_keys node
-    |> fromJust
-    |> fmap (symbol `bimap` fmap symbol)
-    |> filter (second head .> (`elem` tgt_suffix))
-  incoming_mutation =
-    zipped_suffix
-    |> fmap (sequence &&& (fst &&& merger))
-    |> fmap (uncurry Merge)
-  outgoing_mutation =
-    tgts
-    |> concatMap (\tgt ->
-      arrow node tgt
-      |> fromJust
-      |> target
-      |> edges
-      |> fmap (symbol .> (tgt,))
-    )
-    |> \old_edges ->
-      old_edges
-      |> fmap (first (const (merger (base, tgts))))
-      |> Transfer old_edges
-      |> (: [])
 
 {- |
 Merge root nodes (merge BACs).
