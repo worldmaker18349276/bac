@@ -7,6 +7,7 @@ module BAC.Fundamental.Restructure (
   removeEdge,
   relabel,
   alterSymbol,
+  makeShifter,
 ) where
 
 import Control.Monad (guard)
@@ -15,9 +16,11 @@ import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Tuple (swap)
 import Data.Tuple.Extra (dupe)
+import Numeric.Natural (Natural)
 
 import BAC.Base
 import Utils.Utils ((|>))
+import Data.Maybe (fromJust)
 
 -- $setup
 -- >>> import Data.Tuple.Extra (both)
@@ -227,3 +230,7 @@ alterSymbol (src, tgt) sym node = do
   guard $ syms |> filter (/= tgt) |> notElem sym
   let mapping = syms |> fmap dupe |> Map.fromList |> Map.insert tgt sym
   node |> relabel src mapping
+
+makeShifter :: BAC -> Natural -> (Symbol, Symbol) -> Symbol
+makeShifter node offset (src, tgt) =
+  arrow node src |> fromJust |> target |> symbols |> maximum |> (* offset) |> (+ tgt)

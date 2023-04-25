@@ -14,13 +14,13 @@ module BAC.Fundamental.Duplicate (
 
 import Control.Monad (guard)
 import Data.Foldable.Extra (notNull)
-import Data.List.Extra (allSame, anySame, transpose)
+import Data.List.Extra (anySame, transpose)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust)
 
 import BAC.Base
-import Utils.Utils ((.>), (|>))
+import Utils.Utils ((|>))
 import Control.Arrow (first)
 import Data.Foldable (traverse_)
 
@@ -72,7 +72,7 @@ Duplicate a node (duplicate an object).
 
 Examples:
 
->>> printBAC $ fromJust $ duplicateNode 3 (makeSplitter crescent [0,1]) crescent
+>>> printBAC $ fromJust $ duplicateNode 3 (fmap (makeShifter crescent) [0,1]) crescent
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4; 9->7; 13->7
   - 0->1; 1->2; 2->9
     &0
@@ -91,20 +91,11 @@ Examples:
   - 0->7; 1->6; 2->13
     *3
 -}
-duplicateNode :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
-duplicateNode tgt splitter node = do
+duplicateNode :: Symbol -> [(Symbol, Symbol) -> Symbol] -> BAC -> Maybe BAC
+duplicateNode tgt shifters node = do
   guard $ locate (root node) tgt |> (== Inner)
   let arrs = arrowsUnder node tgt
-  guard $
-    arrs
-    |> concatMap (\arr ->
-      arr
-      |> dict
-      |> Map.toList
-      |> filter (snd .> (== tgt))
-      |> fmap (fst .> (symbol arr,) .> splitter .> length)
-    )
-    |> allSame
+  let splitter = sequence shifters
   guard $
     arrs
     |> all \arr ->
@@ -137,23 +128,23 @@ duplicateNDSymbolOnRoot :: Symbol -> [Symbol] -> BAC -> Maybe BAC
 duplicateNDSymbolOnRoot tgt = duplicateNDSymbol (base, tgt)
 
 -- | Duplicate a leaf node (duplicate a nondecomposable terminal morphism).
-duplicateLeafNode :: Symbol -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
-duplicateLeafNode tgt splitter node = do
+duplicateLeafNode :: Symbol -> [(Symbol, Symbol) -> Symbol] -> BAC -> Maybe BAC
+duplicateLeafNode tgt shifters node = do
   tgt_arr <- arrow node tgt
   guard $ target tgt_arr |> edges |> null
-  duplicateNode tgt splitter node
+  duplicateNode tgt shifters node
 
 
-duplicatePrefix :: (Symbol, Symbol) -> (Symbol -> [Symbol]) -> BAC -> Maybe BAC
-duplicatePrefix (src, tgt) splitter node = do
+duplicatePrefix :: (Symbol, Symbol) -> [Symbol -> Symbol] -> BAC -> Maybe BAC
+duplicatePrefix (src, tgt) shifters node = do
   guard $ tgt /= base
   (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
   let src_node = target src_arr
   let dup_list = arrowsUnder src_node tgt |> fmap symbol |> filter (/= base) |> (tgt :)
 
-  let len = splitter tgt |> length
+  let len = length shifters
+  let splitter = sequence shifters
   guard $ len /= 0
-  guard $ dup_list |> fmap splitter |> fmap length |> all (== len)
   guard $
     symbols src_node
     |> concatMap (\sym -> if sym `elem` dup_list then splitter sym else [sym])
@@ -189,24 +180,19 @@ duplicatePrefix (src, tgt) splitter node = do
         |> Map.fromList
         |> \dict' -> return edge {dict = dict', target = res0}
 
-duplicateSuffix :: (Symbol, Symbol) -> ((Symbol, Symbol) -> [Symbol]) -> BAC -> Maybe BAC
-duplicateSuffix (src, tgt) splitter node = do
+duplicateSuffix :: (Symbol, Symbol) -> [(Symbol, Symbol) -> Symbol] -> BAC -> Maybe BAC
+duplicateSuffix (src, tgt) shifters node = do
   guard $ tgt /= base
   (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
   let src_node = target src_arr
-  let len = splitter (src, tgt) |> length
+  let len = length shifters
+  let splitter = sequence shifters
 
   guard $ len /= 0
 
   arrowsUnder src_node tgt |> traverse_ \arr -> do
     let dup_list = arr `divide` tgt_subarr |> fmap symbol
       
-    guard $
-      dup_list
-      |> fmap (symbol arr,)
-      |> fmap splitter
-      |> fmap length
-      |> all (== len)
     guard $
       target arr
       |> symbols

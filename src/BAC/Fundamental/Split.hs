@@ -6,7 +6,6 @@
 module BAC.Fundamental.Split (
   partitionPrefix,
   partitionSymbols,
-  makeSplitter,
   splitSymbol,
   splitSymbolOnRoot,
   splitNode,
@@ -21,7 +20,6 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe, fromMaybe)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
-import Numeric.Natural (Natural)
 
 import BAC.Base
 import BAC.Fundamental.Restructure
@@ -32,6 +30,8 @@ import Utils.Utils ((.>), (|>))
 -- >>> import Data.Tuple.Extra (both)
 -- >>> import Data.Foldable (traverse_)
 -- >>> import Data.Map (fromList)
+-- >>> import Data.Bifunctor (second)
+-- >>> import Control.Arrow ((&&&))
 -- >>> import BAC.Serialize
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
@@ -170,19 +170,12 @@ partitionSymbols =
   .> fmap (snd .> sort)
   .> sort
 
-makeSplitter :: BAC -> [Natural] -> (Symbol, Symbol) -> [Symbol]
-makeSplitter node offsets (src, tgt) = do
-  let ran = arrow node src |> fromJust |> target |> symbols |> maximum
-  offset <- offsets
-  return $ ran * offset + tgt
-
 {- |
 Split a node (split a terminal morphism).
 
 Examples:
 
->>> splitter = makeSplitter crescent [0,1]
->>> partition = [(splitter .> (!! 0), [0]), (splitter .> (!! 1), [1])]
+>>> partition = [0,1] |> fmap (makeShifter crescent &&& id) |> fmap (second (fromIntegral .> (: [])))
 >>> printBAC $ fromJust $ splitNode 1 partition crescent
 - 0->1; 1->2; 2->3; 3->4
   - 0->1; 1->2

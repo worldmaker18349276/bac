@@ -13,15 +13,14 @@ module BAC.Fundamental.Add (
   compatibleCoanglesAngles,
   findValidCoanglesAngles,
   addNDSymbol,
-  makeInserter,
   addLeafNode,
   addParentNode,
   addParentNodeOnRoot,
 ) where
 
 import Control.Arrow ((&&&))
-import Control.Monad (MonadPlus (mzero), guard)
-import Data.Bifunctor (Bifunctor (second))
+import Control.Monad (mzero, guard)
+import Data.Bifunctor (second)
 import Data.Foldable (find)
 import Data.List (sort)
 import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, snoc, (!?))
@@ -242,7 +241,7 @@ Add a leaf node to a node (add a terminal nondecomposable morphism).
 
 Examples:
 
->>> printBAC $ fromJust $ addLeafNode 2 1 (makeInserter cone) cone
+>>> printBAC $ fromJust $ addLeafNode 2 1 (makeShifter cone 1) cone
 - 0->1; 1->2; 2->8
   - 0->1; 1->2
     &0
@@ -256,7 +255,7 @@ Examples:
   - 0->4; 1->2; 2->3; 3->6
     *1
 
->>> printBAC $ fromJust $ addLeafNode 4 3 (makeInserter cone) cone
+>>> printBAC $ fromJust $ addLeafNode 4 3 (makeShifter cone 1) cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -308,16 +307,12 @@ addLeafNode src sym inserter node = do
           |> fmap (both (symbol2 .> inserter))
         new_dict = new_wires |> foldr (uncurry Map.insert) (dict edge)
 
-makeInserter :: BAC -> (Symbol, Symbol) -> Symbol
-makeInserter node (src, tgt) =
-  arrow node src |> fromJust |> target |> symbols |> maximum |> (+ tgt)
-
 {- |
 Insert a node in the middle of an arrow (add an object).
 
 Examples:
 
->>> printBAC $ fromJust $ addParentNode (3,1) 5 (+1) (makeInserter cone) cone
+>>> printBAC $ fromJust $ addParentNode (3,1) 5 (+1) (makeShifter cone 1) cone
 - 0->1; 1->2
   - 0->1
     &0
