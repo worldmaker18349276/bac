@@ -18,7 +18,7 @@ module BAC.Fundamental.Add (
   addParentNodeOnRoot,
 ) where
 
-import Control.Monad (mzero, guard)
+import Control.Monad (guard, mzero)
 import Data.Bifunctor (second)
 import Data.Foldable (find)
 import Data.List (sort)
@@ -32,10 +32,6 @@ import BAC.Base
 import Utils.Utils (guarded, (.>), (|>))
 
 -- $setup
--- >>> import Data.Tuple.Extra (both)
--- >>> import Data.Foldable (traverse_)
--- >>> import Data.Map (fromList)
--- >>> import Control.Arrow ((&&&))
 -- >>> import BAC.Serialize
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
@@ -46,9 +42,9 @@ import Utils.Utils (guarded, (.>), (|>))
 --   possibility to add an edge between them.
 type Coangle = ((Symbol, Symbol), (Symbol, Symbol))
 
--- | Two tuples of symbols representing two morphisms where forks of the first morphism are
---   also forks of the second morphism.  A fork of a morphism `f` is a pair of distinct
---   morphisms `g`, 'g'' such that @g . f = g' . f@.  This constraint shows the
+-- | Two tuples of symbols representing two morphisms where forks of the first morphism
+--   are also forks of the second morphism.  A fork of a morphism `f` is a pair of
+--   distinct morphisms `g`, 'g'' such that @g . f = g' . f@.  This constraint shows the
 --   possibility to add an edge between them.
 type Angle = ((Symbol, Symbol), (Symbol, Symbol))
 
@@ -165,7 +161,7 @@ findValidCoanglesAngles src tgt node = do
   return (src_alts, tgt_alts)
 
 {- |
-Add a nondecomposable symbol in a node (add a non-terminal nondecomposable morphism).
+Add a nondecomposable symbol on a node (add a non-terminal nondecomposable morphism).
 
 Examples:
 
@@ -312,6 +308,7 @@ Insert a node in the middle of an arrow (add an object).
 
 Examples:
 
+>>> import Control.Arrow ((&&&))
 >>> mapping = arrow cone 4 |> fromJust |> target |> symbols |> fmap (id &&& (+1)) |> Map.fromList
 >>> printBAC $ fromJust $ addParentNode (3,1) 5 mapping (makeShifter cone 1) cone
 - 0->1; 1->2

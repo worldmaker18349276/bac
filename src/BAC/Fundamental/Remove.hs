@@ -19,9 +19,6 @@ import BAC.Base
 import Utils.Utils ((.>), (|>), guarded)
 
 -- $setup
--- >>> import Data.Tuple.Extra (both)
--- >>> import Data.Foldable (traverse_)
--- >>> import Data.Map (fromList)
 -- >>> import Data.Maybe (fromJust)
 -- >>> import BAC.Serialize
 -- >>> import BAC.Fundamental
@@ -29,7 +26,7 @@ import Utils.Utils ((.>), (|>), guarded)
 
 
 {- |
-Remove a nondecomposable symbol in a node (remove a non-terminal nondecomposable morphism).
+Remove a nondecomposable symbol on a node (remove a non-terminal nondecomposable morphism).
 
 Examples:
 
@@ -93,13 +90,44 @@ removeNDSymbol (src, tgt) node = do
       where
       filtered_dict = dict edge |> Map.delete tgt
 
--- | Remove a nondecomposable symbol in the root node (remove a nondecomposable initial
+-- | Remove a nondecomposable symbol on the root node (remove a nondecomposable initial
 --   morphism).
 removeNDSymbolOnRoot :: Symbol -> BAC -> Maybe BAC
 removeNDSymbolOnRoot tgt = removeNDSymbol (base, tgt)
 
 
--- | Remove a node (remove initial and terminal morphisms simultaneously).
+{- |
+Remove a node (remove initial and terminal morphisms simultaneously).
+
+Examples:
+
+>>> printBAC $ fromJust $ removeNode 3 cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->4; 1->2; 2->6
+  - 0->1
+    *0
+  - 0->2
+
+>>> printBAC $ fromJust $ removeNode 4 cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 2->2; 3->6
+  - 0->2
+    *0
+  - 0->3
+
+>>> printBAC $ fromJust $ removeNode 2 cone
+- 0->1
+- 0->3; 1->4; 3->6; 4->4
+  - 0->1; 2->3
+    &0
+    - 0->2
+  - 0->4; 2->3
+    *0
+-}
 removeNode :: Symbol -> BAC -> Maybe BAC
 removeNode tgt node = do
   guard $ locate (root node) tgt == Inner
@@ -114,7 +142,7 @@ removeNode tgt node = do
       where
       filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
 
--- | Remove a leaf node (remove a nondecomposable terminal morphisms).
+-- | Remove a leaf node (remove a nondecomposable terminal morphism).
 removeLeafNode :: Symbol -> BAC -> Maybe BAC
 removeLeafNode tgt node = do
   tgt_arr <- arrow node tgt

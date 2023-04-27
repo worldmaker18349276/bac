@@ -1,7 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module BAC.Fundamental.Split (
   partitionPrefix,
@@ -17,21 +16,15 @@ import Data.List (sort)
 import Data.List.Extra (anySame)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromJust, mapMaybe, fromMaybe)
+import Data.Maybe (fromJust, fromMaybe, mapMaybe)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
 
 import BAC.Base
-import BAC.Fundamental.Restructure
 import Utils.DisjointSet (bipartiteEqclass)
 import Utils.Utils ((.>), (|>))
 
 -- $setup
--- >>> import Data.Tuple.Extra (both)
--- >>> import Data.Foldable (traverse_)
--- >>> import Data.Map (fromList)
--- >>> import Data.Bifunctor (second)
--- >>> import Control.Arrow ((&&&))
 -- >>> import BAC.Serialize
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
@@ -66,19 +59,25 @@ Examples:
 >>> printBAC $ fromJust $ splitSymbol (0,2) [(2,[0]),(7,[1])] cone
 - 0->1; 1->2
   - 0->1
+    &0
+- 0->2
+  *0
 - 0->3; 1->4; 2->7; 3->6; 4->4
   - 0->1; 1->2; 2->3
-    &0
+    &1
     - 0->1
+      &2
     - 0->2
   - 0->4; 1->2; 2->3
-    *0
+    *1
+- 0->7
+  *2
 
->>> printBAC $ fromJust $ splitSymbol (3,2) [(5,[0]),(6,[1])] cone
+>>> printBAC $ fromJust $ splitSymbol (3,2) [(5,[0]),(6,[1]),(7,[])] cone
 - 0->1; 1->2
   - 0->1
     &0
-- 0->3; 1->4; 3->6; 4->4; 5->2; 6->2
+- 0->3; 1->4; 3->6; 4->4; 5->2; 6->2; 7->2
   - 0->1; 1->5; 2->3
     &1
     - 0->1
@@ -86,6 +85,12 @@ Examples:
     - 0->2
   - 0->4; 1->6; 2->3
     *1
+  - 0->5
+    *0
+  - 0->6
+    *0
+  - 0->7
+    *0
 -}
 splitSymbol ::
   (Symbol, Symbol)      -- ^ The symbols reference to the morphism to split.
@@ -95,7 +100,7 @@ splitSymbol ::
   -> Maybe BAC
 splitSymbol (src, tgt) splitted_syms node = do
   guard $ tgt /= base
-  (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
+  (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
   let splittable_groups = partitionPrefix (target src_arr) tgt
   guard $
     splitted_syms
@@ -118,20 +123,20 @@ splitSymbol (src, tgt) splitted_syms node = do
         |> fmap swap
         |> Map.fromList
 
-  node <- addEdge (src, tgt) node
+  let splitted_edges =
+        splitted_syms
+        |> fmap \(sym, _) ->
+          dict tgt_subarr
+          |> Map.insert base sym
+          |> \splitted_dict -> tgt_subarr {dict = splitted_dict}
 
-  let res0 = fromEdges do
+  let res0 = fromEdges $ splitted_edges ++ do
         edge <- target src_arr |> edges
         let sym0 = symbol edge
-        if sym0 == tgt
-        then do
-          (sym, _) <- splitted_syms
-          let splitted_dict = dict edge |> Map.insert base sym
-          return edge {dict = splitted_dict}
-        else do
-          let split s r = Map.lookup (sym0, s) splitter |> fromMaybe r
-          let splitted_dict = dict edge |> Map.mapWithKey split
-          return edge {dict = splitted_dict}
+        guard $ sym0 /= tgt
+        let split s r = Map.lookup (sym0, s) splitter |> fromMaybe r
+        let splitted_dict = dict edge |> Map.mapWithKey split
+        return edge {dict = splitted_dict}
 
   fromReachable res0 $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
@@ -175,7 +180,7 @@ Split a node (split a terminal morphism).
 
 Examples:
 
->>> partition = [0,1] |> fmap (makeShifter crescent &&& id) |> fmap (second (fromIntegral .> (: [])))
+>>> partition = [(makeShifter crescent 0, [0]), (makeShifter crescent 1, [1])]
 >>> printBAC $ fromJust $ splitNode 1 partition crescent
 - 0->1; 1->2; 2->3; 3->4
   - 0->1; 1->2
@@ -190,6 +195,24 @@ Examples:
   - 0->5; 1->6
     *0
   - 0->7; 1->6
+    *2
+
+>>> partition' = [(makeShifter cone 0, [0,1]), (makeShifter cone 1, [])]
+>>> printBAC $ fromJust $ splitNode 4 partition' cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4; 5->10; 8->10
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+  - 0->4; 1->2; 2->3
+    *1
+  - 0->5
+    &2
+  - 0->8
     *2
 -}
 splitNode ::
@@ -222,7 +245,8 @@ splitNode tgt partition node = do
     AtInner res -> return edge {dict = duplicated_dict, target = res}
       where
       duplicate (s, r)
-        | dict curr ! r == tgt = splitter (symbol (curr `join` edge), s) `zip` splitter (symbol curr, r)
+        | dict curr ! r == tgt = splitter (symbol (curr `join` edge), s)
+                                 `zip` splitter (symbol curr, r)
         | otherwise            = [(s, r)]
       duplicated_dict =
         dict edge |> Map.toList |> concatMap duplicate |> Map.fromList
@@ -241,7 +265,8 @@ Split a root node (split a BAC).
 
 Examples:
 
->>> let crescent_1 = target $ fromJust $ arrow crescent 1
+>>> import Data.Foldable (traverse_)
+>>> crescent_1 = target $ fromJust $ arrow crescent 1
 >>> traverse_ printBAC $ fromJust $ splitRootNode [[0],[1]] crescent_1
 - 0->1; 1->2
   - 0->1

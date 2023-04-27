@@ -29,9 +29,6 @@ import Utils.DisjointSet (bipartiteEqclass)
 import Data.List (sort)
 
 -- $setup
--- >>> import Data.Tuple.Extra (both)
--- >>> import Data.Foldable (traverse_)
--- >>> import Data.Map (fromList)
 -- >>> import BAC.Serialize
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
@@ -99,7 +96,7 @@ Merge nodes (merge terminal morphisms).
 
 Examples:
 
->>> crescent' = fromJust $ relabel 2 (fromList [(0,0),(1,2)]) crescent
+>>> crescent' = fromJust $ alterSymbol (2,1) 2 crescent
 >>> printBAC $ fromJust $ mergeNodes [(2,[False,True]),(4,[False,True])] (snd .> head) crescent'
 - 0->1; 1->2; 2->3; 5->2; 6->3
   - 0->1; 1->2; 2->2
@@ -188,10 +185,9 @@ Merge root nodes (merge BACs).
 
 Examples:
 
->>> printBAC $ fromJust $ mergeRootNodes [fromJust $ singleton 1, fromJust $ singleton 2, empty, fromJust $ singleton 3]
+>>> printBAC $ fromJust $ mergeRootNodes [fromJust $ singleton 1, empty, fromJust $ singleton 2]
 - 0->1
 - 0->2
-- 0->3
 
 >>> printBAC $ fromJust $ mergeRootNodes [fromJust $ singleton 6, crescent]
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4

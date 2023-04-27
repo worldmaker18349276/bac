@@ -12,28 +12,44 @@ module BAC.Fundamental.Duplicate (
   duplicateSuffix,
 ) where
 
+import Control.Arrow (first)
 import Control.Monad (guard)
+import Data.Foldable (traverse_)
 import Data.Foldable.Extra (notNull)
 import Data.List.Extra (anySame, transpose)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromJust)
 
 import BAC.Base
 import Utils.Utils ((|>))
-import Control.Arrow (first)
-import Data.Foldable (traverse_)
 
 -- $setup
--- >>> import Data.Tuple.Extra (both)
--- >>> import Data.Foldable (traverse_)
--- >>> import Data.Map (fromList)
+-- >>> import Data.Maybe (fromJust)
 -- >>> import BAC.Serialize
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
 
--- | Duplicate a nondecomposable symbol in a node (duplicate a non-terminal
---   nondecomposable morphism).
+{- |
+Duplicate a nondecomposable symbol on a node (duplicate a non-terminal nondecomposable
+morphism).
+
+Examples:
+
+>>> printBAC $ fromJust $ duplicateNDSymbol (3,1) [1,5] cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4; 5->4
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+  - 0->4; 1->2; 2->3
+    *1
+  - 0->5; 1->2; 2->3
+    *1
+-}
 duplicateNDSymbol :: (Symbol, Symbol) -> [Symbol] -> BAC -> Maybe BAC
 duplicateNDSymbol (src, tgt) syms node = do
   guard $ notNull syms
@@ -62,9 +78,8 @@ duplicateNDSymbol (src, tgt) syms node = do
     AtOuter -> return edge
     AtInner res -> return edge {target = res}
     AtBoundary -> do
-      let sym' = Map.lookup tgt (dict edge) |> fromJust
-      sym <- syms
-      let splitted_dict = dict edge |> Map.delete tgt |> Map.insert sym sym'
+      let sym' = dict edge ! tgt
+      let splitted_dict = syms |> foldr (`Map.insert` sym') (Map.delete tgt (dict edge))
       return edge {dict = splitted_dict, target = res0}
 
 {- |
@@ -111,7 +126,8 @@ duplicateNode tgt shifters node = do
     AtInner res -> return edge {dict = duplicated_dict, target = res}
       where
       duplicate (s, r)
-        | dict curr ! r == tgt = splitter (symbol (curr `join` edge), s) `zip` splitter (symbol curr, r)
+        | dict curr ! r == tgt = splitter (symbol (curr `join` edge), s)
+                                 `zip` splitter (symbol curr, r)
         | otherwise            = [(s, r)]
       duplicated_dict =
         dict edge |> Map.toList |> concatMap duplicate |> Map.fromList
@@ -122,7 +138,7 @@ duplicateNode tgt shifters node = do
       return edge {dict = splitted_dict}
 
 
--- | Duplicate a nondecomposable symbol in the root node (duplicate an initial
+-- | Duplicate a nondecomposable symbol on the root node (duplicate an initial
 --   nondecomposable morphism).
 duplicateNDSymbolOnRoot :: Symbol -> [Symbol] -> BAC -> Maybe BAC
 duplicateNDSymbolOnRoot tgt = duplicateNDSymbol (base, tgt)

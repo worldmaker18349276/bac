@@ -14,13 +14,13 @@ module BAC.Base (
   --
   --   Edges of such structure have dictionaries, which obey three laws:
   --
-  --   1.  __totality__: the dictionary of an edge should be a mapping from all valid symbols
-  --       in the child node to valid symbols in the parent node.
+  --   1.  __totality__: the dictionary of an edge should be a mapping from all valid
+  --       symbols in the child node to valid symbols in the parent node.
   --   2.  __surjectivity__: all valid symbols should be covered by the dictionaries of
   --       outgoing edges, except the base symbol.
-  --   3.  __supportivity__: if dictionaries of given two paths with the same starting node
-  --       map the base symbol to the same symbol, then they should have the same dictionary
-  --       and target node.  Note that null paths also count.
+  --   3.  __supportivity__: if dictionaries of given two paths with the same starting
+  --       node map the base symbol to the same symbol, then they should have the same
+  --       dictionary and target node.  Note that null paths also count.
   --
   --   See my paper for a detailed explanation.
 
@@ -91,9 +91,9 @@ module BAC.Base (
   cofoldUnder,
 ) where
 
-import Data.Bifunctor (Bifunctor (second), bimap)
-import Data.Foldable (Foldable (foldl'))
-import Data.List (sortOn, intercalate)
+import Data.Bifunctor (bimap, second)
+import Data.Foldable (foldl')
+import Data.List (intercalate, sortOn)
 import Data.List.Extra (allSame, groupSortOn, nubSort, snoc)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
@@ -109,7 +109,6 @@ import Utils.Utils (guarded, (.>), (|>))
 -- $setup
 -- >>> import BAC
 -- >>> import BAC.Examples (cone, torus, crescent)
--- >>> import Data.Bifunctor (first)
 
 -- | A tree whose edges are indexed by keys.
 newtype Tree e = Tree (Map e (Tree e)) deriving (Eq, Ord, Show)
@@ -149,18 +148,20 @@ type Symbol = Natural
 base :: Symbol
 base = 0
 
--- | All symbols of a node.  The first one is the base symbol.
---
---   Examples:
---
---   >>> symbols cone
---   [0,1,2,3,4,6]
---
---   >>> symbols torus
---   [0,1,2,3,5]
---
---   >>> symbols crescent
---   [0,1,2,3,4]
+{- |
+All symbols of a node.  The first one is the base symbol.
+
+Examples:
+
+>>> symbols cone
+[0,1,2,3,4,6]
+
+>>> symbols torus
+[0,1,2,3,5]
+
+>>> symbols crescent
+[0,1,2,3,4]
+-}
 symbols :: BAC -> [Symbol]
 symbols = edges .> concatMap (dict .> Map.elems) .> (base :) .> nubSort
 
@@ -233,38 +234,41 @@ extend arr = target arr |> edges |> fmap (join arr)
 -- | The relative location between nodes.
 data Location = Inner | Boundary | Outer deriving (Eq, Ord, Show)
 
--- | Relative location of the node referenced by the given symbol with respect to a given
---   arrow.
---
---   Examples:
---
---   >>> locate (root cone) 2
---   Inner
---
---   >>> locate (root cone) 0
---   Boundary
---
---   >>> locate (root cone) 5
---   Outer
+{- |
+Relative location of the node referenced by the given symbol with respect to a given arrow.
+
+Examples:
+
+>>> locate (root cone) 2
+Inner
+
+>>> locate (root cone) 0
+Boundary
+
+>>> locate (root cone) 5
+Outer
+-}
 locate :: Arrow -> Symbol -> Location
 locate arr sym
   | symbol arr == sym   = Boundary
   | sym `elem` dict arr = Inner
   | otherwise           = Outer
 
--- | Partial order between two arrows.  They should start at the same node.
---   It crashes with inconsistencies caused by bad data.
---
---   Examples:
---
---   >>>  fromJust (arrow cone 4) `compare` fromJust (arrow cone 6)
---   Just LT
---
---   >>>  fromJust (arrow cone 4) `compare` fromJust (arrow cone 4)
---   Just EQ
---
---   >>> fromJust (arrow cone 2) `compare` fromJust (arrow cone 6)
---   Nothing
+{- |
+Partial order between two arrows.  They should start at the same node.
+It crashes with inconsistencies caused by bad data.
+
+Examples:
+
+>>>  fromJust (arrow cone 4) `compare` fromJust (arrow cone 6)
+Just LT
+
+>>>  fromJust (arrow cone 4) `compare` fromJust (arrow cone 4)
+Just EQ
+
+>>> fromJust (arrow cone 2) `compare` fromJust (arrow cone 6)
+Nothing
+-}
 compare :: HasCallStack => Arrow -> Arrow -> Maybe Ordering
 compare arr1 arr2 =
   case (locate arr1 (symbol arr2), locate arr2 (symbol arr1)) of
@@ -274,16 +278,18 @@ compare arr1 arr2 =
     (Outer, Outer) -> Nothing
     _ -> error "invalid state"
 
--- | An arrow to the node referenced by the given symbol, or `Nothing` if it is outside
---   the node.
---
---   Examples:
---
---   >>> arrow cone 3
---   Just (Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
---
---   >>> arrow cone 5
---   Nothing
+{- |
+An arrow to the node referenced by the given symbol, or `Nothing` if it is outside the
+node.
+
+Examples:
+
+>>> arrow cone 3
+Just (Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
+
+>>> arrow cone 5
+Nothing
+-}
 arrow :: BAC -> Symbol -> Maybe Arrow
 arrow node sym = go (root node)
   where
@@ -292,47 +298,53 @@ arrow node sym = go (root node)
     Boundary -> Just arr
     Inner    -> Just $ arr |> extend |> mapMaybe go |> head
 
--- | The symbol referencing to the given arrow.
---   It is the inverse of `arrow`:
---
---   Examples:
---
---   >>> fmap symbol (arrow cone 3)
---   Just 3
---
---   >>> fmap symbol (arrow cone 5)
---   Nothing
+{- |
+The symbol referencing to the given arrow.
+It is the inverse of `arrow`:
+
+Examples:
+
+>>> fmap symbol (arrow cone 3)
+Just 3
+
+>>> fmap symbol (arrow cone 5)
+Nothing
+-}
 symbol :: Arrow -> Symbol
 symbol = dict .> (! base)
 
--- | A 2-chain referenced by the given pair of symbols.
---
---   Examples:
---
---   >>> fmap fst (arrow2 cone (3,2))
---   Just (Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
---
---   >>> fmap snd (arrow2 cone (3,2))
---   Just (Arrow {dict = fromList [(0,2)], target = ...
---
---   >>> arrow2 cone (1,2)
---   Nothing
+{- |
+A 2-chain referenced by the given pair of symbols.
+
+Examples:
+
+>>> fmap fst (arrow2 cone (3,2))
+Just (Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
+
+>>> fmap snd (arrow2 cone (3,2))
+Just (Arrow {dict = fromList [(0,2)], target = ...
+
+>>> arrow2 cone (1,2)
+Nothing
+-}
 arrow2 :: BAC -> (Symbol, Symbol) -> Maybe (Arrow, Arrow)
 arrow2 node (src, tgt) = do
   src_arr <- arrow node src
   tgt_subarr <- arrow (target src_arr) tgt
   return (src_arr, tgt_subarr)
 
--- | The pair of symbols referencing to the given 2-chain.
---   It is the inverse of `arrow2`:
---
---   Examples:
---
---   >>> fmap symbol2 (arrow2 cone (3,2))
---   Just (3,2)
---
---   >>> fmap symbol2 (arrow2 cone (1,2))
---   Nothing
+{- |
+The pair of symbols referencing to the given 2-chain.
+It is the inverse of `arrow2`.
+
+Examples:
+
+>>> fmap symbol2 (arrow2 cone (3,2))
+Just (3,2)
+
+>>> fmap symbol2 (arrow2 cone (1,2))
+Nothing
+-}
 symbol2 :: (Arrow, Arrow) -> (Symbol, Symbol)
 symbol2 = symbol `bimap` symbol
 
@@ -408,21 +420,23 @@ divide2 (arr12, arr24) (arr13, arr34) =
     symbol (arr23 `join` arr34) == symbol arr24
 
 
--- | Check if the given symbol reference to a nondecomposable initial morphism.
---
---   Examples:
---
---   >>> nondecomposable cone 3
---   True
---
---   >>> nondecomposable cone 4
---   False
---
---   >>> nondecomposable cone 0
---   True
---
---   >>> nondecomposable cone 10
---   False
+{- |
+Check if the given symbol reference to a nondecomposable initial morphism.
+
+Examples:
+
+>>> nondecomposable cone 3
+True
+
+>>> nondecomposable cone 4
+False
+
+>>> nondecomposable cone 0
+True
+
+>>> nondecomposable cone 10
+False
+-}
 nondecomposable :: BAC -> Symbol -> Bool
 nondecomposable node sym =
   (root node `locate` sym |> (/= Outer))
@@ -462,21 +476,23 @@ validate arr = validateDicts && validateSup
     |> groupSortOn symbol
     |> all allSame
 
--- | Check if an arrow is valid in depth.  All descendant nodes will be checked.
---
---   Examples:
---
---   >>> validateAll $ root cone
---   True
---
---   >>> validateAll $ root torus
---   True
---
---   >>> validateAll $ root crescent
---   True
---
---   >>> validateAll $ fromJust $ arrow cone 3
---   True
+{- |
+Check if an arrow is valid in depth.  All descendant nodes will be checked.
+
+Examples:
+
+>>> validateAll $ root cone
+True
+
+>>> validateAll $ root torus
+True
+
+>>> validateAll $ root crescent
+True
+
+>>> validateAll $ fromJust $ arrow cone 3
+True
+-}
 validateAll :: Arrow -> Bool
 validateAll arr = validateChildren && validate arr
   where
@@ -506,26 +522,28 @@ fromInner :: Located r -> Maybe r
 fromInner (AtInner r) = Just r
 fromInner _           = Nothing
 
--- | Fold a BAC.  All nodes are visited only once according to symbols.
---
---   Examples:
---
---   >>> fold (\curr results -> concat results `snoc` symbol curr) cone
---   [2,1,2,6,4,2,6,4,3,0]
---
---   >>> fold (\curr results -> concat results `snoc` symbol curr) crescent
---   [3,2,3,4,3,2,3,4,1,0]
---
---   >>> fold (\curr results -> concat results `snoc` symbol curr) torus
---   [3,3,2,3,3,5,3,3,2,3,3,5,1,0]
---
---   >>> import Debug.Trace (traceShow)
---   >>> fold (\curr results -> results == results `seq` traceShow (symbol curr) ()) torus `seq` return ()
---   3
---   2
---   5
---   1
---   0
+{- |
+Fold a BAC.  All nodes are visited only once according to symbols.
+
+Examples:
+
+>>> fold (\curr results -> concat results `snoc` symbol curr) cone
+[2,1,2,6,4,2,6,4,3,0]
+
+>>> fold (\curr results -> concat results `snoc` symbol curr) crescent
+[3,2,3,4,3,2,3,4,1,0]
+
+>>> fold (\curr results -> concat results `snoc` symbol curr) torus
+[3,3,2,3,3,5,3,3,2,3,3,5,1,0]
+
+>>> import Debug.Trace (traceShow)
+>>> fold (\curr results -> results == results `seq` traceShow (symbol curr) ()) torus `seq` return ()
+3
+2
+5
+1
+0
+-}
 fold ::
   (Arrow -> [r] -> r)  -- ^ The function to reduce a node and the results from its child
                        --   nodes into a value.
@@ -535,22 +553,24 @@ fold f = root .> memoizeWithKey symbol \self curr -> do
   res <- curr |> extend |> traverse self
   return $ f curr res
 
--- | Fold a BAC under a node.
---
---   Examples:
---
---   >>> foldUnder 6 (\_ results -> "<" ++ concat (mapMaybe fromInner results) ++ ">") cone
---   AtInner "<<<><>>>"
---
---   >>> foldUnder 6 (\curr results -> concat (mapMaybe fromInner results) `snoc` symbol curr) cone
---   AtInner [4,4,3,0]
---
---   >>> import Debug.Trace (traceShow)
---   >>> res = foldUnder 6 (\curr results -> results == results `seq` traceShow (symbol curr) ()) cone
---   >>> res == res `seq` return ()
---   4
---   3
---   0
+{- |
+Fold a BAC under a node.
+
+Examples:
+
+>>> foldUnder 6 (\_ results -> "<" ++ concat (mapMaybe fromInner results) ++ ">") cone
+AtInner "<<<><>>>"
+
+>>> foldUnder 6 (\curr results -> concat (mapMaybe fromInner results) `snoc` symbol curr) cone
+AtInner [4,4,3,0]
+
+>>> import Debug.Trace (traceShow)
+>>> res = foldUnder 6 (\curr results -> results == results `seq` traceShow (symbol curr) ()) cone
+>>> res == res `seq` return ()
+4
+3
+0
+-}
 foldUnder ::
   Symbol                          -- ^ The symbol referencing to the boundary.
   -> (Arrow -> [Located r] -> r)  -- ^ The reduce function.  Where the results of child
@@ -591,19 +611,21 @@ modifyUnder sym f =
     (res, edge) <- results `zip` edges (target curr)
     f (curr, edge) res
 
--- | All arrows of this node in evalution order of fold.
---   It is equivalent to @fold (\curr results -> concat results `snoc` curr) .> nubOn symbol@.
---
---   Examples:
---
---   >>> fmap symbol $ arrows cone
---   [2,1,6,4,3,0]
---
---   >>> fmap symbol $ arrows crescent
---   [3,2,4,1,0]
---
---   >>> fmap symbol $ arrows torus
---   [3,2,5,1,0]
+{- |
+All arrows of this node in evalution order of fold.
+It is equivalent to @fold (\curr results -> concat results `snoc` curr) .> nubOn symbol@.
+
+Examples:
+
+>>> fmap symbol $ arrows cone
+[2,1,6,4,3,0]
+
+>>> fmap symbol $ arrows crescent
+[3,2,4,1,0]
+
+>>> fmap symbol $ arrows torus
+[3,2,5,1,0]
+-}
 arrows :: BAC -> [Arrow]
 arrows = root .> go [] .> fmap snd
   where
@@ -613,15 +635,17 @@ arrows = root .> go [] .> fmap snd
     where
     sym = symbol curr
 
--- | All arrows under a given symbol of this node in evalution order of foldUnder.
---
---   Examples:
---
---   >>> fmap symbol $ arrowsUnder cone 6
---   [4,3,0]
---
---   >>> fmap symbol $ arrowsUnder cone 5
---   []
+{- |
+All arrows under a given symbol of this node in evalution order of foldUnder.
+
+Examples:
+
+>>> fmap symbol $ arrowsUnder cone 6
+[4,3,0]
+
+>>> fmap symbol $ arrowsUnder cone 5
+[]
+-}
 arrowsUnder :: BAC -> Symbol -> [Arrow]
 arrowsUnder node sym = node |> root |> go [] |> fmap snd
   where
@@ -632,28 +656,31 @@ arrowsUnder node sym = node |> root |> go [] |> fmap snd
     where
     sym' = symbol curr
 
--- | Fold a BAC reversely.
---
---   Examples:
---
---   >>> fmap (first symbol) $ cofold (\curr results -> concatMap snd results `snoc` symbol curr) cone
---   [(6,[0,3,0,3,4,6]),(2,[0,1,0,3,0,3,4,2])]
---
---   >>> fmap (first symbol) $ cofold (\curr results -> concatMap snd results `snoc` symbol curr) crescent
---   [(3,[0,1,0,1,2,0,1,0,1,4,3])]
---
---   >>> fmap (first symbol) $ cofold (\curr results -> concatMap snd results `snoc` symbol curr) torus
---   [(3,[0,1,0,1,2,0,1,0,1,2,0,1,0,1,5,0,1,0,1,5,3])]
---
---   >>> import Debug.Trace (traceShow)
---   >>> res = cofold (\curr results -> results == results `seq` traceShow (symbol curr) ()) cone
---   >>> res == res `seq` return ()
---   0
---   3
---   4
---   6
---   1
---   2
+{- |
+Fold a BAC reversely.
+
+Examples:
+
+>>> import Data.Bifunctor (first)
+>>> fmap (first symbol) $ cofold (\curr results -> concatMap snd results `snoc` symbol curr) cone
+[(6,[0,3,0,3,4,6]),(2,[0,1,0,3,0,3,4,2])]
+
+>>> fmap (first symbol) $ cofold (\curr results -> concatMap snd results `snoc` symbol curr) crescent
+[(3,[0,1,0,1,2,0,1,0,1,4,3])]
+
+>>> fmap (first symbol) $ cofold (\curr results -> concatMap snd results `snoc` symbol curr) torus
+[(3,[0,1,0,1,2,0,1,0,1,2,0,1,0,1,5,0,1,0,1,5,3])]
+
+>>> import Debug.Trace (traceShow)
+>>> res = cofold (\curr results -> results == results `seq` traceShow (symbol curr) ()) cone
+>>> res == res `seq` return ()
+0
+3
+4
+6
+1
+2
+-}
 cofold :: (Arrow -> [((Arrow, Arrow), r)] -> r) -> BAC -> [(Arrow, r)]
 cofold f node = go [(root node, [])] []
   where
@@ -679,20 +706,22 @@ cofold f node = go [(root node, [])] []
       Inner -> (curr, [arg]) : (arr, args) : table
 
 
--- | Fold a BAC reversely under a node.
---
---   Examples:
---
---   >>> cofoldUnder 6 (\curr results -> concatMap snd results `snoc` symbol curr) cone
---   Just [0,3,0,3,4,6]
---
---   >>> import Debug.Trace (traceShow)
---   >>> res = cofoldUnder 6 (\curr results -> results == results `seq` traceShow (symbol curr) ()) cone
---   >>> res == res `seq` return ()
---   0
---   3
---   4
---   6
+{- |
+Fold a BAC reversely under a node.
+
+Examples:
+
+>>> cofoldUnder 6 (\curr results -> concatMap snd results `snoc` symbol curr) cone
+Just [0,3,0,3,4,6]
+
+>>> import Debug.Trace (traceShow)
+>>> res = cofoldUnder 6 (\curr results -> results == results `seq` traceShow (symbol curr) ()) cone
+>>> res == res `seq` return ()
+0
+3
+4
+6
+-}
 cofoldUnder :: Symbol -> (Arrow -> [((Arrow, Arrow), r)] -> r) -> BAC -> Maybe r
 cofoldUnder tgt f node =
   if locate (root node) tgt == Outer then Nothing else Just $ go [(root node, [])]

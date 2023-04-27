@@ -28,7 +28,6 @@ import BAC.Base
 -- $setup
 -- >>> import BAC
 -- >>> import BAC.Examples (cone, torus, crescent)
--- >>> import Data.Map (fromList, elems)
 -- >>> import Data.Maybe (fromJust)
 
 
@@ -38,18 +37,21 @@ import BAC.Base
 eqStruct :: [BAC] -> Bool
 eqStruct = fmap edgesND .> fmap (fmap dict) .> allSame
 
--- | Find mappings to canonicalize the order of symbols of a node.  It will return
---   multiple mappings if it possesses some symmetries.
---   The absolute order has no meaning, but can be used to check the isomorphism between
---   nodes.  The relative order between these mappings forms automorphism of this BAC.
---
---   Examples:
---
---   >>> fmap elems $ canonicalize crescent
---   [[0,1,2,3,4]]
---
---   >>> fmap elems $ canonicalize $ target $ fromJust $ arrow crescent 1
---   [[0,1,2,3,4,5,6],[0,1,2,3,6,5,4],[0,3,2,1,4,5,6],[0,3,2,1,6,5,4],[0,4,5,6,1,2,3],[0,6,5,4,1,2,3],[0,4,5,6,3,2,1],[0,6,5,4,3,2,1]]
+{- |
+Find mappings to canonicalize the order of symbols of a node.  It will return multiple
+mappings if it possesses some symmetries.
+The absolute order has no meaning, but can be used to check the isomorphism between nodes.
+The relative order between these mappings forms automorphism of this BAC.
+
+Examples:
+
+>>> import Data.Map (elems)
+>>> fmap elems $ canonicalize crescent
+[[0,1,2,3,4]]
+
+>>> fmap elems $ canonicalize $ target $ fromJust $ arrow crescent 1
+[[0,1,2,3,4,5,6],[0,1,2,3,6,5,4],[0,3,2,1,4,5,6],[0,3,2,1,6,5,4],[0,4,5,6,1,2,3],[0,6,5,4,1,2,3],[0,4,5,6,3,2,1],[0,6,5,4,3,2,1]]
+-}
 canonicalize :: BAC -> [Dict]
 canonicalize =
   edgesND
@@ -59,14 +61,17 @@ canonicalize =
   .> fmap (base :)
   .> fmap ((`zip` [base..]) .> Map.fromList)
 
--- | Find mappings to canonicalize the order of symbols of a subnode specified by given
---   symbol.  The induced automorphisms are invariant under the mapping of incoming edges.
---   It can be used to check the upper isomorphism between objects.
---
---   Examples:
---
---   >>> fmap elems $ fromJust $ canonicalizeObject crescent 1
---   [[0,1,2,5,3,4,6],[0,3,4,6,1,2,5]]
+{- |
+Find mappings to canonicalize the order of symbols of a subnode specified by given symbol.
+The induced automorphisms are invariant under the mapping of incoming edges.  It can be
+used to check the upper isomorphism between objects.
+
+Examples:
+
+>>> import Data.Map (elems)
+>>> fmap elems $ fromJust $ canonicalizeObject crescent 1
+[[0,1,2,5,3,4,6],[0,3,4,6,1,2,5]]
+-}
 canonicalizeObject :: BAC -> Symbol -> Maybe [Dict]
 canonicalizeObject node tgt = do
   guard $ tgt /= base
@@ -85,16 +90,17 @@ canonicalizeObject node tgt = do
     |> fmap (base :)
     |> fmap ((`zip` [base..]) .> Map.fromList)
 
--- | Collect all maximum chains to a node into a trie.
---   It is a tree such that its paths correspond to maximum chains, which is represented
---   as a sequence of pairs of symbols, and each pair of symbols indicates a
---   nondecomposable morphism.  Just like BAC, the nodes of this trie is implicitly
---   shared.
---
---   Examples:
---
---   >>> putStr $ showTree $ fromJust $ forwardSymbolTrieUnder 6 cone
---   {(0,3):{(3,1):{(4,2):{}},(3,4):{(4,2):{}}}}
+{- |
+Collect all maximum chains to a node into a trie.
+It is a tree such that its paths correspond to maximum chains, which is represented as a
+sequence of pairs of symbols, and each pair of symbols indicates a nondecomposable
+morphism.  Just like BAC, the nodes of this trie is implicitly shared.
+
+Examples:
+
+>>> putStr $ showTree $ fromJust $ forwardSymbolTrieUnder 6 cone
+{(0,3):{(3,1):{(4,2):{}},(3,4):{(4,2):{}}}}
+-}
 forwardSymbolTrieUnder :: Symbol -> BAC -> Maybe (Tree (Symbol, Symbol))
 forwardSymbolTrieUnder sym = fromReachable res0 . foldUnder sym \curr results ->
   edges (target curr) `zip` results
@@ -107,16 +113,17 @@ forwardSymbolTrieUnder sym = fromReachable res0 . foldUnder sym \curr results ->
   where
   res0 = Tree Map.empty
 
--- | Collect all maximum chains to a node into a reversed trie.
---   It is a tree such that its paths correspond to the reverse of maximum chains, which
---   is represented as a sequence of pairs of symbols, and each pair of symbols indicates
---   a nondecomposable morphism.  Just like BAC, the nodes of this trie is implicitly
---   shared.
---
---   Examples:
---
---   >>> putStr $ showTree $ fromJust $ backwardSymbolTrieUnder 6 cone
---   {(4,2):{(3,1):{(0,3):{}},(3,4):{(0,3):{}}}}
+{- |
+Collect all maximum chains to a node into a reversed trie.
+It is a tree such that its paths correspond to the reverse of maximum chains, which is
+represented as a sequence of pairs of symbols, and each pair of symbols indicates a
+nondecomposable morphism.  Just like BAC, the nodes of this trie is implicitly shared.
+
+Examples:
+
+>>> putStr $ showTree $ fromJust $ backwardSymbolTrieUnder 6 cone
+{(4,2):{(3,1):{(0,3):{}},(3,4):{(0,3):{}}}}
+-}
 backwardSymbolTrieUnder :: Symbol -> BAC -> Maybe (Tree (Symbol, Symbol))
 backwardSymbolTrieUnder sym = cofoldUnder sym \_curr results ->
   results

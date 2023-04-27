@@ -23,10 +23,7 @@ import Utils.Utils ((|>))
 import Data.Maybe (fromJust)
 
 -- $setup
--- >>> import Data.Tuple.Extra (both)
--- >>> import Data.Foldable (traverse_)
 -- >>> import Data.Map (fromList)
--- >>> import Data.Maybe (fromJust)
 -- >>> import BAC.Serialize
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
@@ -88,7 +85,8 @@ rewire (src, tgts) node = do
     AtInner res -> return edge {target = res}
     AtBoundary -> return edge {target = res0}
 
-{- | Add an edge.  The categorical structure should not change after adding this edge.
+{- |
+Add an edge.  The categorical structure should not change after adding this edge.
 
 Examples:
 
@@ -121,7 +119,8 @@ addEdge (src, tgt) node = do
         |> (`snoc` tgt)
   node |> rewire (src, new_syms)
 
-{- | Remove an edge.  The categorical structure should not change after removing this edge.
+{- |
+Remove an edge.  The categorical structure should not change after removing this edge.
 
 Examples:
 
@@ -206,7 +205,7 @@ Alter a symbol in a node.
 
 Examples:
 
->>> printBAC $ fromJust $ alterSymbol (3, 1) 5 cone
+>>> printBAC $ fromJust $ alterSymbol (3,1) 5 cone
 - 0->1; 1->2
   - 0->1
     &0
