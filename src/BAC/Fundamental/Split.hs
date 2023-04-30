@@ -30,10 +30,9 @@ import Utils.Utils ((.>), (|>))
 -- >>> import BAC.Examples (cone, torus, crescent)
 
 {- |
-Partition the prefixes of a morphism.
-It returns a partition of `prefix` of the given symbol, where the objects represented by
-the elements in each group are unsplittable in the section category of the arrow specified
-by `tgt`.
+Partition the prefixes of an arrow.  It returns a partition of `prefix node tgt`.  The
+objects represented by the elements in each group are unsplittable in the section category
+of the arrow specified by `tgt`.
 
 Examples:
 
@@ -52,7 +51,18 @@ partitionPrefix node tgt =
   |> sort
 
 {- |
-Split a symbol on a node (split a non-terminal morphism).
+Split a symbol on a node, with two arguments @(src, tgt) :: (Symbol, Symbol)@ and
+@partition :: [(Symbol, [Int])]@.  `src` indicates the node to operate, `tgt` indicates
+the symbol to split, and `partition` is a list of splitted symbols and the corresponding
+indices to each group given by `partitionPrefix`.  If there is a splitted symbol which has
+an empty list of indices, it will become a nondecomposable symbol.
+
+In categorical perspectives, it splits a non-terminal morphism, where @(src, tgt)@
+indicates a proper morphism to split, and @(src, sym)@ for all @(sym, inds) <- partition@
+will indicate a splitted morphism, and the morphism chains in the group of indices `inds`
+will compose to this morphism.  An splitted morphism which no morphism chains compose to
+is nondecomposable.
+For simplicity, edges of splitted morphisms @(src, sym)@ will always be constructed.
 
 Examples:
 
@@ -93,17 +103,17 @@ Examples:
     *0
 -}
 splitSymbol ::
-  (Symbol, Symbol)      -- ^ The symbols reference to the morphism to split.
+  (Symbol, Symbol)      -- ^ The pair of symbols reference the arrow to split.
   -> [(Symbol, [Int])]  -- ^ The map from new symbols to indices of splittable groups
                         --   given by `partitionPrefix`.
   -> BAC
   -> Maybe BAC
-splitSymbol (src, tgt) splitted_syms node = do
+splitSymbol (src, tgt) partition node = do
   guard $ tgt /= base
   (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
   let splittable_groups = partitionPrefix (target src_arr) tgt
   guard $
-    splitted_syms
+    partition
     |> concatMap snd
     |> sort
     |> (== [0..length splittable_groups-1])
@@ -111,12 +121,12 @@ splitSymbol (src, tgt) splitted_syms node = do
     target src_arr
     |> symbols
     |> filter (/= tgt)
-    |> (++ fmap fst splitted_syms)
+    |> (++ fmap fst partition)
     |> anySame
     |> not
 
   let splitter =
-        splitted_syms
+        partition
         |> concatMap sequence
         |> fmap (fmap (splittable_groups !!))
         |> concatMap sequence
@@ -124,7 +134,7 @@ splitSymbol (src, tgt) splitted_syms node = do
         |> Map.fromList
 
   let splitted_edges =
-        splitted_syms
+        partition
         |> fmap \(sym, _) ->
           dict tgt_subarr
           |> Map.insert base sym
@@ -144,16 +154,17 @@ splitSymbol (src, tgt) splitted_syms node = do
     AtBoundary -> return edge {dict = merged_dict, target = res0}
       where
       merge (s, r)
-        | s == tgt  = [(s', r) | (s', _) <- splitted_syms]
+        | s == tgt  = [(s', r) | (s', _) <- partition]
         | otherwise = [(s, r)]
       merged_dict = dict edge |> Map.toList |> concatMap merge |> Map.fromList
 
--- | Split a symbol in the root node (split an initial morphism).
+-- | Split a symbol in the root node (split an initial morphism).  See `splitSymbol` for
+--   details.
 splitSymbolOnRoot :: Symbol -> [(Symbol, [Int])] -> BAC -> Maybe BAC
 splitSymbolOnRoot tgt = splitSymbol (base, tgt)
 
 {- |
-Partition symbols of a object.
+Partition symbols on a node.
 It returns a partition of `symbols` of the given node, where the objects represented by
 the elements in each group are unsplittable in the given bounded acyclic category.
 
@@ -176,7 +187,14 @@ partitionSymbols =
   .> sort
 
 {- |
-Split a node (split a terminal morphism).
+Split a node, with arguments @tgt :: Symbol@, the symbol of the node to split, and
+@partition :: [((Symbol, Symbol) -> Symbol, [Int])]@, list of splitter functions and
+indices to splittable groups given by `partitionSymbols`.
+
+In categorical perspectives, it splits a terminal morphism, where `tgt` indicates the
+source object of morphism to split.  For all incoming morphisms of this object, say
+@(s1, s2)@, the pair of symbol @(s1, splitter (s1, s2))@ for @(splitter, _) <- partition@
+will indicate the incoming morphism of splitted object with the same source object.
 
 Examples:
 
@@ -261,7 +279,8 @@ splitNode tgt partition node = do
       return edge {dict = splitted_dict, target = res}
 
 {- |
-Split a root node (split a BAC).
+Split a root node (split a BAC), with an argument @partition :: [[Int]]@, which are
+indices to splittable groups representing each splitted category.
 
 Examples:
 

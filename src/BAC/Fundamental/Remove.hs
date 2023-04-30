@@ -4,8 +4,8 @@
 
 module BAC.Fundamental.Remove (
   removeNDSymbol,
-  removeNode,
   removeNDSymbolOnRoot,
+  removeNode,
   removeLeafNode,
   removePrefix,
   removeSuffix,
@@ -26,7 +26,15 @@ import Utils.Utils ((.>), (|>), guarded)
 
 
 {- |
-Remove a nondecomposable symbol on a node (remove a non-terminal nondecomposable morphism).
+Remove a nondecomposable symbol on a node, where the first argument @(src, tgt) ::
+(Symbol, Symbol)@ indicates the node to operate and the symbol on this node to remove.  In
+categorical perspectives, it removes a non-terminal nondecomposable morphism, where the
+first argument @(src, tgt) :: (Symbol, Symbol)@ indicates the morphism to remove.
+
+Identity morphism or decomposable morphism cannot be remove.  The decomposability of a
+morphism can be checked by the function `nondecomposable`.  For simplicity, alternative
+edges will always be constructed by joining edges adjacent to the edge to be removed,
+which does not change the categorical properties.
 
 Examples:
 
@@ -68,7 +76,7 @@ Examples:
     *1
 -}
 removeNDSymbol ::
-  (Symbol, Symbol)  -- ^ The tuple of symbols indicating the morphism to be removed.
+  (Symbol, Symbol)  -- ^ The pair of symbols indicating the morphism to be removed.
   -> BAC
   -> Maybe BAC
 removeNDSymbol (src, tgt) node = do
@@ -91,13 +99,17 @@ removeNDSymbol (src, tgt) node = do
       filtered_dict = dict edge |> Map.delete tgt
 
 -- | Remove a nondecomposable symbol on the root node (remove a nondecomposable initial
---   morphism).
+--   morphism).  See `removeNDSymbol` for details.
 removeNDSymbolOnRoot :: Symbol -> BAC -> Maybe BAC
 removeNDSymbolOnRoot tgt = removeNDSymbol (base, tgt)
 
 
 {- |
-Remove a node (remove initial and terminal morphisms simultaneously).
+Remove a node, where the first argument @tgt :: Symbol@ indicates the node to remove.  In
+categorical perspectives, it removes initial and terminal morphisms of an object
+simultaneously, the first argument @tgt :: Symbol@ indicates the object to remove.
+
+Root node cannot be removed.
 
 Examples:
 
@@ -142,7 +154,8 @@ removeNode tgt node = do
       where
       filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
 
--- | Remove a leaf node (remove a nondecomposable terminal morphism).
+-- | Remove a leaf node (remove a nondecomposable terminal morphism).  See `removeNode`
+--   for details.
 removeLeafNode :: Symbol -> BAC -> Maybe BAC
 removeLeafNode tgt node = do
   tgt_arr <- arrow node tgt

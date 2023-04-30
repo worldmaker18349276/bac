@@ -15,7 +15,7 @@ module BAC.Base (
   --   Edges of such structure have dictionaries, which obey three laws:
   --
   --   1.  __totality__: the dictionary of an edge should be a mapping from all valid
-  --       symbols in the child node to valid symbols in the parent node.
+  --       symbols on the child node to valid symbols on the parent node.
   --   2.  __surjectivity__: all valid symbols should be covered by the dictionaries of
   --       outgoing edges, except the base symbol.
   --   3.  __supportivity__: if dictionaries of given two paths with the same starting
@@ -91,7 +91,7 @@ module BAC.Base (
   cofoldUnder,
 ) where
 
-import Data.Bifunctor (bimap, second)
+import Data.Bifunctor (bimap)
 import Data.Foldable (foldl')
 import Data.List (intercalate, sortOn)
 import Data.List.Extra (allSame, groupSortOn, nubSort, snoc)
@@ -105,6 +105,7 @@ import Prelude hiding (compare, map)
 
 import Utils.Memoize (memoizeWithKey)
 import Utils.Utils (guarded, (.>), (|>))
+import Control.Arrow ((&&&))
 
 -- $setup
 -- >>> import BAC
@@ -468,8 +469,7 @@ validate arr = validateDicts && validateSup
   validateDicts = Map.keys (dict arr) == symbols (target arr)
   validateSup =
     extend arr
-    |> fmap dupe
-    |> fmap (second (target .> arrows))
+    |> fmap (id &&& target .> arrows)
     |> concatMap sequence
     |> fmap (uncurry join)
     |> (arr :)

@@ -12,7 +12,6 @@ module BAC.Fundamental.Restructure (
 
 import Control.Monad (guard)
 import Data.List.Extra (snoc)
-import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Tuple (swap)
 import Data.Tuple.Extra (dupe)
@@ -29,7 +28,8 @@ import Data.Maybe (fromJust)
 -- >>> import BAC.Examples (cone, torus, crescent)
 
 {- |
-Rewire edges of a given node.
+Rewire edges of a given node.  The categorical structure should not change after adding
+this edge.
 
 Examples:
 
@@ -72,13 +72,11 @@ rewire ::
   -> BAC
   -> Maybe BAC
 rewire (src, tgts) node = do
-  src_arr <- arrow node src
-  let nd_syms = target src_arr |> edgesND |> fmap symbol
-  src_edges' <- tgts |> traverse (arrow (target src_arr))
+  src_node <- arrow node src |> fmap target
+  src_edges' <- tgts |> traverse (arrow src_node)
   let res0 = fromEdges src_edges'
 
-  let nd_syms' = res0 |> edgesND |> fmap symbol
-  guard $ nd_syms == nd_syms'
+  guard $ symbols src_node == symbols res0
 
   fromReachable res0 $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
@@ -153,7 +151,8 @@ removeEdge (src, tgt) node = do
   node |> rewire (src, new_syms)
 
 {- |
-Relabel symbols in a given node.
+Relabel symbols in a given node.  The categorical structure should not change after adding
+this edge.
 
 Examples:
 
@@ -186,14 +185,14 @@ relabel ::
   -> BAC
   -> Maybe BAC
 relabel tgt mapping node = do
-  tgt_arr <- arrow node tgt
-  guard $ base `Map.member` mapping && mapping ! base == base
-  guard $ Map.keys mapping == symbols (target tgt_arr)
+  tgt_node <- arrow node tgt |> fmap target
+  guard $ Map.lookup base mapping == Just base
+  guard $ Map.keys mapping == symbols tgt_node
   let unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
   guard $ length unmapping == length mapping
 
   let res0 = fromEdges do
-        edge <- edges (target tgt_arr)
+        edge <- edges tgt_node
         return edge {dict = mapping `cat` dict edge}
   fromReachable res0 $ node |> modifyUnder tgt \(_curr, edge) -> \case
     AtOuter -> return edge
@@ -201,7 +200,8 @@ relabel tgt mapping node = do
     AtBoundary -> return edge {dict = dict edge `cat` unmapping, target = res0}
 
 {- |
-Alter a symbol in a node.
+Alter a symbol in a node.  The categorical structure should not change after adding this
+edge.
 
 Examples:
 
@@ -230,6 +230,9 @@ alterSymbol (src, tgt) sym node = do
   let mapping = syms |> fmap dupe |> Map.fromList |> Map.insert tgt sym
   node |> relabel src mapping
 
+-- | Shift a symbol `tgt` on a node specified by `src`, where `tgt` cannot be `base`.
+--   It is typically used to modify symbols on multiple nodes, which is required when
+--   calling `addLeafNode`, `addParantNode`, `duplicateNode` and `splitNode`.
 makeShifter :: BAC -> Natural -> (Symbol, Symbol) -> Symbol
 makeShifter node offset (src, tgt) =
   arrow node src |> fromJust |> target |> symbols |> maximum |> (* offset) |> (+ tgt)

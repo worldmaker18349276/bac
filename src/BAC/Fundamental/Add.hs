@@ -36,15 +36,15 @@ import Utils.Utils (guarded, (.>), (|>))
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
 
--- | Two tuples of symbols representing two morphisms where coforks of the first morphism
+-- | Two pairs of symbols representing two morphisms where coforks of the first morphism
 --   are also coforks of the second morphism.  A cofork of a morphism `f` is a pair of
 --   distinct morphisms `g`, 'g'' such that @f . g = f . g'@.  This constraint shows the
 --   possibility to add an edge between them.
 type Coangle = ((Symbol, Symbol), (Symbol, Symbol))
 
--- | Two tuples of symbols representing two morphisms where forks of the first morphism
---   are also forks of the second morphism.  A fork of a morphism `f` is a pair of
---   distinct morphisms `g`, 'g'' such that @g . f = g' . f@.  This constraint shows the
+-- | Two pairs of symbols representing two morphisms where forks of the first morphism are
+--   also forks of the second morphism.  A fork of a morphism `f` is a pair of distinct
+--   morphisms `g`, 'g'' such that @g . f = g' . f@.  This constraint shows the
 --   possibility to add an edge between them.
 type Angle = ((Symbol, Symbol), (Symbol, Symbol))
 
@@ -161,7 +161,22 @@ findValidCoanglesAngles src tgt node = do
   return (src_alts, tgt_alts)
 
 {- |
-Add a nondecomposable symbol on a node (add a non-terminal nondecomposable morphism).
+Add a nondecomposable symbol on a node, where the arguments `src :: Symbol` and
+`tgt :: Symbol` are the symbols of source node and target node of the added edge, and
+`sym :: Symbol` is the symbol to be added.  `src_alts :: [Int]` is the list of indices of
+coangles, and `tgt_alts :: [Int]` is the list of indices of angles.
+
+In categorical perspectives, it adds a non-terminal nondecomposable morphism, where `src`
+and `tgt` indicates the source object and target object of the added morphism, and
+`(src, sym)` will become the pair of symbol indicating the added morphism.
+
+Coangles and angles represent possible choices of composition rules, which can be obtained
+by a helper function `findValidCoanglesAngles`, which returns two groups of picklists.
+The second group contains picklists of angles, which are used to determine the outgoing
+wires.  The first group contains picklists of coangles, which are used to determine the
+incoming wires.  User should select one angle or coangle for each picklist.  A valid
+choice of angles and coangles can be checked by functions `compatibleAngles`,
+`compatibleCoangles` and `compatibleCoanglesAngles`.
 
 Examples:
 
@@ -233,7 +248,19 @@ addNDSymbol src tgt sym src_alts tgt_alts node = do
       new_dict = dict edge |> uncurry Map.insert new_wire
 
 {- |
-Add a leaf node to a node (add a terminal nondecomposable morphism).
+Add a leaf node to a node, where @src :: Symbol@ indicates the node to be appended, and
+@sym :: Symbol@ is the added symbol referencing to the added node.
+@inserter :: (Symbol, Symbol) -> Symbol@ is the function to insert a symbol to all
+ancestor nodes, such that it will reference the added node.  The argument of `inserter` is
+a pair of symbols, indicates the arrow from the node to insert the symbol, to the node to
+append.  Inserter can be made by `BAC.Fundamental.makeShifter`.
+
+In categorical perspectives, it adds a terminal nondecomposable morphism, where `src`
+indicates an object whose terminal morphism will be interpolated, and @(src, sym)@ will
+indicate the only morphism from such object to the inserted object.  For all incoming
+morphisms of the object `src`, say @(s1, s2)@, the pair of symbol
+@(s1, inserter (s1, s2))@ will indicate the incoming morphism of the inserted object with
+the same source object.
 
 Examples:
 
@@ -266,8 +293,8 @@ Examples:
     *1
 -}
 addLeafNode ::
-  Symbol             -- ^ The symbol referenced to the node to append.
-  -> Symbol          -- ^ The symbol referenced to the added node.
+  Symbol             -- ^ The symbol referenced the node to append.
+  -> Symbol          -- ^ The symbol referenced the added node.
   -> ((Symbol, Symbol) -> Symbol)
                      -- ^ The function to insert symbol to all ancestor nodes.
   -> BAC
@@ -304,7 +331,15 @@ addLeafNode src sym inserter node = do
         new_dict = new_wires |> foldr (uncurry Map.insert) (dict edge)
 
 {- |
-Insert a node in the middle of an arrow (add an object).
+Insert a node in the middle of an arrow, where @(src, tgt) :: (Symbol, Symbol)@ indicate
+the arrow to interpolate, @sym :: Symbol@ is the symbol to add, and @mapping :: Dict@ is
+the dictionary of the edge of the added node.  @inserter :: (Symbol, Symbol) -> Symbol@
+is the function to insert a symbol to all ancestor nodes, such that it will reference the
+added node, which is the same as `addLeafNode`.
+
+In categorical perspectives, it adds an object in between a morphism, where @(src, tgt)@
+indicates the morphism to be interpolated, and @(src, sym)@ will indicate the incoming
+morphism of the added object.
 
 Examples:
 
@@ -327,7 +362,7 @@ Examples:
       *1
 -}
 addParentNode ::
-  (Symbol, Symbol)       -- ^ The symbols indicate the arrow to be interpolated.
+  (Symbol, Symbol)       -- ^ The pair of symbols indicating the arrow to be interpolated.
   -> Symbol              -- ^ The symbol referenced the added node.
   -> Dict                -- ^ The dictionary of the edge of the added node.
   -> ((Symbol, Symbol) -> Symbol)
@@ -371,5 +406,7 @@ addParentNode (src, tgt) sym mapping inserter node = do
           |> fmap (both (symbol2 .> inserter))
         new_dict = new_wires |> foldr (uncurry Map.insert) (dict edge)
 
+-- | Insert a node in the middle of an arrow started at the root (add an object).  See
+--   `addParentNode` for details.
 addParentNodeOnRoot :: Symbol -> Symbol -> Dict -> BAC -> Maybe BAC
 addParentNodeOnRoot tgt sym mapping = addParentNode (base, tgt) sym mapping undefined
