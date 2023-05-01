@@ -4,8 +4,9 @@
 
 module BAC.Fundamental.Zip (
   eqStruct,
-  canonicalize,
-  canonicalizeObject,
+  canonicalizeRootNode,
+  canonicalizeArrow,
+  canonicalizeNode,
   forwardSymbolTrieUnder,
   backwardSymbolTrieUnder,
   zipSuffix,
@@ -21,7 +22,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe)
 import Prelude hiding (compare, map)
 
-import Utils.EqlistSet (canonicalizeEqlistSet, canonicalizeGradedEqlistSet)
+import Utils.EqlistSet (canonicalizeGradedEqlistSet)
 import Utils.Utils ((.>), (|>))
 import BAC.Base
 
@@ -29,51 +30,70 @@ import BAC.Base
 -- >>> import BAC
 -- >>> import BAC.Examples (cone, torus, crescent)
 -- >>> import Data.Maybe (fromJust)
+-- >>> import Data.Map (elems)
 
 
 -- | Structural equality, the equality of nodes up to rewiring.
---   The symbols of nodes should be the same, and equality of child nodes are not checked.
---   The node with the same structure can be unioned by merging their edges.
+--   The symbol list of nodes should be the same, and equality of child nodes are not
+--   checked.  The node with the same structure can be unioned by merging their edges.
 eqStruct :: [BAC] -> Bool
 eqStruct = fmap edgesND .> fmap (fmap dict) .> allSame
 
 {- |
-Find mappings to canonicalize the order of symbols of a node.  It will return multiple
-mappings if it possesses some symmetries.
-The absolute order has no meaning, but can be used to check the isomorphism between nodes.
-The relative order between these mappings forms automorphism of this BAC.
+Find mappings to canonicalize the order of symbols of the root node.  It will return
+multiple mappings if it possesses some symmetries.  The absolute order has no meaning, but
+can be used to check the isomorphism between nodes.  The relative order between these
+mappings forms automorphism of this BAC.
 
 Examples:
 
->>> import Data.Map (elems)
->>> fmap elems $ canonicalize crescent
+>>> fmap elems $ canonicalizeRootNode crescent
 [[0,1,2,3,4]]
 
->>> fmap elems $ canonicalize $ target $ fromJust $ arrow crescent 1
+>>> fmap elems $ canonicalizeRootNode $ target $ fromJust $ arrow crescent 1
 [[0,1,2,3,4,5,6],[0,1,2,3,6,5,4],[0,3,2,1,4,5,6],[0,3,2,1,6,5,4],[0,4,5,6,1,2,3],[0,6,5,4,1,2,3],[0,4,5,6,3,2,1],[0,6,5,4,3,2,1]]
 -}
-canonicalize :: BAC -> [Dict]
-canonicalize =
-  edgesND
-  .> fmap dict
-  .> fmap Map.elems
-  .> canonicalizeEqlistSet
-  .> fmap (base :)
-  .> fmap ((`zip` [base..]) .> Map.fromList)
+canonicalizeRootNode :: BAC -> [Dict]
+canonicalizeRootNode node =
+  node
+  |> edgesND
+  |> fmap dict
+  |> fmap Map.elems
+  |> canonicalizeGradedEqlistSet (arrow node .> fromJust .> target)
+  |> fmap (base :)
+  |> fmap ((`zip` [base..]) .> Map.fromList)
+
+{- |
+Find mappings to canonicalize the order of symbols of the target node of an arrow.  The
+induced automorphisms are invariant under the mapping of the arrow.  It can be used to
+check the upper isomorphism between objects.
+
+Examples:
+
+>>> fmap elems $ canonicalizeArrow $ fromJust $ arrow crescent 1
+[[0,1,2,5,3,4,6],[0,3,4,6,1,2,5]]
+-}
+canonicalizeArrow :: Arrow -> [Dict]
+canonicalizeArrow arr =
+  target arr
+  |> edgesND
+  |> fmap dict
+  |> fmap Map.elems
+  |> canonicalizeGradedEqlistSet (dict arr !)
+  |> fmap (base :)
+  |> fmap ((`zip` [base..]) .> Map.fromList)
 
 {- |
 Find mappings to canonicalize the order of symbols of a subnode specified by given symbol.
-The induced automorphisms are invariant under the mapping of incoming edges.  It can be
-used to check the upper isomorphism between objects.
+The induced automorphisms are invariant under the mapping of incoming edges.
 
 Examples:
 
->>> import Data.Map (elems)
->>> fmap elems $ fromJust $ canonicalizeObject crescent 1
+>>> fmap elems $ fromJust $ canonicalizeNode crescent 1
 [[0,1,2,5,3,4,6],[0,3,4,6,1,2,5]]
 -}
-canonicalizeObject :: BAC -> Symbol -> Maybe [Dict]
-canonicalizeObject node tgt = do
+canonicalizeNode :: BAC -> Symbol -> Maybe [Dict]
+canonicalizeNode node tgt = do
   guard $ tgt /= base
   tgt_arr <- arrow node tgt
   let keys =

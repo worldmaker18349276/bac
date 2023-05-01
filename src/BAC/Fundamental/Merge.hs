@@ -39,7 +39,7 @@ Merge symbols on a node, with arguments @(src, tgts) :: (Symbol, [Symbol])@ and
 @sym :: Symbol@, where @src@ is the symbol referencing the source node, `tgts` is a list
 of symbols to be merged, and `sym` is the merged symbol.  When merging symbols on the root
 node, it will checks if the structures of the target nodes referenced by `tgts` are the
-same.
+same.  Users should unify target nodes before merging.
 
 In categorical perspectives, it merges non-terminal morphisms, where @(src, tgt)@ for
 @tgt <- tgts@ indicate the morphism to merge, and @(src, sym)@ will indicates the merged
