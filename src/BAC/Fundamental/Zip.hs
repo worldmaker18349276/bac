@@ -15,8 +15,8 @@ module BAC.Fundamental.Zip (
 import Control.Arrow ((&&&))
 import Control.Monad (MonadPlus (mzero), guard)
 import Data.Bifunctor (Bifunctor (first, second), bimap)
-import Data.List (sort, transpose)
-import Data.List.Extra (allSame, anySame, nubSortOn, nubOn, groupSortOn)
+import Data.List (sort, transpose, sortOn)
+import Data.List.Extra (allSame, anySame, nubSortOn, nubOn)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, mapMaybe)
@@ -170,7 +170,7 @@ Examples:
 zipSuffix ::
   Ord k
   => [(Symbol, [k])]
-      -- ^ The symbols to check and the keys to classify nondecomposable incoming morphisms.
+      -- ^ The symbols to zip and the keys to classify nondecomposable incoming edges.
   -> BAC
   -> Maybe [(Arrow, [Arrow])]
 zipSuffix [] _ = Just []
@@ -184,15 +184,14 @@ zipSuffix tgts_keys node = do
   guard $ pars_keys |> fmap (length `bimap` length) |> all (uncurry (==))
   guard $
     pars_keys
-    |> concatMap (uncurry zip)
-    |> groupSortOn snd
-    |> all (fmap (fst .> fst .> symbol) .> allSame)
+    |> fmap (uncurry zip .> sortOn snd .> fmap fst)
+    |> transpose
+    |> all (fmap (fst .> symbol) .> allSame)
 
   let zipped_nd_suffix =
         pars_keys
-        |> concatMap (uncurry zip)
-        |> groupSortOn snd
-        |> fmap (fmap fst)
+        |> fmap (uncurry zip .> sortOn snd .> fmap fst)
+        |> transpose
         |> fmap ((head .> fst) &&& fmap snd)
 
   let tgts = tgts_keys |> fmap fst

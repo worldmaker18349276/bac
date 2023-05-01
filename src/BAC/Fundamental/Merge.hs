@@ -65,6 +65,20 @@ Examples:
     *0
   - 0->10; 1->2; 2->2
     *2
+
+>>> crescent_1 = arrow crescent 1 |> fromJust |> target
+>>> printBAC $ fromJust $ mergeSymbols (0,[1,3]) 1 crescent_1
+- 0->1; 1->2
+  - 0->1
+- 0->5; 1->6
+  - 0->1
+    &0
+- 0->7; 1->6
+  - 0->1
+    *0
+
+>>> mergeSymbols (0,[1,5]) 1 crescent_1
+Nothing
 -}
 mergeSymbols ::
   (Symbol, [Symbol])  -- ^ The symbol referencing the node and symbols to be merged.
@@ -96,6 +110,8 @@ mergeSymbols (src, tgts) sym node = do
       where
       dict' = dict edge |> Map.toList |> fmap (first merge) |> Map.fromList
 
+-- | Merge symbols on the root node (merge initial morphisms).  See `mergeSymbols` for
+--   details.
 mergeSymbolsOnRoot :: [Symbol] -> Symbol -> BAC -> Maybe BAC
 mergeSymbolsOnRoot tgts = mergeSymbols (base, tgts)
 
@@ -124,6 +140,22 @@ Examples:
     - 0->2
       *1
   - 0->5; 1->6; 2->6
+    *0
+
+>>> torus' = torus |> alterSymbol (2,1) 3 |> fromJust |> alterSymbol (2,2) 4 |> fromJust
+>>> printBAC $ fromJust $ mergeNodes [(2,[False,True]), (5,[False,True])] (snd .> head) torus'
+- 0->1; 1->2; 2->3; 3->3; 6->3; 7->2; 8->3
+  - 0->1; 1->3; 2->6; 3->2; 4->3
+    &0
+    - 0->1
+      &1
+    - 0->2
+      *1
+    - 0->3
+      *1
+    - 0->4
+      *1
+  - 0->7; 1->2; 2->8; 3->8; 4->6
     *0
 -}
 mergeNodes ::
