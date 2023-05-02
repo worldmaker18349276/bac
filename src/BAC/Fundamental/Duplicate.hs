@@ -5,8 +5,8 @@
 
 module BAC.Fundamental.Duplicate (
   duplicateNDSymbol,
-  duplicateNode,
   duplicateNDSymbolOnRoot,
+  duplicateNode,
   duplicateLeafNode,
   duplicatePrefix,
   duplicateSuffix,
@@ -29,13 +29,36 @@ import Utils.Utils ((|>))
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
 
+
 {- |
-Duplicate a nondecomposable symbol on a node (duplicate a non-terminal nondecomposable
-morphism).
+Duplicate a nondecomposable symbol on a node, with two arguments
+@(src, tgt) :: (Symbol, Symbol)@ and @syms :: [Symbol]@.  `src` indicates the node to
+operate, `tgt` indicates the symbol to duplicate, and `syms` is a list of duplicated
+symbols.  It is equivalent to split a nondecomposable symbol:
+@splitSymbol (src, tgt) (syms \`zip\` repeat [])@.
+
+In categorical perspectives, it duplicate a non-terminal nondecomposable morphism, where
+@(src, tgt)@ indicates a nondecomposable morphism to duplicate, and @(src, sym)@ for all
+@sym <- syms@ will indicate a duplicated morphism.
 
 Examples:
 
 >>> printBAC $ fromJust $ duplicateNDSymbol (3,1) [1,5] cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4; 5->4
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+  - 0->4; 1->2; 2->3
+    *1
+  - 0->5; 1->2; 2->3
+    *1
+
+>>> printBAC $ fromJust $ splitSymbol (3,1) ([1,5] `zip` repeat []) cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -83,11 +106,69 @@ duplicateNDSymbol (src, tgt) syms node = do
       return edge {dict = splitted_dict, target = res0}
 
 {- |
-Duplicate a node (duplicate an object).
+Duplicate a node, with arguments @tgt :: Symbol@, the symbol of the node to duplicate, and
+@shifters :: [(Symbol, Symbol) -> Symbol]@, list of shifter functions.  Duplicating a leaf
+node is equivalent to split a node: @splitNode tgt (shifters \`zip\` repeat [])@.
+
+In categorical perspectives, it duplicates an object, where `tgt` indicates the object to
+duplicate.  For all incoming morphisms of this object, say @(s1, s2)@, the pair of symbol
+@(s1, shifter (s1, s2))@ for @shifter <- shifters@ will indicate the incoming morphism of
+duplicated object with the same source object; for all outgoing morphism of this object,
+say @(s1, s2)@, the pair of symbol @(shifter (base, s1), s2)@  for @shifter <- shifters@
+will indicate the outgoing morphism of duplicated object with the same target object.
 
 Examples:
 
+>>> printBAC $ fromJust $ duplicateNode 4 (fmap (makeShifter cone) [0,1,2]) cone
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4; 5->10; 8->10; 9->16; 12->16
+  - 0->1; 1->2; 2->3
+    &1
+    - 0->1
+      *0
+    - 0->2
+      &2
+  - 0->4; 1->2; 2->3
+    *1
+  - 0->5; 1->2; 2->3
+    &3
+    - 0->1
+      *0
+    - 0->2
+      *2
+  - 0->8; 1->2; 2->3
+    *3
+  - 0->9; 1->2; 2->3
+    &4
+    - 0->1
+      *0
+    - 0->2
+      *2
+  - 0->12; 1->2; 2->3
+    *4
+
 >>> printBAC $ fromJust $ duplicateNode 3 (fmap (makeShifter crescent) [0,1]) crescent
+- 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4; 9->7; 13->7
+  - 0->1; 1->2; 2->9
+    &0
+    - 0->1
+      &1
+    - 0->2
+      &2
+  - 0->3; 1->2; 2->9
+    &3
+    - 0->1
+      *1
+    - 0->2
+      *2
+  - 0->5; 1->6; 2->13
+    *0
+  - 0->7; 1->6; 2->13
+    *3
+
+>>> printBAC $ fromJust $ splitNode 3 (fmap (makeShifter crescent) [0,1] `zip` repeat []) crescent
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4; 9->7; 13->7
   - 0->1; 1->2; 2->9
     &0
@@ -139,11 +220,12 @@ duplicateNode tgt shifters node = do
 
 
 -- | Duplicate a nondecomposable symbol on the root node (duplicate an initial
---   nondecomposable morphism).
+--   nondecomposable morphism).  See `duplicateNDSymbol` for details.
 duplicateNDSymbolOnRoot :: Symbol -> [Symbol] -> BAC -> Maybe BAC
 duplicateNDSymbolOnRoot tgt = duplicateNDSymbol (base, tgt)
 
--- | Duplicate a leaf node (duplicate a nondecomposable terminal morphism).
+-- | Duplicate a leaf node (duplicate a nondecomposable terminal morphism).  See
+--   `duplicateNode` for details.
 duplicateLeafNode :: Symbol -> [(Symbol, Symbol) -> Symbol] -> BAC -> Maybe BAC
 duplicateLeafNode tgt shifters node = do
   tgt_arr <- arrow node tgt
