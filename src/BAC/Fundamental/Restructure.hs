@@ -28,8 +28,8 @@ import Data.Maybe (fromJust)
 -- >>> import BAC.Examples (cone, torus, crescent)
 
 {- |
-Rewire edges of a given node.  The categorical structure should not change after adding
-this edge.
+Rewire edges of a given node.  The categorical structure should not change after this
+process.
 
 Examples:
 
@@ -84,7 +84,7 @@ rewire (src, tgts) node = do
     AtBoundary -> return edge {target = res0}
 
 {- |
-Add an edge.  The categorical structure should not change after adding this edge.
+Add an edge.  The categorical structure should not change after this process.
 
 Examples:
 
@@ -118,7 +118,7 @@ addEdge (src, tgt) node = do
   node |> rewire (src, new_syms)
 
 {- |
-Remove an edge.  The categorical structure should not change after removing this edge.
+Remove an edge.  The categorical structure should not change after this process.
 
 Examples:
 
@@ -151,8 +151,8 @@ removeEdge (src, tgt) node = do
   node |> rewire (src, new_syms)
 
 {- |
-Relabel symbols in a given node.  The categorical structure should not change after adding
-this edge.
+Relabel symbols in a given node.  The categorical structure should not change after this
+process.
 
 Examples:
 
@@ -200,8 +200,7 @@ relabel tgt mapping node = do
     AtBoundary -> return edge {dict = dict edge `cat` unmapping, target = res0}
 
 {- |
-Alter a symbol in a node.  The categorical structure should not change after adding this
-edge.
+Alter a symbol in a node.  The categorical structure should not change after this process.
 
 Examples:
 

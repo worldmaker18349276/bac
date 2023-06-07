@@ -20,7 +20,19 @@ module BAC.Base (
   --       outgoing edges, except the base symbol.
   --   3.  __supportivity__: if dictionaries of given two paths with the same starting
   --       node map the base symbol to the same symbol, then they should have the same
-  --       dictionary and target node.  Note that null paths also count.
+  --       dictionary and target node.
+  --
+  --   They can be translated into following codes:
+  --
+  --   > forall edge.  sort $ Map.keys $ dict edge  =  symbols $ target edge
+  --
+  --   > forall node.  nubSort $ concatMap (Map.values . dict) $ edges node  =  filter (/= base) $ symbols node
+  --
+  --   > forall path1 path2.
+  --   >   foldl1 (cat `on` dict) path1 ! base = foldl1 (cat `on` dict) path2 ! base
+  --   >   ->  ( foldl1 (cat `on` dict) path1 = foldl1 (cat `on` dict) path2
+  --   >       ,          target $ last path1 =          target $ last path2
+  --   >       )
   --
   --   See my paper for a detailed explanation.
 
@@ -66,7 +78,6 @@ module BAC.Base (
   divide2,
   prefix,
   suffix,
-  allSuffix,
 
   -- ** Relation #relation#
 
@@ -111,10 +122,20 @@ import Control.Arrow ((&&&))
 -- >>> import BAC
 -- >>> import BAC.Examples (cone, torus, crescent)
 
--- | A tree whose edges are indexed by keys.
+-- | A tree whose edges are indexed by keys with type `e`.
 newtype Tree e = Tree (Map e (Tree e)) deriving (Eq, Ord, Show)
 
--- | Show tree concisely.
+{- |
+Show tree concisely.
+
+Examples:
+
+>>> showTree $ Map.empty
+{}
+
+>>> showTree $ Map.fromList [("a", Map.fromList [("x", Map.empty), ("y", Map.empty)]), ("b", Map.empty)]
+{"a":{"x":{},"y":{}},"b":{}}
+-}
 showTree :: Show e => Tree e -> String
 showTree (Tree m) =
   m
@@ -166,11 +187,13 @@ Examples:
 symbols :: BAC -> [Symbol]
 symbols = edges .> concatMap (dict .> Map.elems) .> (base :) .> nubSort
 
--- | Concatenate two dictionaries:
---
---   > (a `cat` b) ! i = a ! (b ! i)
---
---   It may crash if given dictionaries are not composable.
+{- |
+Concatenate two dictionaries:
+
+> (a `cat` b) ! i = a ! (b ! i)
+
+It may crash if given dictionaries are not composable.
+-}
 cat :: HasCallStack => Dict -> Dict -> Dict
 cat = fmap . (!)
 
@@ -335,7 +358,7 @@ arrow2 node (src, tgt) = do
   return (src_arr, tgt_subarr)
 
 {- |
-The pair of symbols referencing to the given 2-chain.
+The pair of symbols referencing the given 2-chain.
 It is the inverse of `arrow2`.
 
 Examples:
@@ -349,12 +372,14 @@ Nothing
 symbol2 :: (Arrow, Arrow) -> (Symbol, Symbol)
 symbol2 = symbol `bimap` symbol
 
--- | Find prefix edges of paths from a node to a given symbol.
---   It obeys the following law:
---
---   > (arr1, arr2) `elem` prefix node sym
---   > ->  arr1 `elem` edges node
---   > &&  symbol (arr1 `join` arr2) == sym
+{- |
+Find prefix edges of paths from a node to a given symbol.
+It obeys the following law:
+
+> (arr1, arr2) `elem` prefix node sym
+> ->  arr1 `elem` edges node
+> &&  symbol (arr1 `join` arr2) == sym
+-}
 prefix :: BAC -> Symbol -> [(Arrow, Arrow)]
 prefix node sym =
   arrow node sym
@@ -365,12 +390,14 @@ prefix node sym =
       divide arr tgt_arr
       |> fmap (arr,)
 
--- | Find suffix edges of paths from a node to a given symbol.
---   It obeys the following law:
---
---   > (arr1, arr2) `elem` suffix node sym
---   > ->  arr2 `elem` edges (target arr1)
---   > &&  symbol (arr1 `join` arr2) == sym
+{- |
+Find suffix edges of paths from a node to a given symbol.
+It obeys the following law:
+
+> (arr1, arr2) `elem` suffix node sym
+> ->  arr2 `elem` edges (target arr1)
+> &&  symbol (arr1 `join` arr2) == sym
+-}
 suffix :: BAC -> Symbol -> [(Arrow, Arrow)]
 suffix node sym =
   arrowsUnder node sym
@@ -382,21 +409,14 @@ suffix node sym =
     |> filter (join curr .> symbol .> (== sym))
     |> fmap (curr,)
 
--- | Find all suffix arrows of paths from a node to a given symbol.
-allSuffix :: BAC -> Symbol -> [(Arrow, Arrow)]
-allSuffix node sym =
-  arrowsUnder node sym
-  |> concatMap \curr ->
-    curr `divide` tgt_arr |> fmap (curr,)
-  where
-  tgt_arr = arrow node sym |> fromJust
+{- |
+Extend a tuple of arrows.
+It obeys the following law:
 
--- | Extend a tuple of arrows.
---   It obeys the following law:
---
---   > (arr13, arr34) `elem` extend2 (arr12, arr24)
---   > ->  arr13 `elem` extend arr12
---   > &&  arr12 `join` arr24 == arr13 `join` arr34
+> (arr13, arr34) `elem` extend2 (arr12, arr24)
+> ->  arr13 `elem` extend arr12
+> &&  arr12 `join` arr24 == arr13 `join` arr34
+-}
 extend2 :: (Arrow, Arrow) -> [(Arrow, Arrow)]
 extend2 (arr1, arr2) =
   target arr1
@@ -406,15 +426,16 @@ extend2 (arr1, arr2) =
     arr `divide` arr2
     |> fmap (arr1 `join` arr,)
 
--- | Divide two tuples of arrows.  The first is divisor and the second is the dividend,
---   and they should start and end at the same node.
---   It obeys the following laws:
---
---   > arr12 `join` arr24  ==  arr13 `join` arr34
---
---   > arr23 `elem` divide2 (arr12, arr24) (arr13, arr34)
---   > ->  arr12 `join` arr23 == arr13
---   > &&  arr23 `join` arr34 == arr34
+{- |
+Divide two tuples of arrows.  The first is divisor and the second is the dividend, and
+they should start and end at the same node.
+It obeys the following laws:
+
+> arr12 `join` arr24  ==  arr13 `join` arr34
+> &&  arr23 `elem` divide2 (arr12, arr24) (arr13, arr34)
+> ->  arr12 `join` arr23 == arr13
+> &&  arr23 `join` arr34 == arr34
+-}
 divide2 :: (Arrow, Arrow) -> (Arrow, Arrow) -> [Arrow]
 divide2 (arr12, arr24) (arr13, arr34) =
   arr12 `divide` arr13 |> filter \arr23 ->
@@ -422,20 +443,23 @@ divide2 (arr12, arr24) (arr13, arr34) =
 
 
 {- |
-Check if the given symbol reference to a nondecomposable initial morphism.
+Check if the given symbol reference a nondecomposable arrow, which represent a
+nondecomposable initial morphism.
+The nondecomposable arrow is an arrow which cannot be written as a concatenation of
+multiple proper arrows.
 
 Examples:
 
->>> nondecomposable cone 3
+>>> nondecomposable cone 3  -- a nondecomposable proper arrow
 True
 
->>> nondecomposable cone 4
+>>> nondecomposable cone 4  -- a decomposable proper arrow
 False
 
->>> nondecomposable cone 0
+>>> nondecomposable cone 0  -- a null arrow
 True
 
->>> nondecomposable cone 10
+>>> nondecomposable cone 10  -- no such arrow
 False
 -}
 nondecomposable :: BAC -> Symbol -> Bool

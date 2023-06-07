@@ -26,10 +26,10 @@ import Utils.Utils ((.>), (|>), guarded)
 
 
 {- |
-Remove a nondecomposable symbol on a node, where the first argument @(src, tgt) ::
+Remove a nondecomposable symbol on a node, where the first parameter @(src, tgt) ::
 (Symbol, Symbol)@ indicates the node to operate and the symbol on this node to remove.  In
 categorical perspectives, it removes a non-terminal nondecomposable morphism, where the
-first argument @(src, tgt) :: (Symbol, Symbol)@ indicates the morphism to remove.
+first parameter @(src, tgt) :: (Symbol, Symbol)@ indicates the morphism to remove.
 
 Identity morphism or decomposable morphism cannot be remove.  The decomposability of a
 morphism can be checked by the function `nondecomposable`.  For simplicity, alternative
@@ -105,9 +105,9 @@ removeNDSymbolOnRoot tgt = removeNDSymbol (base, tgt)
 
 
 {- |
-Remove a node, where the first argument @tgt :: Symbol@ indicates the node to remove.  In
+Remove a node, where the first parameter @tgt :: Symbol@ indicates the node to remove.  In
 categorical perspectives, it removes initial and terminal morphisms of an object
-simultaneously, the first argument @tgt :: Symbol@ indicates the object to remove.
+simultaneously, the first parameter @tgt :: Symbol@ indicates the object to remove.
 
 Root node cannot be removed.
 
