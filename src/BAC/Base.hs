@@ -460,12 +460,10 @@ False
 True
 
 >>> nondecomposable cone 10  -- no such arrow
-False
+True
 -}
 nondecomposable :: BAC -> Symbol -> Bool
-nondecomposable node sym =
-  (root node `locate` sym |> (/= Outer))
-  && (node |> edges |> all ((`locate` sym) .> (/= Inner)))
+nondecomposable node sym = node |> edges |> all ((`locate` sym) .> (/= Inner))
 
 -- | Nondecomposable edges of a node.
 edgesND :: BAC -> [Arrow]
