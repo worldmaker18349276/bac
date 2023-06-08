@@ -53,6 +53,7 @@ module BAC.Base (
   -- ** Validation #validation#
 
   validate,
+  validateArrow,
   validateAll,
   makeBAC,
   makeArrow,
@@ -116,7 +117,6 @@ import Prelude hiding (compare, map)
 
 import Utils.Memoize (memoizeWithKey)
 import Utils.Utils (guarded, (.>), (|>))
-import Control.Arrow ((&&&))
 
 -- $setup
 -- >>> import BAC
@@ -145,7 +145,7 @@ showTree (Tree m) =
   |> (\c -> "{" ++ c ++ "}")
 
 -- | The tree representation of a bounded acyclic category.
---   It should be validated by @validate . root@.
+--   It should be validated by `validate`.
 type BAC = Tree Dict
 
 -- | The edges of a node.
@@ -157,7 +157,7 @@ fromEdges :: [Arrow] -> BAC
 fromEdges = fmap (\Arrow {dict, target} -> (dict, target)) .> Map.fromList .> Tree
 
 -- | Arrow to a bounded acyclic category, representing a downward functor.
---   It should be validated by `validate`, or use `makeArrow`.
+--   It should be validated by `validateArrow`, or use `makeArrow`.
 data Arrow = Arrow {dict :: Dict, target :: BAC} deriving (Eq, Ord, Show)
 
 -- | Dictionary of an arrow, representing mapping of objects between nodes.
@@ -219,7 +219,7 @@ Examples:
 - 0->2
 -}
 singleton :: Symbol -> Maybe BAC
-singleton sym = if sym == base then Nothing else Just $ fromEdges [new_edge]
+singleton sym = if sym /= base then Nothing else Just $ fromEdges [new_edge]
   where
   new_dict = Map.singleton base sym
   new_node = empty
@@ -468,32 +468,52 @@ nondecomposable node sym = node |> edges |> all ((`locate` sym) .> (/= Inner))
 -- | Nondecomposable edges of a node.
 edgesND :: BAC -> [Arrow]
 edgesND node =
-  node
-  |> edges
+  edges node
   |> filter (symbol .> nondecomposable node)
 
+-- | Find nondecomposible prefix edges of paths from a node to a given symbol.
+--   See `prefix`.
 prefixND :: BAC -> Symbol -> [(Arrow, Arrow)]
 prefixND node sym =
   prefix node sym
   |> filter (\(arr1, _) -> nondecomposable node (symbol arr1))
 
+-- | Find nondecomposible suffix edges of paths from a node to a given symbol.
+--   See `suffix`.
 suffixND :: BAC -> Symbol -> [(Arrow, Arrow)]
 suffixND node sym =
   suffix node sym
   |> filter (\(arr1, arr2) -> nondecomposable (target arr1) (symbol arr2))
 
 
--- | Check if an arrow is valid.  To validate a node, try @validate (root node)@.
+-- | Check if a node is valid.  All child nodes of this node are assumed to be valid.
 --   See [Types]("BAC.Base#g:types") for detail.
-validate :: Arrow -> Bool
-validate arr = validateDicts && validateSup
+validate :: BAC -> Bool
+validate node = validateDicts && validateSup
   where
-  validateDicts = Map.keys (dict arr) == symbols (target arr)
+  -- check totality for all edges of this node.
+  validateDicts = edges node |> all \edge -> Map.keys (dict edge) == symbols (target edge)
+  -- check supportivity for all paths started at this node.
   validateSup =
-    extend arr
-    |> fmap (id &&& target .> arrows)
-    |> concatMap sequence
-    |> fmap (uncurry join)
+    edges node
+    |> concatMap (\edge -> edge |> target |> arrows |> fmap (join edge))
+    |> (root node :)
+    |> groupSortOn symbol
+    |> all allSame
+
+-- | Check if an arrow is valid.  The target node is assumed to be valid.
+--   See [Types]("BAC.Base#g:types") for detail.
+validateArrow :: Arrow -> Bool
+validateArrow arr = validateDict && validateSup
+  where
+  -- check totality for this arrow.
+  validateDict = Map.keys (dict arr) == symbols (target arr)
+  -- check supportivity for all paths prefixed with this arrow.
+  validateSup =
+    arr
+    |> target
+    |> arrows
+    |> fmap (join arr)
     |> (arr :)
     |> groupSortOn symbol
     |> all allSame
@@ -503,30 +523,27 @@ Check if an arrow is valid in depth.  All descendant nodes will be checked.
 
 Examples:
 
->>> validateAll $ root cone
+>>> validateAll cone
 True
 
->>> validateAll $ root torus
+>>> validateAll torus
 True
 
->>> validateAll $ root crescent
-True
-
->>> validateAll $ fromJust $ arrow cone 3
+>>> validateAll crescent
 True
 -}
-validateAll :: Arrow -> Bool
-validateAll arr = validateChildren && validate arr
+validateAll :: BAC -> Bool
+validateAll node = validateChildren && validate node
   where
-  validateChildren = target arr |> edges |> all validateAll
+  validateChildren = node |> edges |> all (target .> validateAll)
 
 -- | Make a node with validation.
 makeBAC :: [Arrow] -> Maybe BAC
-makeBAC = fromEdges .> guarded (root .> validate)
+makeBAC = fromEdges .> guarded validate
 
 -- | Make an arrow with validation.
 makeArrow :: Dict -> BAC -> Maybe Arrow
-makeArrow dict target = Arrow {dict = dict, target = target} |> guarded validate
+makeArrow dict target = Arrow {dict = dict, target = target} |> guarded validateArrow
 
 
 -- | A value labeled by the relative position of the node.
