@@ -72,16 +72,20 @@ rewire ::
   -> BAC
   -> Maybe BAC
 rewire (src, tgts) node = do
+  -- find the node referenced by the symbol `src`
   src_node <- arrow node src |> fmap target
+  -- construct new node with edges referenced by symbols `tgts`
   src_edges' <- tgts |> traverse (arrow src_node)
-  let res0 = fromEdges src_edges'
+  let src_node' = fromEdges src_edges'
 
-  guard $ symbols src_node == symbols res0
+  -- ensure that symbol list of this node doesn't change after rewiring
+  guard $ symbols src_node == symbols src_node'
 
-  fromReachable res0 $ node |> modifyUnder src \(_curr, edge) -> \case
+  -- rebuild BAC with the new node
+  fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner res -> return edge {target = res}
-    AtBoundary -> return edge {target = res0}
+    AtBoundary -> return edge {target = src_node'}
 
 {- |
 Add an edge.  The categorical structure should not change after this process.
@@ -108,14 +112,12 @@ addEdge ::
   -> BAC
   -> Maybe BAC
 addEdge (src, tgt) node = do
+  -- ensure that `(src, tgt)` is reachable
   (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
-  let new_syms =
-        src_arr
-        |> target
-        |> edges
-        |> fmap symbol
-        |> (`snoc` tgt)
-  node |> rewire (src, new_syms)
+  -- construct symbol list for rewiring
+  let syms = src_arr |> target |> edges |> fmap symbol
+  let syms' = syms `snoc` tgt
+  node |> rewire (src, syms')
 
 {- |
 Remove an edge.  The categorical structure should not change after this process.
@@ -141,14 +143,12 @@ removeEdge ::
   -> BAC
   -> Maybe BAC
 removeEdge (src, tgt) node = do
+  -- ensure that `(src, tgt)` is reachable
   (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
-  let new_syms =
-        src_arr
-        |> target
-        |> edges
-        |> fmap symbol
-        |> filter (/= tgt)
-  node |> rewire (src, new_syms)
+  -- construct symbol list for rewiring
+  let syms = src_arr |> target |> edges |> fmap symbol
+  let syms' = syms |> filter (/= tgt)
+  node |> rewire (src, syms')
 
 {- |
 Relabel symbols in a given node.  The categorical structure should not change after this
@@ -186,18 +186,23 @@ relabel ::
   -> Maybe BAC
 relabel tgt mapping node = do
   tgt_node <- arrow node tgt |> fmap target
+
+  -- validate the relabeling mapping
   guard $ Map.lookup base mapping == Just base
   guard $ Map.keys mapping == symbols tgt_node
   let unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
   guard $ length unmapping == length mapping
 
-  let res0 = fromEdges do
+  -- relabel symbols of the node `tgt_node`
+  let tgt_node' = fromEdges do
         edge <- edges tgt_node
         return edge {dict = mapping `cat` dict edge}
-  fromReachable res0 $ node |> modifyUnder tgt \(_curr, edge) -> \case
+
+  -- rebuild BAC with the new node
+  fromReachable tgt_node' $ node |> modifyUnder tgt \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner res -> return edge {target = res}
-    AtBoundary -> return edge {dict = dict edge `cat` unmapping, target = res0}
+    AtBoundary -> return edge {dict = dict edge `cat` unmapping, target = tgt_node'}
 
 {- |
 Alter a symbol in a node.  The categorical structure should not change after this process.
@@ -223,15 +228,21 @@ alterSymbol ::
   -> BAC
   -> Maybe BAC
 alterSymbol (src, tgt) sym node = do
+  -- ensure that `(src, tgt)` is reachable
   (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
+
+  -- ensure that it is valid to alter the symbol `tgt` to `sym` on the node of `src`.
   let syms = src_arr |> target |> symbols
   guard $ syms |> filter (/= tgt) |> notElem sym
+
+  -- construct the relabeling mapping
   let mapping = syms |> fmap dupe |> Map.fromList |> Map.insert tgt sym
   node |> relabel src mapping
 
--- | Shift a symbol `tgt` on a node specified by `src`, where `tgt` cannot be `base`.
+-- | Shift a symbol `tgt` on a node referenced by `src`, where `tgt` cannot be `base`.
 --   It is typically used to modify symbols on multiple nodes, which is required when
---   calling `addLeafNode`, `addParantNode`, `duplicateNode` and `splitNode`.
+--   calling `BAC.Fundamental.addLeafNode`, `BAC.Fundamental.addParantNode`,
+--   `BAC.Fundamental.duplicateNode` and `BAC.Fundamental.splitNode`.
 makeShifter :: BAC -> Natural -> (Symbol, Symbol) -> Symbol
 makeShifter node offset (src, tgt) =
   arrow node src |> fromJust |> target |> symbols |> maximum |> (* offset) |> (+ tgt)
