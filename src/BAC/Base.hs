@@ -575,6 +575,8 @@ Examples:
 >>> fold (\curr results -> concat results `snoc` symbol curr) torus
 [3,3,2,3,3,5,3,3,2,3,3,5,1,0]
 
+The evaluation order follows the DFS algorithm.  Each node will only be evaluated once.
+
 >>> import Debug.Trace (traceShow)
 >>> fold (\curr results -> results == results `seq` traceShow (symbol curr) ()) torus `seq` return ()
 3
@@ -584,9 +586,9 @@ Examples:
 0
 -}
 fold ::
-  (Arrow -> [r] -> r)  -- ^ The function to reduce a node and the results from its child
-                       --   nodes into a value.
-  -> BAC              -- ^ The root node of BAC to fold.
+  (Arrow -> [r] -> r)  -- ^ The function to reduce a node and the results into a value,
+                       --   where the results are reduced values of its child nodes.
+  -> BAC               -- ^ The root node of BAC to fold.
   -> r                 -- ^ The folding result.
 fold f = root .> memoizeWithKey symbol \self curr -> do
   res <- curr |> extend |> traverse self
@@ -603,6 +605,8 @@ AtInner "<<<><>>>"
 >>> foldUnder 6 (\curr results -> concat (mapMaybe fromInner results) `snoc` symbol curr) cone
 AtInner [4,4,3,0]
 
+The evaluation order follows the DFS algorithm.
+
 >>> import Debug.Trace (traceShow)
 >>> res = foldUnder 6 (\curr results -> results == results `seq` traceShow (symbol curr) ()) cone
 >>> res == res `seq` return ()
@@ -614,7 +618,7 @@ foldUnder ::
   Symbol                          -- ^ The symbol referencing to the boundary.
   -> (Arrow -> [Located r] -> r)  -- ^ The reduce function.  Where the results of child
                                   --   nodes are labeled by `Located`.
-  -> BAC                         -- ^ The root node of BAC to fold.
+  -> BAC                          -- ^ The root node of BAC to fold.
   -> Located r                    -- ^ The folding result, which is labeled by `Located`.
 foldUnder sym f = root .> memoizeWithKey symbol \self curr ->
   case locate curr sym of
@@ -627,11 +631,11 @@ foldUnder sym f = root .> memoizeWithKey symbol \self curr ->
 -- | Modify edges of BAC.
 modify ::
   ((Arrow, Arrow) -> BAC -> [Arrow])
-              -- ^ The function to modify edge.  The first parameter is the original edge
-              --   to modified, and the second parameter is the modified target node.  It
-              --   should return a list of modified edges.
-  -> BAC   -- ^ The root node of BAC to modify.
-  -> BAC   -- ^ The modified result.
+          -- ^ The function to modify edge.  The first parameter is the original edge to
+          --   modified, and the second parameter is the modified target node.  It should
+          --   return a list of modified edges.
+  -> BAC  -- ^ The root node of BAC to modify.
+  -> BAC  -- ^ The modified result.
 modify f =
   fold \curr results -> fromEdges do
     (res, edge) <- results `zip` edges (target curr)
@@ -639,12 +643,12 @@ modify f =
 
 -- | Modify edges of BAC under a node.
 modifyUnder ::
-  Symbol                -- ^ The symbol referencing to the boundary.
+  Symbol          -- ^ The symbol referencing to the boundary.
   -> ((Arrow, Arrow) -> Located BAC -> [Arrow])
-                        -- ^ The modify function.  Where the results of child nodes are
-                        --   labeled by `Located`.
-  -> BAC               -- ^ The root node of BAC to modify.
-  -> Located BAC       -- ^ The modified result, which is labeled by `Located`.
+                  -- ^ The modify function.  Where the results of child nodes are labeled
+                  --   by `Located`.
+  -> BAC          -- ^ The root node of BAC to modify.
+  -> Located BAC  -- ^ The modified result, which is labeled by `Located`.
 modifyUnder sym f =
   foldUnder sym \curr results -> fromEdges do
     (res, edge) <- results `zip` edges (target curr)
