@@ -28,8 +28,8 @@ import Utils.Utils ((.>), (|>), guarded)
 {- |
 Remove a nondecomposable symbol on a node, where the first parameter @(src, tgt) ::
 (Symbol, Symbol)@ indicates the node to operate and the symbol on this node to remove.  In
-categorical perspectives, it removes a non-terminal nondecomposable morphism, where the
-first parameter @(src, tgt) :: (Symbol, Symbol)@ indicates the morphism to remove.
+categorical perspectives, it removes a non-terminal nondecomposable morphism, where
+@(src, tgt)@ indicates the morphism to remove.
 
 Identity morphism or decomposable morphism cannot be remove.  The decomposability of a
 morphism can be checked by the function `nondecomposable`.  For simplicity, alternative
@@ -38,7 +38,7 @@ which does not change the categorical properties.
 
 Examples:
 
->>> printBAC $ fromJust $ removeNDSymbol (1,1) cone
+>>> printBAC $ cone |> removeNDSymbol (1,1) |> fromJust
 - 0->1
 - 0->2
   &0
@@ -51,7 +51,7 @@ Examples:
   - 0->4; 1->2; 2->3
     *1
 
->>> printBAC $ fromJust $ removeNDSymbol (0,3) cone
+>>> printBAC $ cone |> removeNDSymbol (0,3) |> fromJust
 - 0->1; 1->2
   - 0->1
     &0
@@ -80,21 +80,31 @@ removeNDSymbol ::
   -> BAC
   -> Maybe BAC
 removeNDSymbol (src, tgt) node = do
+  -- ensure that `(src, tgt)` is reachable and nondecomposable
   (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
   guard $ nondecomposable (target src_arr) tgt
 
-  let res0 = fromEdges do
+  -- edit the subtree of `src`
+  let src_node' = fromEdges do
         edge <- edges (target src_arr)
         if symbol edge /= tgt
         then return edge
         else do
+          -- remove the edge and add edges by joining the removed edge to outgoing edges
           subedge <- target edge |> edges
           return $ edge `join` subedge
 
-  fromReachable res0 $ node |> modifyUnder src \(_curr, edge) -> \case
+  -- edit the whole tree
+  fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
-    AtInner res -> return edge {target = res}
-    AtBoundary -> [edge {dict = filtered_dict, target = res0}, edge `join` tgt_subarr]
+    AtInner subnode -> return edge {target = subnode}
+    AtBoundary ->
+      [
+        -- remove link from the removed symbol
+        edge {dict = filtered_dict, target = src_node'},
+        -- add an edge by joining incoming edge to the removed edge
+        edge `join` tgt_subarr
+      ]
       where
       filtered_dict = dict edge |> Map.delete tgt
 
@@ -107,9 +117,11 @@ removeNDSymbolOnRoot tgt = removeNDSymbol (base, tgt)
 {- |
 Remove a node, where the first parameter @tgt :: Symbol@ indicates the node to remove.  In
 categorical perspectives, it removes initial and terminal morphisms of an object
-simultaneously, the first parameter @tgt :: Symbol@ indicates the object to remove.
+simultaneously, where `tgt` indicates the object to remove.
 
-Root node cannot be removed.
+Root node cannot be removed.  For simplicity, alternative edges will always be constructed
+by joining edges adjacent to the node to be removed, which does not change the categorical
+properties.
 
 Examples:
 
@@ -142,15 +154,19 @@ Examples:
 -}
 removeNode :: Symbol -> BAC -> Maybe BAC
 removeNode tgt node = do
+  -- ensure that `tgt` reference a proper subnode.
   guard $ locate (root node) tgt == Inner
-  tgt_arr <- arrow node tgt
 
-  fromReachable (target tgt_arr) $ node |> modifyUnder tgt \(curr, edge) -> \case
+  -- edit the whole tree
+  fromInner $ node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
+    -- remove the incoming edge and add edges by joining this incoming edge and outgoing
+    -- edges
     AtBoundary -> do
       subedge <- target edge |> edges
       return $ edge `join` subedge
-    AtInner res -> return edge {dict = filtered_dict, target = res}
+    -- remove symbols referencing the removed node
+    AtInner subnode -> return edge {dict = filtered_dict, target = subnode}
       where
       filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
 
@@ -158,35 +174,48 @@ removeNode tgt node = do
 --   for details.
 removeLeafNode :: Symbol -> BAC -> Maybe BAC
 removeLeafNode tgt node = do
-  tgt_arr <- arrow node tgt
-  guard $ target tgt_arr |> edges |> null
+  tgt_node <- arrow node tgt |> fmap target
+  guard $ tgt_node |> edges |> null
 
   removeNode tgt node
 
 
+{- |
+Remove a non-terminal decomposable morphism and all prefix morphisms, where the first
+parameter @(src, tgt) :: (Symbol, Symbol)@ indicates the morphism to remove.
+
+Identity morphism cannot be remove.
+-}
 removePrefix :: (Symbol, Symbol) -> BAC -> Maybe BAC
 removePrefix (src, tgt) node = do
   guard $ tgt /= base
   (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
+
   let src_node = target src_arr
   let remove_list = arrowsUnder src_node tgt |> fmap symbol |> filter (/= base) |> (tgt :)
 
-  let res0 =
-        target src_arr
+  let src_node' =
+        src_node
         |> edges
         |> filter (dict .> notElem tgt)
         |> fromEdges
-  let syms0 = symbols res0
+  let syms0 = symbols src_node'
   guard $ symbols src_node |> filter (`notElem` remove_list) |> (== syms0)
 
-  fromReachable res0 $
+  fromReachable src_node' $
     node |> modifyUnder src \(_curr, edge) -> \case
       AtOuter -> return edge
-      AtInner res -> return edge {target = res}
-      AtBoundary -> return edge {dict = dict', target = res0}
+      AtInner subnode -> return edge {target = subnode}
+      AtBoundary -> return edge {dict = dict', target = src_node'}
         where
         dict' = dict edge |> Map.filterWithKey \s _ -> s `elem` syms0
 
+{- |
+Remove a non-terminal decomposable morphism and all suffix morphisms, where the first
+parameter @(src, tgt) :: (Symbol, Symbol)@ indicates the morphism to remove.
+
+Identity morphism cannot be remove.
+-}
 removeSuffix :: (Symbol, Symbol) -> BAC -> Maybe BAC
 removeSuffix (src, tgt) node = do
   guard $ tgt /= base
@@ -207,11 +236,11 @@ removeSuffix (src, tgt) node = do
             case lres of
               AtOuter -> return edge
               AtBoundary -> guarded (const is_outside) edge
-              AtInner res | null (src_arr `divide` (curr `join` edge)) ->
-                return edge {target = res}
-              AtInner res | null (src_arr `divide` (curr `join` edge)) ->
-                return edge {target = res}
-              AtInner res -> return edge {dict = dict', target = res}
+              AtInner subnode | null (src_arr `divide` (curr `join` edge)) ->
+                return edge {target = subnode}
+              AtInner subnode | null (src_arr `divide` (curr `join` edge)) ->
+                return edge {target = subnode}
+              AtInner subnode -> return edge {dict = dict', target = subnode}
                 where
                 dict' = target edge |> symbols |> foldr Map.delete (dict edge)
 

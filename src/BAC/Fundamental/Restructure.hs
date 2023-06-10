@@ -84,7 +84,7 @@ rewire (src, tgts) node = do
   -- rebuild BAC with the new node
   fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
-    AtInner res -> return edge {target = res}
+    AtInner subnode -> return edge {target = subnode}
     AtBoundary -> return edge {target = src_node'}
 
 {- |
@@ -201,7 +201,7 @@ relabel tgt mapping node = do
   -- rebuild BAC with the new node
   fromReachable tgt_node' $ node |> modifyUnder tgt \(_curr, edge) -> \case
     AtOuter -> return edge
-    AtInner res -> return edge {target = res}
+    AtInner subnode -> return edge {target = subnode}
     AtBoundary -> return edge {dict = dict edge `cat` unmapping, target = tgt_node'}
 
 {- |
@@ -241,7 +241,7 @@ alterSymbol (src, tgt) sym node = do
 
 -- | Shift a symbol `tgt` on a node referenced by `src`, where `tgt` cannot be `base`.
 --   It is typically used to modify symbols on multiple nodes, which is required when
---   calling `BAC.Fundamental.addLeafNode`, `BAC.Fundamental.addParantNode`,
+--   calling `BAC.Fundamental.addLeafNode`, `BAC.Fundamental.addParentNode`,
 --   `BAC.Fundamental.duplicateNode` and `BAC.Fundamental.splitNode`.
 makeShifter :: BAC -> Natural -> (Symbol, Symbol) -> Symbol
 makeShifter node offset (src, tgt) =
