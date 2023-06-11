@@ -8,6 +8,8 @@ module BAC.Fundamental.Add (
   Angle,
   validateCoangle,
   validateAngle,
+  extendCoangle,
+  extendAngle,
   compatibleAngles,
   compatibleCoangles,
   compatibleCoanglesAngles,
@@ -36,98 +38,179 @@ import Utils.Utils (guarded, (.>), (|>))
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
 
--- | Two pairs of symbols representing two morphisms where coforks of the first morphism
---   are also coforks of the second morphism.  A cofork of a morphism `f` is a pair of
---   distinct morphisms `g`, 'g'' such that @f . g = f . g'@.  This constraint shows the
---   possibility to add an edge between them.
+-- | Two pairs of symbols representing two morphisms with the same starting node.  The
+--   starting node of edges is called vertex of the coangle; the first pair of symbols is
+--   called short edge, and the second pair of symbols is called long edge.  A coangle
+--   with nondecomposable short edge is said to be nondecomposable.
 type Coangle = ((Symbol, Symbol), (Symbol, Symbol))
 
--- | Two pairs of symbols representing two morphisms where forks of the first morphism are
---   also forks of the second morphism.  A fork of a morphism `f` is a pair of distinct
---   morphisms `g`, 'g'' such that @g . f = g' . f@.  This constraint shows the
---   possibility to add an edge between them.
+-- | Two pairs of symbols representing two morphisms with the same ending node.  The
+--   ending node of edges is called vertec of the angle ; the first pair of symbols is
+--   called short edge, and the second pair of symbols is called long edge.  An angle with
+--   nondecomposable short edge is said to be nondecomposable.
 type Angle = ((Symbol, Symbol), (Symbol, Symbol))
 
--- | Check whether a given value is a valid coangle.
+
+-- | Check whether a given value is a valid coangle.  A valid coangle obey: coforks of the
+--   short edge are also coforks of the long edge.  A cofork of a morphism `f` is a pair
+--   of distinct morphisms @(g, g')@ such that @f . g = f . g'@.  This constraint shows
+--   the possibility to add an edge between them.
 validateCoangle :: BAC -> Coangle -> Bool
 validateCoangle node (sym_sym1, sym_sym2) = isJust do
+  -- ensure that `sym_sym1`, `sym_sym2` are reachable
   arr_arr1 <- arrow2 node sym_sym1
   arr_arr2 <- arrow2 node sym_sym2
+  -- ensure that `sym_sym1` and `sym_sym2` start at the same node
   guard $ symbol (fst arr_arr1) == symbol (fst arr_arr2)
+
+  -- ensure that all coforks of `sym_sym1` are also coforks of `sym_sym2`
   guard $
+    -- find all nondecomposable incoming edges
     fst sym_sym1
     |> suffixND node
+    -- group them to form coforks of `sym_sym1`
     |> groupSortOn (second (`join` snd arr_arr1) .> symbol2)
-    |> fmap (fmap (second (`join` snd arr_arr2) .> symbol2))
-    |> all allSame
+    -- for each group, they should also be cofork of `sym_sym2`
+    |> all (fmap (second (`join` snd arr_arr2) .> symbol2) .> allSame)
 
--- | Check whether a given value is a valid angle.
+-- | Check whether a given value is a valid angle.  A valid angle obey: forks of the short
+--   edge are also forks of the long edge.  A fork of a morphism `f` is a pair of distinct
+--   morphisms @(g, g')@ such that @g . f = g' . f@.  This constraint shows the
+--   possibility to add an edge between them.
 validateAngle :: BAC -> Angle -> Bool
 validateAngle node (sym_sym1, sym_sym2) = isJust do
+  -- ensure that `sym_sym1`, `sym_sym2` are reachable
   arr_arr1 <- arrow2 node sym_sym1
   arr_arr2 <- arrow2 node sym_sym2
-  guard $ symbol (uncurry join arr_arr1) == symbol (uncurry join arr_arr1)
+  -- ensure that `sym_sym1` and `sym_sym2` end at the same node
+  guard $ symbol (uncurry join arr_arr1) == symbol (uncurry join arr_arr2)
+
+  -- ensure that all forks of `sym_sym1` are also forks of `sym_sym2`
   guard $
+    -- find all nondecomposable outgoing edges
     target (snd arr_arr1)
     |> edgesND
-    |> groupSortOn (join (snd arr_arr1) .> symbol)
-    |> fmap (fmap (join (snd arr_arr2) .> symbol))
-    |> all allSame
+    -- group them to form forks of `sym_sym1`
+    |> groupSortOn ((snd arr_arr1 `join`) .> symbol)
+    -- for each group, they should also be fork of `sym_sym2`
+    |> all (fmap ((snd arr_arr2 `join`) .> symbol) .> allSame)
 
--- | Check whether a list of angles are compatible.
---   Angle @(f, g)@ and angle @(f', g')@ are compatible if @h . f = h . f'@ implies
---   @h . g = h . g'@ for all `h`.
+
+-- | Extend a coangle with an arrow starting at the vertex of this coangle.
+--   An extended valid coangle is also a valid coangle.
+extendCoangle :: BAC -> (Symbol, Symbol) -> Coangle -> Maybe Coangle
+extendCoangle node e (f, g) = do
+  -- ensure `e` is reachable
+  (arr, _) <- arrow2 node e
+  let node' = target arr
+  -- ensure `e` and `f`/`g` are composable
+  guard $ fst f == mult node e && fst g == mult node e
+  -- compose arrow and edges
+  let f' = (fst e, mult node' (snd e, snd f))
+  let g' = (fst e, mult node' (snd e, snd g))
+  return (f', g')
+
+-- | Extend an angle with an arrow ending at the vertex of this angle.
+--   An extended valid angle is also a valid angle.
+extendAngle :: BAC -> Angle -> (Symbol, Symbol) -> Maybe Angle
+extendAngle node (f, g) e = do
+  -- ensure `e` is reachable
+  _ <- arrow2 node e
+  -- ensure `f`/`g` and `e` are composable
+  guard $ fst e == mult node f
+  -- compose edges and arrow
+  let f_node = arrow node (fst f) |> fromJust |> target
+  let f' = (fst f, mult f_node (snd f, snd e))
+  let g_node = arrow node (fst g) |> fromJust |> target
+  let g' = (fst g, mult g_node (snd g, snd e))
+  return (f', g')
+
+
+-- | Check whether a list of angles are compatible with each other.
+--   Angle @(f, g)@ and angle @(f', g')@ are compatible if @h . f = h' . f'@ implies @h .
+--   g = h' . g'@ for all `h` and 'h''.  That is, two angles are compatible if their
+--   extensions are unique on the short edge.
+--   A valid angle is compatible with itself.
 compatibleAngles :: BAC -> [Angle] -> Bool
-compatibleAngles node =
-  traverse (\(sym_sym1, sym_sym2) -> do
+compatibleAngles node angles = isJust do
+  -- ensure that all short/long edges of angles start at the same node
+  guard $ angles |> fmap (both fst) |> allSame
+
+  pairs <- angles |> traverse \(sym_sym1, sym_sym2) -> do
     arr_arr1 <- arrow2 node sym_sym1
     arr_arr2 <- arrow2 node sym_sym2
+    -- zip values of dictionaries of the short edge and the long edge
+    -- which form pairs between symbols on the starting nodes of those two edges
     return $ Map.elems (dict (snd arr_arr1)) `zip` Map.elems (dict (snd arr_arr2))
-  )
-  .> maybe False (concat .> nubSort .> fmap fst .> anySame .> not)
+  
+  -- if two pairs have the same first symbol, their second symbols should also be the same
+  -- that means the first symbol of distinct pair is unique
+  guard $ pairs |> concat |> nubSort |> fmap fst |> anySame |> not
 
 -- | Check whether a list of coangles are compatible.
---   Coangle @(f, g)@ and coangle @(f', g')@ are compatible if @f . h = f' . h@ implies
---   @g . h = g' . h@ for all `h`.
+--   Coangle @(f, g)@ and coangle @(f', g')@ are compatible if @f . h = f' . h'@ implies
+--   @g . h = g' . h'@ for all `h` and 'h''.  That is, two coangles are compatible if
+--   their extensions are unique on the short edge.
+--   A valid coangle is compatible with itself.
+--   For simplicity, we assume that the short edges of coangles are the edges of the node.
+--   In fact, we only deal with angles and coangles that are nondecomposable.
 compatibleCoangles :: BAC -> [Coangle] -> Bool
 compatibleCoangles _ [] = True
-compatibleCoangles node coangs =
-  isJust $ sequence_ $ node |> foldUnder sym0 \curr results -> do
+compatibleCoangles node coangles = isJust do
+  -- ensure that all short/long edges of coangles end at the same node
+  guard $ coangles |> fmap (both (mult node)) |> allSame
+
+  -- the symbol referencing the target node of short edges of coangles
+  let sym0 = coangles |> head |> fst |> mult node
+  
+  sequence_ $ node |> foldUnder sym0 \curr results -> do
     results' <- traverse sequence results
+
+    -- find extended coangle whose vertex is this node, and return two symbols referencing
+    -- the short edge and the long edge of this coangle.
     let pairs = do
           (res, edge) <- results' `zip` edges (target curr)
           case res of
             AtOuter -> mzero
-            AtInner res -> res |> fmap (both (dict edge !))
+            AtInner subpairs -> subpairs |> fmap (both (dict edge !))
             AtBoundary ->
-              coangs
+              coangles
               |> find (fst .> (== symbol2 (curr, edge)))
               |> fmap (both snd)
               |> maybe mzero return
+
+    -- if two pairs have the same first symbol, their second symbols should also be the same
+    -- that means the first symbol of distinct pair is unique
     pairs |> nubSort |> guarded (fmap fst .> anySame .> not)
-  where
-  sym0 = coangs |> head |> fst |> fst
 
 -- | Check whether coangles and angles are compatible each others.
 --   Coangle @(f, g)@ and angle @(g', f')@ are compatible if @f' . f = g' . g@.
 compatibleCoanglesAngles :: BAC -> [Coangle] -> [Angle] -> Bool
-compatibleCoanglesAngles node coangs angs =
+compatibleCoanglesAngles node coangles angles =
   isJust $
-    angs |> traverse \(sym_sym1, sym_sym2) -> do
-      arr_arr1 <- arrow2 node sym_sym1
-      arr_arr2 <- arrow2 node sym_sym2
-      coangs |> traverse \(sym_sym1', sym_sym2') -> do
+    coangles |> traverse \(sym_sym1, sym_sym2) -> do
+      angles |> traverse \(sym_sym1', sym_sym2') -> do
+        -- ensure ending node of the short edge of coangle is the starting node of the
+        -- long edge of angle
+        guard $ mult node sym_sym1 == fst sym_sym2'
+        -- ensure ending node of the long edge of coangle is the starting node of the
+        -- short edge of angle
+        guard $ mult node sym_sym2 == fst sym_sym1'
+
+        -- compose the short edge of coangle and the long edge of angle
+        -- and compose the long edge of coangle and the short edge of angle
+        -- they should be the same
+        arr_arr1 <- arrow2 node sym_sym1
+        arr_arr2 <- arrow2 node sym_sym2
         arr_arr1' <- arrow2 node sym_sym1'
         arr_arr2' <- arrow2 node sym_sym2'
-        guard $ symbol (uncurry join arr_arr1) == symbol (fst arr_arr2')
-        guard $ symbol (uncurry join arr_arr2) == symbol (fst arr_arr1')
-        guard $
-          symbol (snd arr_arr1 `join` snd arr_arr2')
-          == symbol (snd arr_arr2 `join` snd arr_arr1')
+        let arr3 = snd arr_arr1 `join` snd arr_arr2'
+        let arr3' = snd arr_arr2 `join` snd arr_arr1'
+        guard $ symbol arr3 == symbol arr3'
 
 {- |
-Find all valid coangles and angles, which is used for adding a morphism.  The results are
-the angles and coangles need to be selected, or Nothing if it is invalid.
+Find all valid nondecomposable coangles and angles, which is used for adding a morphism.
+The results are the angles and coangles need to be selected, or Nothing if it is invalid.
 
 Examples:
 
@@ -139,25 +222,31 @@ findValidCoanglesAngles ::
   -> Symbol   -- ^ The symbol indicating the target object of the morphism to be added.
   -> BAC      -- ^ The root node of BAC.
   -> Maybe ([[Coangle]], [[Angle]])
-              -- ^ The coangles and angles need to be selected, or Nothing if it is invalid.
+              -- ^ The coangles and angles need to be selected, or Nothing if it is
+              --   invalid to add such morphism.
 findValidCoanglesAngles src tgt node = do
+  -- ensure that `src` and `tgt` are reachable
   src_arr <- arrow node src
   tgt_arr <- arrow node tgt
+  -- check the order between `src` and `tgt`
   guard $ locate tgt_arr src == Outer
+
   let src_alts = sort do
         (arr1, arr2) <- src |> suffixND node
         return $ sort do
+          -- construct nondecomposable coangle and validate it
           arr2' <- arr1 `divide` tgt_arr
-          let ang = (symbol2 (arr1, arr2), symbol2 (arr1, arr2'))
-          guard $ validateCoangle node ang
-          return ang
+          let coangle = (symbol2 (arr1, arr2), symbol2 (arr1, arr2'))
+          guard $ validateCoangle node coangle
+          return coangle
   let tgt_alts = sort do
         edge <- target tgt_arr |> edgesND
         return $ sort do
+          -- construct nondecomposable angle and validate it
           arr' <- src_arr `divide` (tgt_arr `join` edge)
-          let ang = (symbol2 (tgt_arr, edge), symbol2 (src_arr, arr'))
-          guard $ validateAngle node ang
-          return ang
+          let angle = (symbol2 (tgt_arr, edge), symbol2 (src_arr, arr'))
+          guard $ validateAngle node angle
+          return angle
   return (src_alts, tgt_alts)
 
 {- |
