@@ -31,13 +31,12 @@ import Utils.Utils ((|>))
 
 
 {- |
-Duplicate a nondecomposable symbol on a node, with two arguments
-@(src, tgt) :: (Symbol, Symbol)@ and @syms :: [Symbol]@.  `src` indicates the node to
-operate, `tgt` indicates the symbol to duplicate, and `syms` is a list of duplicated
-symbols.  It is equivalent to split a nondecomposable symbol:
-@splitSymbol (src, tgt) (syms \`zip\` repeat [])@.
+Duplicate a nondecomposable symbol on a node, where `src` indicates the node to operate,
+`tgt` indicates the symbol to duplicate, and `syms` is a list of symbols of duplication.
+It is equivalent to split a nondecomposable symbol: @splitSymbol (src, tgt) (syms \`zip\`
+repeat [])@.
 
-In categorical perspectives, it duplicate a non-terminal nondecomposable morphism, where
+In categorical perspectives, it duplicates a non-terminal nondecomposable morphism, where
 @(src, tgt)@ indicates a nondecomposable morphism to duplicate, and @(src, sym)@ for all
 @sym <- syms@ will indicate a duplicated morphism.
 
@@ -76,10 +75,12 @@ Examples:
 duplicateNDSymbol :: (Symbol, Symbol) -> [Symbol] -> BAC -> Maybe BAC
 duplicateNDSymbol (src, tgt) syms node = do
   guard $ notNull syms
+  -- ensure that `(src, tgt)` is reachable, proper and nondecomposable
   src_arr <- arrow node src
   let src_node = target src_arr
   guard $ locate (root src_node) tgt == Inner
   guard $ nondecomposable src_node tgt
+  -- ensure that it is valid to relace `tgt` with `syms`
   guard $
     src_node
     |> symbols
@@ -88,33 +89,44 @@ duplicateNDSymbol (src, tgt) syms node = do
     |> anySame
     |> not
 
-  let res0 = fromEdges do
+  -- edit the subtree of `src`
+  let src_node' = fromEdges do
         edge <- edges src_node
         if symbol edge /= tgt
         then return edge
         else do
+          -- duplicate the edge of `(src, tgt)`
           sym <- syms
+          -- replace link `(base, tgt)` with `(base, sym)`
           let dup_dict = dict edge |> Map.insert base sym
           return $ edge {dict = dup_dict}
 
-  fromReachable res0 $ node |> modifyUnder src \(_curr, edge) -> \case
+  -- edit the whole tree
+  fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
-    AtInner res -> return edge {target = res}
+    AtInner subnode -> return edge {target = subnode}
     AtBoundary -> do
+      -- replace link `(tgt, _)` with `(sym, _)`
       let sym' = dict edge ! tgt
       let splitted_dict = syms |> foldr (`Map.insert` sym') (Map.delete tgt (dict edge))
-      return edge {dict = splitted_dict, target = res0}
+      return edge {dict = splitted_dict, target = src_node'}
+
+-- | Duplicate a nondecomposable symbol on the root node (duplicate an initial
+--   nondecomposable morphism).  See `duplicateNDSymbol` for details.
+duplicateNDSymbolOnRoot :: Symbol -> [Symbol] -> BAC -> Maybe BAC
+duplicateNDSymbolOnRoot tgt = duplicateNDSymbol (base, tgt)
+
 
 {- |
-Duplicate a node, with arguments @tgt :: Symbol@, the symbol of the node to duplicate, and
-@shifters :: [(Symbol, Symbol) -> Symbol]@, list of shifter functions.  Duplicating a leaf
-node is equivalent to split a node: @splitNode tgt (shifters \`zip\` repeat [])@.
+Duplicate a node, with parameters @tgt :: Symbol@, the symbol of the node to duplicate,
+and @shifters :: [(Symbol, Symbol) -> Symbol]@, list of shifter functions.  Duplicating a
+leaf node is equivalent to split a node: @splitNode tgt (shifters \`zip\` repeat [])@.
 
 In categorical perspectives, it duplicates an object, where `tgt` indicates the object to
 duplicate.  For all incoming morphisms of this object, say @(s1, s2)@, the pair of symbol
 @(s1, shifter (s1, s2))@ for @shifter <- shifters@ will indicate the incoming morphism of
 duplicated object with the same source object; for all outgoing morphism of this object,
-say @(s1, s2)@, the pair of symbol @(shifter (base, s1), s2)@  for @shifter <- shifters@
+say @(s1, s2)@, the pair of symbol @(shifter (base, s1), s2)@ for @shifter <- shifters@
 will indicate the outgoing morphism of duplicated object with the same target object.
 
 Examples:
@@ -189,11 +201,12 @@ Examples:
 -}
 duplicateNode :: Symbol -> [(Symbol, Symbol) -> Symbol] -> BAC -> Maybe BAC
 duplicateNode tgt shifters node = do
+  -- ensure that `tgt` is reachable and proper
   guard $ locate (root node) tgt |> (== Inner)
-  let arrs = arrowsUnder node tgt
   let splitter = sequence shifters
+  -- validate `splitter`
   guard $
-    arrs
+    arrowsUnder node tgt
     |> all \arr ->
       arr
       |> dict
@@ -202,10 +215,12 @@ duplicateNode tgt shifters node = do
       |> anySame
       |> not
 
+  -- edit the whole tree
   fromInner $ node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
-    AtInner res -> return edge {dict = duplicated_dict, target = res}
+    AtInner subnode -> return edge {dict = duplicated_dict, target = subnode}
       where
+      -- duplicate links of the base wire of the node of `tgt`
       duplicate (s, r)
         | dict curr ! r == tgt = splitter (symbol (curr `join` edge), s)
                                  `zip` splitter (symbol curr, r)
@@ -213,16 +228,12 @@ duplicateNode tgt shifters node = do
       duplicated_dict =
         dict edge |> Map.toList |> concatMap duplicate |> Map.fromList
     AtBoundary -> do
+      -- duplicate incoming edges of the node of `tgt`
       let splitted_syms = splitter (symbol curr, symbol edge)
       sym <- splitted_syms
       let splitted_dict = dict edge |> Map.insert base sym
       return edge {dict = splitted_dict}
 
-
--- | Duplicate a nondecomposable symbol on the root node (duplicate an initial
---   nondecomposable morphism).  See `duplicateNDSymbol` for details.
-duplicateNDSymbolOnRoot :: Symbol -> [Symbol] -> BAC -> Maybe BAC
-duplicateNDSymbolOnRoot tgt = duplicateNDSymbol (base, tgt)
 
 -- | Duplicate a leaf node (duplicate a nondecomposable terminal morphism).  See
 --   `duplicateNode` for details.
@@ -249,7 +260,7 @@ duplicatePrefix (src, tgt) shifters node = do
     |> anySame
     |> not
 
-  let res0 = fromEdges do
+  let src_node' = fromEdges do
         edge <- edges (target src_arr)
         if symbol edge `notElem` dup_list
         then return edge
@@ -266,17 +277,17 @@ duplicatePrefix (src, tgt) shifters node = do
           |> fmap Map.fromList
           |> fmap \dict' -> edge {dict = dict'}
 
-  fromReachable res0 $
+  fromReachable src_node' $
     node |> modifyUnder src \(_curr, edge) -> \case
       AtOuter -> return edge
-      AtInner res -> return edge {target = res}
+      AtInner subnode -> return edge {target = subnode}
       AtBoundary ->
         dict edge
         |> Map.toList
         |> fmap (first \sym -> if sym `elem` dup_list then splitter sym else [sym])
         |> concatMap (\(syms, sym') -> syms |> fmap (,sym'))
         |> Map.fromList
-        |> \dict' -> return edge {dict = dict', target = res0}
+        |> \dict' -> return edge {dict = dict', target = src_node'}
 
 duplicateSuffix :: (Symbol, Symbol) -> [(Symbol, Symbol) -> Symbol] -> BAC -> Maybe BAC
 duplicateSuffix (src, tgt) shifters node = do
@@ -315,16 +326,16 @@ duplicateSuffix (src, tgt) shifters node = do
           sym <- splitter (symbol curr, symbol edge)
           let dict' = dict edge |> Map.insert base sym
           return edge {dict = dict'}
-        AtInner res | null (src_arr `divide` (curr `join` edge)) ->
-          return edge {target = res}
-        AtInner res | is_outside ->
+        AtInner subnode | null (src_arr `divide` (curr `join` edge)) ->
+          return edge {target = subnode}
+        AtInner subnode | is_outside ->
           dict edge
           |> Map.toList
           |> fmap (first \s -> if s `elem` dup_list' then splitter (sym', s) else [s])
           |> concatMap (\(s, r) -> s |> fmap (,r))
           |> Map.fromList
-          |> \dict' -> return edge {dict = dict', target = res}
-        AtInner res ->
+          |> \dict' -> return edge {dict = dict', target = subnode}
+        AtInner subnode ->
           dict edge
           |> Map.toList
           |> concatMap (\(s, r) ->
@@ -333,4 +344,4 @@ duplicateSuffix (src, tgt) shifters node = do
             else [(s, r)]
           )
           |> Map.fromList
-          |> \dict' -> return edge {dict = dict', target = res}
+          |> \dict' -> return edge {dict = dict', target = subnode}
