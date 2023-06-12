@@ -131,10 +131,12 @@ Show tree concisely.
 
 Examples:
 
->>> showTree $ Map.empty
+>>> let leaf = Tree Map.empty
+>>> putStrLn $ showTree (leaf :: Tree ())
 {}
 
->>> showTree $ Map.fromList [("a", Map.fromList [("x", Map.empty), ("y", Map.empty)]), ("b", Map.empty)]
+>>> let branch = Tree . Map.fromList
+>>> putStrLn $ showTree $ branch [("a", branch [("x", leaf), ("y", leaf)]), ("b", leaf)]
 {"a":{"x":{},"y":{}},"b":{}}
 -}
 showTree :: Show e => Tree e -> String
@@ -220,7 +222,7 @@ Examples:
 - 0->2
 -}
 singleton :: Symbol -> Maybe BAC
-singleton sym = if sym /= base then Nothing else Just $ fromEdges [new_edge]
+singleton sym = if sym == base then Nothing else Just $ fromEdges [new_edge]
   where
   new_dict = Map.singleton base sym
   new_node = empty

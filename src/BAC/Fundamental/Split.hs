@@ -16,7 +16,7 @@ import Data.List (sort)
 import Data.List.Extra (anySame)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromJust, fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
 
@@ -28,6 +28,7 @@ import Utils.Utils ((.>), (|>))
 -- >>> import BAC.Serialize
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
+-- >>> import Data.Maybe (fromJust)
 
 {- |
 Partition the prefixes of an arrow.  It returns a partition of `prefix node tgt`.  The
@@ -42,16 +43,19 @@ Examples:
 partitionPrefix :: BAC -> Symbol -> [[(Symbol, Symbol)]]
 partitionPrefix node tgt =
   prefix node tgt
+  -- suffix decomposition: `arr23` => `(arr2, arr3)`
   |> concatMap (\(arr1, arr23) -> suffix (target arr1) (symbol arr23) |> fmap (arr1,))
+  -- connect prefix and suffix
   |> fmap (\(arr1, (arr2, arr3)) -> ((arr1, arr2 `join` arr3), (arr1 `join` arr2, arr3)))
   |> fmap (both symbol2)
+  -- classify prefixes by connectivity
   |> bipartiteEqclass
   |> fmap fst
   |> fmap sort
   |> sort
 
 {- |
-Split a symbol on a node, with two arguments @(src, tgt) :: (Symbol, Symbol)@ and
+Split a symbol on a node, with two parameters @(src, tgt) :: (Symbol, Symbol)@ and
 @partition :: [(Symbol, [Int])]@.  `src` indicates the node to operate, `tgt` indicates
 the symbol to split, and `partition` is a list of splitted symbols and the corresponding
 indices to each group given by `partitionPrefix`.  If there is a splitted symbol which has
@@ -60,28 +64,21 @@ an empty list of indices, it will become a nondecomposable symbol.
 In categorical perspectives, it splits a non-terminal morphism, where @(src, tgt)@
 indicates a proper morphism to split, and @(src, sym)@ for all @(sym, inds) <- partition@
 will indicate a splitted morphism, and the morphism chains in the group of indices `inds`
-will compose to this morphism.  An splitted morphism which no morphism chains compose to
-is nondecomposable.
-For simplicity, edges of splitted morphisms @(src, sym)@ will always be constructed.
+will compose to this morphism.  A splitted morphism which no morphism chains compose to is
+nondecomposable.
 
 Examples:
 
 >>> printBAC $ fromJust $ splitSymbol (0,2) [(2,[0]),(7,[1])] cone
 - 0->1; 1->2
   - 0->1
-    &0
-- 0->2
-  *0
 - 0->3; 1->4; 2->7; 3->6; 4->4
   - 0->1; 1->2; 2->3
-    &1
+    &0
     - 0->1
-      &2
     - 0->2
   - 0->4; 1->2; 2->3
-    *1
-- 0->7
-  *2
+    *0
 
 >>> printBAC $ fromJust $ splitSymbol (3,2) [(5,[0]),(6,[1]),(7,[])] cone
 - 0->1; 1->2
@@ -95,28 +92,26 @@ Examples:
     - 0->2
   - 0->4; 1->6; 2->3
     *1
-  - 0->5
-    *0
-  - 0->6
-    *0
-  - 0->7
-    *0
 -}
 splitSymbol ::
-  (Symbol, Symbol)      -- ^ The pair of symbols reference the arrow to split.
+  (Symbol, Symbol)      -- ^ The pair of symbols referencing the arrow to split.
   -> [(Symbol, [Int])]  -- ^ The map from new symbols to indices of splittable groups
                         --   given by `partitionPrefix`.
   -> BAC
   -> Maybe BAC
 splitSymbol (src, tgt) partition node = do
-  guard $ tgt /= base
+  -- ensure that `(src, tgt)` is reachable and proper
   (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
+  guard $ tgt /= base
+
   let splittable_groups = partitionPrefix (target src_arr) tgt
+  -- ensure that every splittable groups have been classified to splitted symbols
   guard $
     partition
     |> concatMap snd
     |> sort
     |> (== [0..length splittable_groups-1])
+  -- validate splitted symbols
   guard $
     target src_arr
     |> symbols
@@ -125,6 +120,7 @@ splitSymbol (src, tgt) partition node = do
     |> anySame
     |> not
 
+  -- classify each prefix to a splitted symbol
   let splitter =
         partition
         |> concatMap sequence
@@ -133,32 +129,35 @@ splitSymbol (src, tgt) partition node = do
         |> fmap swap
         |> Map.fromList
 
-  let splitted_edges =
-        partition
-        |> fmap \(sym, _) ->
-          dict tgt_subarr
-          |> Map.insert base sym
-          |> \splitted_dict -> tgt_subarr {dict = splitted_dict}
-
-  let res0 = fromEdges $ splitted_edges ++ do
+  -- edit the subtree of `src`
+  let src_node' = fromEdges do
         edge <- target src_arr |> edges
         let sym0 = symbol edge
-        guard $ sym0 /= tgt
-        let split s r = Map.lookup (sym0, s) splitter |> fromMaybe r
-        let splitted_dict = dict edge |> Map.mapWithKey split
-        return edge {dict = splitted_dict}
+        if sym0 == tgt
+        then do
+          -- duplicate direct edge for each splitted symbol
+          (sym, _) <- partition
+          let duplicated_dict = dict tgt_subarr |> Map.insert base sym
+          return edge {dict = duplicated_dict}
+        else do
+          -- modify the dictionary of the edge for corresponding splitted symbol
+          let split s r = Map.lookup (sym0, s) splitter |> fromMaybe r
+          let splitted_dict = dict edge |> Map.mapWithKey split
+          return edge {dict = splitted_dict}
 
-  fromReachable res0 $ node |> modifyUnder src \(_curr, edge) -> \case
+  -- edit the whole tree
+  fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
-    AtInner res -> return edge {target = res}
-    AtBoundary -> return edge {dict = merged_dict, target = res0}
+    AtInner subnode -> return edge {target = subnode}
+    AtBoundary -> return edge {dict = merged_dict, target = src_node'}
       where
+      -- map splitted symbols like before splitting
       merge (s, r)
         | s == tgt  = [(s', r) | (s', _) <- partition]
         | otherwise = [(s, r)]
       merged_dict = dict edge |> Map.toList |> concatMap merge |> Map.fromList
 
--- | Split a symbol in the root node (split an initial morphism).  See `splitSymbol` for
+-- | Split a symbol on the root node (split an initial morphism).  See `splitSymbol` for
 --   details.
 splitSymbolOnRoot :: Symbol -> [(Symbol, [Int])] -> BAC -> Maybe BAC
 splitSymbolOnRoot tgt = splitSymbol (base, tgt)
@@ -187,7 +186,7 @@ partitionSymbols =
   .> sort
 
 {- |
-Split a node, with arguments @tgt :: Symbol@, the symbol of the node to split, and
+Split a node, with parameters @tgt :: Symbol@, the symbol of the node to split, and
 @partition :: [((Symbol, Symbol) -> Symbol, [Int])]@, list of splitter functions and
 indices to splittable groups given by `partitionSymbols`.
 
@@ -234,16 +233,19 @@ Examples:
     *2
 -}
 splitNode ::
-  Symbol     -- ^ The symbol referencing the node to be splitted.
+  Symbol  -- ^ The symbol referencing the node to be splitted.
   -> [((Symbol, Symbol) -> Symbol, [Int])]
-             -- ^ The splitters and indices of splittable groups of symbols given by
-             --   `partitionSymbols`.
+          -- ^ The splitters and indices of splittable groups of symbols given by
+          --   `partitionSymbols`.
   -> BAC
   -> Maybe BAC
 splitNode tgt partition node = do
-  guard $ locate (root node) tgt |> (== Inner)
-  let tgt_arr = arrow node tgt |> fromJust
+  -- ensure that `tgt` is reachable and proper
+  tgt_arr <- arrow node tgt
+  guard $ tgt /= base
+
   let splitter = partition |> fmap fst |> sequence
+  -- validate `splitter`
   guard $
     arrowsUnder node tgt
     |> all \arr ->
@@ -254,14 +256,17 @@ splitNode tgt partition node = do
       |> anySame
       |> not
 
-  res0 <-
+  -- edit the subtree of `tgt`
+  tgt_nodes' <-
     target tgt_arr
     |> splitRootNode (fmap snd partition)
 
+  -- edit the whole tree
   fromInner $ node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
-    AtInner res -> return edge {dict = duplicated_dict, target = res}
+    AtInner subnode -> return edge {dict = duplicated_dict, target = subnode}
       where
+      -- duplicate links of the base wire of the node of `tgt`
       duplicate (s, r)
         | dict curr ! r == tgt = splitter (symbol (curr `join` edge), s)
                                  `zip` splitter (symbol curr, r)
@@ -269,17 +274,17 @@ splitNode tgt partition node = do
       duplicated_dict =
         dict edge |> Map.toList |> concatMap duplicate |> Map.fromList
     AtBoundary -> do
-      (res, sym) <- res0 `zip` splitter (symbol curr, symbol edge)
-      let split (s, r)
-            | s == base                    = Just (base, sym)
-            | locate (root res) s == Inner = Just (s, r)
-            | otherwise                    = Nothing
+      -- split incoming edges of the node of `tgt`
+      let splitted_syms = splitter (symbol curr, symbol edge)
+      (tgt_node', sym) <- tgt_nodes' `zip` splitted_syms
       let splitted_dict =
-            dict edge |> Map.toList |> mapMaybe split |> Map.fromList
-      return edge {dict = splitted_dict, target = res}
+            dict edge
+            |> Map.filterWithKey (\s _ -> s `elem` symbols tgt_node')
+            |> Map.insert base sym
+      return edge {dict = splitted_dict, target = tgt_node'}
 
 {- |
-Split a root node (split a BAC), with an argument @partition :: [[Int]]@, which are
+Split a root node (split a BAC), with a parameter @partition :: [[Int]]@, which are
 indices to splittable groups representing each splitted category.
 
 Examples:
@@ -305,6 +310,7 @@ splitRootNode ::
   -> BAC
   -> Maybe [BAC]
 splitRootNode partition node = do
+  -- ensure that every splittable groups have been classified to splitted symbols
   let splittable_groups = partitionSymbols node
   guard $ partition |> concat |> sort |> (== [0..length splittable_groups-1])
 
