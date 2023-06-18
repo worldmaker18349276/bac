@@ -35,7 +35,7 @@ import Data.List (sort)
 
 
 {- |
-Merge symbols on a node, with arguments @(src, tgts) :: (Symbol, [Symbol])@ and
+Merge symbols on a node, with parameters @(src, tgts) :: (Symbol, [Symbol])@ and
 @sym :: Symbol@, where @src@ is the symbol referencing the source node, `tgts` is a list
 of symbols to be merged, and `sym` is the merged symbol.  When merging symbols on the root
 node, it will checks if the structures of the target nodes referenced by `tgts` are the
@@ -86,27 +86,37 @@ mergeSymbols ::
   -> BAC
   -> Maybe BAC
 mergeSymbols (src, tgts) sym node = do
+  -- ensure that `(src, tgt)` for all `tgt <- tgts` are reachable
   guard $ notNull tgts
   src_arr <- arrow node src
-  tgt_arrs <- tgts |> traverse (arrow (target src_arr))
-  guard $ src_arr |> target |> symbols |> filter (`notElem` tgts) |> notElem sym
+  let src_node = target src_arr
+  tgt_arrs <- tgts |> traverse (arrow src_node)
+
+  -- validate merging symbols `tgts` -> `sym`
+  guard $ src_node |> symbols |> filter (`notElem` tgts) |> (sym :) |> anySame |> not
+  -- ensure that all dictionaries of arrows to be merged are the same except for base wire
   guard $ tgt_arrs |> fmap (dict .> Map.delete base) |> allSame
+  -- ensure that all targets of arrows to be merged are the same
+  -- it is needed only when `src == base`
   guard $
     src /= base
     || (tgt_arrs |> fmap (target .> edges .> fmap dict) |> allSame)
-  guard $ suffix node src |> all \(_, edge) -> tgts |> fmap (dict edge !) |> allSame
+  -- ensure that all symbols to be merged always map to the same symbol
+  guard $ suffix node src |> all \(_, edge) ->
+    tgts |> fmap (dict edge !) |> allSame
 
+  -- edit the subtree of `src`
   let merge s = if s `elem` tgts then sym else s
-
-  let res0 = fromEdges do
-        edge <- target src_arr |> edges
+  let src_node' = fromEdges do
+        edge <- edges src_node
         let dict' = dict edge |> Map.toList |> fmap (second merge) |> Map.fromList
         return edge {dict = dict'}
 
-  fromReachable res0 $ node |> modifyUnder src \(_curr, edge) -> \case
+  -- edit the whole tree
+  fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
-    AtInner res -> return edge {target = res}
-    AtBoundary -> return edge {dict = dict', target = res0}
+    AtInner subnode -> return edge {target = subnode}
+    AtBoundary -> return edge {dict = dict', target = src_node'}
       where
       dict' = dict edge |> Map.toList |> fmap (first merge) |> Map.fromList
 
@@ -116,12 +126,13 @@ mergeSymbolsOnRoot :: [Symbol] -> Symbol -> BAC -> Maybe BAC
 mergeSymbolsOnRoot tgts = mergeSymbols (base, tgts)
 
 {- |
-Merge nodes, with arguments @tgts_keys :: [(Symbol, [k])]@ and
+Merge nodes, with parameters @tgts_keys  :: [(Symbol, [k])]@ and
 @merger :: (Symbol, [Symbol]) -> Symbol@, where `tgts_keys` contains nodes to merge and
 the keys indicating correspondence among their nondecomposable incoming edges, and
 `merger` is the function to merge symbols on all ancestor nodes.  The nondecomposable
 incoming edges of the nodes to merge will be paired up by function
-`BAC.Fundamental.zipSuffix` according to the keys.
+`BAC.Fundamental.zipSuffix` according to the keys.  The nodes to merge should have
+distinct symbol lists except base symbol.
 
 In categorical perspectives, it merges terminal morphisms.  Where `tgt` for
 @(tgt, _) <- tgts_keys@ indicates the source object of terminal morphisms to merge.  All
@@ -160,17 +171,22 @@ Examples:
 -}
 mergeNodes ::
   Ord k
-  => [(Symbol, [k])]   -- ^ The symbols referencing the nodes to be merged and the keys to
-                       --   classify nondecomposable incoming morphisms.
+  => [(Symbol, [k])]  -- ^ The symbols referencing the nodes to be merged and the keys to
+                      --   classify nondecomposable incoming morphisms.
   -> ((Symbol, [Symbol]) -> Symbol)
-                       -- ^ The merger of symbols.
+                      -- ^ The merger of symbols.
   -> BAC
   -> Maybe BAC
 mergeNodes tgts_keys merger node = do
-  guard $ notNull tgts_keys
-  guard $ tgts_keys |> fmap fst |> anySame |> not
+  -- ensure that `tgts` are distinct and reachable
+  let tgts = tgts_keys |> fmap fst
+  guard $ notNull tgts
+  guard $ tgts |> anySame |> not
+  tgt_nodes <- tgts |> traverse (arrow node .> fmap target)
 
   zipped_suffix <- zipSuffix tgts_keys node
+
+  -- validate merger
   guard $
     zipped_suffix
     |> groupSortOn (fst .> symbol)
@@ -189,50 +205,55 @@ mergeNodes tgts_keys merger node = do
         |> anySame
         |> not
 
-  let tgts = tgts_keys |> fmap fst
-  let tgt_nodes = tgts |> fmap (arrow node .> fromJust .> target)
+  -- merge nodes of `tgts`, where they should have distinct `symbols` except `base`
   merged_node <- mergeRootNodes tgt_nodes
 
-  let merged_syms_dicts = Map.fromList do
+  -- map suffixes to merged symbols and merged dictionaries
+  let merged_syms_dicts :: Map.Map (Symbol, Symbol) (Symbol, Dict)
+      merged_syms_dicts = Map.fromList do
         (curr, arrs) <- zipped_suffix
         let sym0 = symbol curr
         let syms = fmap symbol arrs
-        let sym' = merger (sym0, syms)
+        let merged_sym = merger (sym0, syms)
         let merged_dict =
               arrs
               |> fmap dict
               |> foldl Map.union Map.empty
-              |> Map.insert base sym'
+              |> Map.insert base merged_sym
         sym <- syms
-        return ((sym0, sym), (sym', merged_dict))
+        return ((sym0, sym), (merged_sym, merged_dict))
 
+  -- edit the whole tree
   fromReachable node $
     node |> foldUnder (head tgts) \curr results -> fromEdges do
-      (res, edge) <- results `zip` edges (target curr)
+      (subnode, edge) <- results `zip` edges (target curr)
       let sym0 = symbol curr
       let sym = symbol (curr `join` edge)
       let collapsed_node =
             if sym `elem` tgts
             then merged_node
-            else res |> fromInner |> fromMaybe (target edge)
+            else subnode |> fromInner |> fromMaybe (target edge)
       let collapsed_dict =
             if sym `elem` tgts
-            then snd (merged_syms_dicts ! (sym0, symbol edge))
+            -- a direct edge to the target => get merged dictionary
+            then merged_syms_dicts |> (! (sym0, symbol edge)) |> snd
+            -- an edge between nodes under the target => merge symbols of keys and values
+            -- of the original dictionary
             else
               dict edge
               |> Map.toList
               |> fmap (\(s1, s2) ->
                 (
-                  Map.lookup (sym, s1) merged_syms_dicts |> maybe s1 fst,
-                  Map.lookup (sym0, s2) merged_syms_dicts |> maybe s2 fst
+                  merged_syms_dicts |> Map.lookup (sym, s1) |> maybe s1 fst,
+                  merged_syms_dicts |> Map.lookup (sym0, s2) |> maybe s2 fst
                 )
               )
               |> Map.fromList
       return edge {dict = collapsed_dict, target = collapsed_node}
 
 {- |
-Merge root nodes (merge BACs), with an argument `nodes :: [BAC]` indicating the nodes to
-merged, which should have disjoint symbol lists except the base symbol.
+Merge root nodes (merge BACs), with a parameter `nodes :: [BAC]` indicating the nodes to
+merge, which should have disjoint symbol lists except the base symbol.
 
 Examples:
 
@@ -317,14 +338,13 @@ mergeSymbolsAggressively (src, tgts) merger node = do
       guard $ validateMerger curr merging_lists
 
       let merged_node = fromEdges do
-            ((lres, merging_lists'), edge) <- results' `zip` edges (target curr)
+            ((subnode, merging_lists'), edge) <- results' `zip` edges (target curr)
             let sym = symbol (curr `join` edge)
             let merged_dict =
                   dict edge
                   |> fmap (mergeSymbol (sym0, merging_lists))
                   |> Map.mapKeys (mergeSymbol (sym, merging_lists'))
-            let res = fromMaybe (target edge) lres
-            return edge {dict = merged_dict, target = res}
+            return edge {dict = merged_dict, target = subnode |> fromMaybe (target edge)}
       return (merged_node, merging_lists)
 
   fromReachable res0 lres |> fmap fst
