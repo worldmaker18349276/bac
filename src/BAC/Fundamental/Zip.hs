@@ -15,7 +15,7 @@ module BAC.Fundamental.Zip (
 import Control.Arrow ((&&&))
 import Control.Monad (MonadPlus (mzero), guard)
 import Data.Bifunctor (Bifunctor (first, second), bimap)
-import Data.List (sort, transpose, sortOn)
+import Data.List (sort, transpose, sortOn, nub)
 import Data.List.Extra (allSame, anySame, nubSortOn, nubOn)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
@@ -34,8 +34,8 @@ import BAC.Base
 
 
 -- | Structural equality, the equality of nodes up to rewiring.
---   The symbol list of nodes should be the same, and equality of child nodes are not
---   checked.  The node with the same structure can be unioned by merging their edges.
+--   Nodes should have the same symbol list, and equality of child nodes are not checked.
+--   The node with the same structure can be unioned by merging their edges.
 eqStruct :: [BAC] -> Bool
 eqStruct = fmap edgesND .> fmap (fmap dict) .> allSame
 
@@ -60,7 +60,7 @@ canonicalizeRootNode node =
   |> fmap dict
   |> fmap Map.elems
   |> canonicalizeGradedEqlistSet (arrow node .> fromJust .> target)
-  |> fmap (base :)
+  |> fmap (concat .> nub .> (base :))
   |> fmap ((`zip` [base..]) .> Map.fromList)
 
 {- |
@@ -80,7 +80,7 @@ canonicalizeArrow arr =
   |> fmap dict
   |> fmap Map.elems
   |> canonicalizeGradedEqlistSet (dict arr !)
-  |> fmap (base :)
+  |> fmap (concat .> nub .> (base :))
   |> fmap ((`zip` [base..]) .> Map.fromList)
 
 {- |
@@ -107,7 +107,7 @@ canonicalizeNode node tgt = do
     |> fmap dict
     |> fmap Map.elems
     |> canonicalizeGradedEqlistSet (keys !)
-    |> fmap (base :)
+    |> fmap (concat .> nub .> (base :))
     |> fmap ((`zip` [base..]) .> Map.fromList)
 
 {- |
