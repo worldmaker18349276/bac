@@ -23,8 +23,8 @@ module BAC.Fundamental.Add (
 import Control.Monad (guard, mzero)
 import Data.Bifunctor (second)
 import Data.Foldable (find)
-import Data.List (sort)
-import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, snoc, (!?))
+import Data.List (sort, findIndex)
+import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, snoc)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, isJust)
@@ -251,8 +251,8 @@ findValidCoanglesAngles src tgt node = do
 {- |
 Add a nondecomposable symbol on a node, where the parameters @src :: Symbol@ and
 @tgt :: Symbol@ are the symbols of source node and target node of the added edge, and
-@sym :: Symbol@ is the symbol to be added.  @src_alts :: [Int]@ is the list of indices of
-coangles' picklists, and @tgt_alts :: [Int]@ is the list of indices of angles' picklists.
+@sym :: Symbol@ is the symbol to be added.  @src_alts :: [Coangle]@ is the list of picked
+coangles, and @tgt_alts :: [Angle]@ is the list of picked angles.
 
 In categorical perspectives, it adds a non-terminal nondecomposable morphism, where `src`
 and `tgt` indicates the source object and target object of the added morphism, and
@@ -268,7 +268,9 @@ choice of angles and coangles can be checked by functions `compatibleAngles`,
 
 Examples:
 
->>> printBAC $ fromJust $ addNDSymbol 1 6 2 [0] [] cone
+>>> fromJust $ findValidCoanglesAngles 1 6 cone
+([[((0,1),(0,6))]],[])
+>>> printBAC $ fromJust $ addNDSymbol 1 6 2 [((0,1),(0,6))] [] cone
 - 0->1; 1->2; 2->6
   - 0->1
     &0
@@ -285,11 +287,11 @@ Examples:
     *2
 -}
 addNDSymbol ::
-  Symbol     -- ^ The symbol indicating the source object of the morphism to be added.
-  -> Symbol  -- ^ The symbol indicating the target object of the morphism to be added.
-  -> Symbol  -- ^ The symbol to be added.
-  -> [Int]   -- ^ The indices of coangles' picklists given by `findValidCoanglesAngles`.
-  -> [Int]   -- ^ The indices of angles' picklists given by `findValidCoanglesAngles`.
+  Symbol         -- ^ The symbol indicating the source object of the morphism to be added.
+  -> Symbol      -- ^ The symbol indicating the target object of the morphism to be added.
+  -> Symbol      -- ^ The symbol to be added.
+  -> [Coangle]   -- ^ The picked coangles from `findValidCoanglesAngles`.
+  -> [Angle]     -- ^ The picked angles from `findValidCoanglesAngles`.
   -> BAC
   -> Maybe BAC
 addNDSymbol src tgt sym src_alts tgt_alts node = do
@@ -300,23 +302,27 @@ addNDSymbol src tgt sym src_alts tgt_alts node = do
   -- ensure that it is valid to add symbol `sym` to the node of `src`
   guard $ target src_arr |> symbols |> notElem sym
 
-  -- get picked angles and coangles
+  -- check picked angles and coangles
   let (src_angs, tgt_angs) = findValidCoanglesAngles src tgt node |> fromJust
-  guard $ length src_angs == length src_alts
-  guard $ length tgt_angs == length tgt_alts
-  src_angs' <- src_angs `zip` src_alts |> traverse (uncurry (!?))
-  tgt_angs' <- tgt_angs `zip` tgt_alts |> traverse (uncurry (!?))
+  guard $
+    src_alts
+    |> traverse (\ang -> src_angs |> findIndex (elem ang))
+    |> maybe False (sort .> (== [0 .. length src_angs - 1]))
+  guard $
+    tgt_alts
+    |> traverse (\ang -> tgt_angs |> findIndex (elem ang))
+    |> maybe False (sort .> (== [0 .. length tgt_angs - 1]))
 
   -- ensure that picked angles and coangles are compatible
-  guard $ compatibleAngles node tgt_angs'
-  guard $ compatibleCoanglesAngles node src_angs' tgt_angs'
-  guard $ compatibleCoangles node src_angs'
+  guard $ compatibleAngles node tgt_alts
+  guard $ compatibleCoanglesAngles node src_alts tgt_alts
+  guard $ compatibleCoangles node src_alts
 
   -- construct added edge
   let new_dict =
         -- zip values of dictionaries of the short edge and the long edge
         -- which form wires from node of `tgt` to `src`
-        tgt_angs'
+        tgt_alts
         |> fmap (both (arrow2 node .> fromJust))
         |> concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
         -- link base symbol to the new symbol `sym`
@@ -335,7 +341,7 @@ addNDSymbol src tgt sym src_alts tgt_alts node = do
         |> \(arr2, arr3) ->
           -- determine new added wire for the nondecomposable edge `arr3` first
           -- find corresponding coangle
-          src_angs'
+          src_alts
           |> find (fst .> (== symbol2 (arr1 `join` arr2, arr3)))
           |> fromJust
           -- symbol `sym` will be mapped to the symbol referencing the long edge of this coangle
