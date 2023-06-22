@@ -31,9 +31,9 @@ import Utils.Utils ((.>), (|>))
 -- >>> import Data.Maybe (fromJust)
 
 {- |
-Partition the prefixes of an arrow.  It returns a partition of `prefix node tgt`.  The
-objects represented by the elements in each group are unsplittable in the section category
-of the arrow specified by `tgt`.
+Partition the prefixes of an arrow.  It returns a partition of @prefix node tgt@ excluding
+@(tgt, base)@.  The objects represented by the elements in each group are unsplittable in
+the section category of the arrow specified by `tgt`.
 
 Examples:
 
@@ -59,7 +59,8 @@ Split a symbol on a node, with two parameters @(src, tgt) :: (Symbol, Symbol)@ a
 @partition :: [(Symbol, [Int])]@.  `src` indicates the node to operate, `tgt` indicates
 the symbol to split, and `partition` is a list of splitted symbols and the corresponding
 indices to each group given by `partitionPrefix`.  If there is a splitted symbol which has
-an empty list of indices, it will become a nondecomposable symbol.
+an empty list of indices, it will become a nondecomposable symbol.  For simplicity, the
+direct edges to the splitted symbols will always be constructed.
 
 In categorical perspectives, it splits a non-terminal morphism, where @(src, tgt)@
 indicates a proper morphism to split, and @(src, sym)@ for all @(sym, inds) <- partition@
@@ -72,13 +73,19 @@ Examples:
 >>> printBAC $ fromJust $ splitSymbol (0,2) [(2,[0]),(7,[1])] cone
 - 0->1; 1->2
   - 0->1
+    &0
+- 0->2
+  *0
 - 0->3; 1->4; 2->7; 3->6; 4->4
   - 0->1; 1->2; 2->3
-    &0
+    &1
     - 0->1
+      &2
     - 0->2
   - 0->4; 1->2; 2->3
-    *0
+    *1
+- 0->7
+  *2
 
 >>> printBAC $ fromJust $ splitSymbol (3,2) [(5,[0]),(6,[1]),(7,[])] cone
 - 0->1; 1->2
@@ -92,6 +99,12 @@ Examples:
     - 0->2
   - 0->4; 1->6; 2->3
     *1
+  - 0->5
+    *0
+  - 0->6
+    *0
+  - 0->7
+    *0
 -}
 splitSymbol ::
   (Symbol, Symbol)      -- ^ The pair of symbols referencing the arrow to split.
@@ -131,7 +144,7 @@ splitSymbol (src, tgt) partition node = do
 
   -- edit the subtree of `src`
   let src_node' = fromEdges do
-        edge <- target src_arr |> edges
+        edge <- target src_arr |> edges |> (tgt_subarr :)
         let sym0 = symbol edge
         if sym0 == tgt
         then do
@@ -164,8 +177,9 @@ splitSymbolOnRoot tgt = splitSymbol (base, tgt)
 
 {- |
 Partition symbols on a node.
-It returns a partition of `symbols` of the given node, where the objects represented by
-the elements in each group are unsplittable in the given bounded acyclic category.
+It returns a partition of `symbols` of the given node excluding `base`, where the objects
+represented by the elements in each group are unsplittable in the given bounded acyclic
+category.
 
 Examples:
 
