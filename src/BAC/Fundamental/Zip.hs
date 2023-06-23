@@ -4,12 +4,13 @@
 
 module BAC.Fundamental.Zip (
   eqStruct,
+  zipArrows,
   canonicalizeRootNode,
   canonicalizeArrow,
   canonicalizeNode,
   forwardSymbolTrieUnder,
   backwardSymbolTrieUnder,
-  zipSuffix,
+  zipSuffixes,
 ) where
 
 import Control.Arrow ((&&&))
@@ -38,6 +39,44 @@ import BAC.Base
 --   The node with the same structure can be unioned by merging their edges.
 eqStruct :: [BAC] -> Bool
 eqStruct = fmap edgesND .> fmap (fmap dict) .> allSame
+
+{- |
+Zip arrows of BACs, which shows the equality of nodes up to rewiring and relabelling.
+Also, the equality of child nodes are not checked.  The correspondence between
+nondecomposable edges of the root nodes should be provided.
+-}
+zipArrows :: [(BAC, [Symbol])] -> Maybe [[Arrow]]
+zipArrows nodes_prefix = do
+  -- check the given nondecomposable symbols
+  guard $
+    nodes_prefix
+    |> fmap (edgesND .> fmap symbol .> sort `bimap` sort)
+    |> all (uncurry (==))
+
+  -- ensure that they can be zipped
+  -- find dictionaries of nondecomposable edges to zip
+  let dicts =
+        nodes_prefix
+        |> fmap \(node, nd_syms) ->
+          nd_syms
+          |> fmap (arrow node .> fromJust .> dict)
+  -- relabel symbols according to the order of nondecomposable edges
+  let maps =
+        dicts
+        |> fmap (concatMap Map.elems .> nub)
+        |> fmap ((base :) .> (`zip` [base..]) .> Map.fromList)
+  -- dictionaries should become the same after relabelling
+  guard $ maps `zip` dicts |> fmap (sequence .> fmap (uncurry cat)) |> allSame
+
+  -- zip all arrows
+  let arrs =
+        nodes_prefix
+        |> fmap \(node, nd_syms) ->
+          nd_syms
+          |> fmap (arrow node .> fromJust)
+          |> fmap ((id &&& (target .> arrows)) .> sequence .> fmap (uncurry join))
+          |> concatMap (nubOn symbol .> (root node :))
+  return $ arrs |> transpose
 
 {- |
 Find mappings to canonicalize the order of symbols of the root node.  It will return
@@ -158,22 +197,22 @@ It can be used to check lower isomorphisms for given symbols.
 
 Examples:
 
->>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffix [(2,[(1,1),(1,5)]),(4,[(1,3),(1,7)])] crescent
+>>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffixes [(2,[(1,1),(1,5)]),(4,[(1,3),(1,7)])] crescent
 [(1,[1,3]),(1,[5,7]),(0,[2,4])]
 
->>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffix [(3,[(2,1),(4,1)])] crescent
+>>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffixes [(3,[(2,1),(4,1)])] crescent
 [(2,[1]),(4,[1]),(1,[2]),(1,[6]),(0,[3])]
 
->>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffix [(0,[])] crescent
+>>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffixes [(0,[])] crescent
 []
 -}
-zipSuffix ::
+zipSuffixes ::
   [(Symbol, [(Symbol, Symbol)])]
       -- ^ The symbols to zip and the keys to classify nondecomposable incoming edges.
   -> BAC
   -> Maybe [(Arrow, [Arrow])]
-zipSuffix [] _ = Just []
-zipSuffix tgts_suffix node = do
+zipSuffixes [] _ = Just []
+zipSuffixes tgts_suffix node = do
   guard $
     tgts_suffix
     |> fmap (suffixND node .> fmap symbol2 `bimap` sort)

@@ -22,7 +22,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, fromMaybe)
 
 import BAC.Base
-import BAC.Fundamental.Zip
+import BAC.Fundamental.Zip (zipSuffixes)
 import Utils.Utils ((.>), (|>))
 import Data.Foldable (find)
 import Utils.DisjointSet (bipartiteEqclass)
@@ -183,7 +183,7 @@ mergeNodes tgts_suffix merger node = do
   guard $ tgts |> anySame |> not
   tgt_nodes <- tgts |> traverse (arrow node .> fmap target)
 
-  zipped_suffix <- zipSuffix tgts_suffix node
+  zipped_suffix <- zipSuffixes tgts_suffix node
 
   -- validate merger
   guard $
