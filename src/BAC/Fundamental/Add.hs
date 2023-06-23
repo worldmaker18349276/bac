@@ -307,7 +307,7 @@ addNDSymbol src tgt sym src_alts tgt_alts node = do
   tgt_arr <- arrow node tgt
   guard $ locate tgt_arr src |> (== Outer)
   -- ensure that it is valid to add symbol `sym` to the node of `src`
-  guard $ target src_arr |> symbols |> notElem sym
+  guard $ target src_arr |> symbols |> (`snoc` sym) |> anySame |> not
 
   -- check picked angles and coangles
   let (src_angs, tgt_angs) = findValidCoanglesAngles src tgt node |> fromJust
@@ -427,7 +427,7 @@ addLeafNode src sym inserter node = do
   let src_node = target src_arr
 
   -- validate added symbols
-  guard $ sym `notElem` symbols src_node
+  guard $ src_node |> symbols |> (`snoc` sym) |> anySame |> not
   guard $
     arrowsUnder node src |> all \curr ->
       curr `divide` src_arr
@@ -509,7 +509,7 @@ addParentNode (src, tgt) sym mapping inserter node = do
   guard $ symbols (target tgt_subarr) |> (== Map.keys mapping)
   guard $ Map.elems mapping |> (base :) |> anySame |> not
   -- validate added symbols
-  guard $ sym `notElem` symbols (target src_arr)
+  guard $ symbols (target src_arr) |> (`snoc` sym) |> anySame |> not
   guard $
     arrowsUnder node src |> all \curr ->
       curr `divide` tgt_arr

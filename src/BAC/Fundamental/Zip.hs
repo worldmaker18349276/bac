@@ -14,8 +14,8 @@ module BAC.Fundamental.Zip (
 ) where
 
 import Control.Arrow ((&&&))
-import Control.Monad (MonadPlus (mzero), guard)
-import Data.Bifunctor (Bifunctor (first, second), bimap)
+import Control.Monad (guard, mzero)
+import Data.Bifunctor (bimap, first, second)
 import Data.List (sort, transpose, nub)
 import Data.List.Extra (allSame, anySame, nubSortOn, nubOn)
 import Data.Map.Strict ((!))

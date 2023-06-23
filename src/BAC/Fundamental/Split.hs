@@ -13,7 +13,7 @@ module BAC.Fundamental.Split (
 
 import Control.Monad (guard)
 import Data.List (sort)
-import Data.List.Extra (anySame, disjoint)
+import Data.List.Extra (anySame, disjoint, replace)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
@@ -145,8 +145,7 @@ splitSymbol (src, tgt) partition node = do
   guard $
     target src_arr
     |> symbols
-    |> filter (/= tgt)
-    |> (++ fmap fst partition)
+    |> replace [tgt] (fmap fst partition)
     |> anySame
     |> not
 

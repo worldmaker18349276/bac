@@ -16,7 +16,7 @@ import Control.Arrow ((&&&))
 import Control.Monad (guard)
 import Data.Bifunctor (Bifunctor (first, second))
 import Data.Foldable.Extra (notNull)
-import Data.List.Extra (allSame, anySame, groupSortOn)
+import Data.List.Extra (allSame, anySame, groupSortOn, snoc)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, fromMaybe)
@@ -93,7 +93,7 @@ mergeSymbols (src, tgts) sym node = do
   tgt_arrs <- tgts |> traverse (arrow src_node)
 
   -- validate merging symbols `tgts` -> `sym`
-  guard $ src_node |> symbols |> filter (`notElem` tgts) |> (sym :) |> anySame |> not
+  guard $ src_node |> symbols |> filter (`notElem` tgts) |> (`snoc` sym) |> anySame |> not
   -- ensure that all dictionaries of arrows to be merged are the same except for base wire
   guard $ tgt_arrs |> fmap (dict .> Map.delete base) |> allSame
   -- ensure that all targets of arrows to be merged are the same
@@ -278,7 +278,7 @@ Examples:
 -}
 mergeRootNodes :: [BAC] -> Maybe BAC
 mergeRootNodes nodes = do
-  guard $ nodes |> fmap (symbols .> filter (/= base)) |> concat |> anySame |> not
+  guard $ nodes |> concatMap (symbols .> filter (/= base)) |> anySame |> not
   return $ nodes |> concatMap edges |> fromEdges
 
 

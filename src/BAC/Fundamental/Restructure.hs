@@ -11,7 +11,7 @@ module BAC.Fundamental.Restructure (
 ) where
 
 import Control.Monad (guard)
-import Data.List.Extra (snoc)
+import Data.List.Extra (snoc, anySame, replace)
 import qualified Data.Map.Strict as Map
 import Data.Tuple (swap)
 import Data.Tuple.Extra (dupe)
@@ -233,7 +233,7 @@ alterSymbol (src, tgt) sym node = do
 
   -- ensure that it is valid to alter the symbol `tgt` to `sym` on the node of `src`.
   let syms = src_arr |> target |> symbols
-  guard $ syms |> filter (/= tgt) |> notElem sym
+  guard $ syms |> replace [tgt] [sym] |> anySame |> not
 
   -- construct the relabeling mapping
   let mapping = syms |> fmap dupe |> Map.fromList |> Map.insert tgt sym

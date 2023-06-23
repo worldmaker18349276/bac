@@ -16,7 +16,7 @@ import Control.Arrow (first)
 import Control.Monad (guard)
 import Data.Foldable (traverse_)
 import Data.Foldable.Extra (notNull)
-import Data.List.Extra (anySame, transpose)
+import Data.List.Extra (anySame, transpose, replace)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 
@@ -81,13 +81,7 @@ duplicateNDSymbol (src, tgt) syms node = do
   guard $ locate (root src_node) tgt == Inner
   guard $ nondecomposable src_node tgt
   -- ensure that it is valid to relace `tgt` with `syms`
-  guard $
-    src_node
-    |> symbols
-    |> filter (/= tgt)
-    |> (syms ++)
-    |> anySame
-    |> not
+  guard $ src_node |> symbols |> replace [tgt] syms |> anySame |> not
 
   -- edit the subtree of `src`
   let src_node' = fromEdges do
@@ -211,7 +205,7 @@ duplicateNode tgt shifters node = do
       arr
       |> dict
       |> Map.toList
-      |> fmap (\(s1, s2) -> if s2 == tgt then splitter (symbol arr, s1) else [s1])
+      |> concatMap (\(s, r) -> if r == tgt then splitter (symbol arr, s) else [s])
       |> anySame
       |> not
 
