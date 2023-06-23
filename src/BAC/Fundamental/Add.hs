@@ -81,7 +81,7 @@ validateAngle node (sym_sym1, sym_sym2) = isJust do
   arr_arr1 <- arrow2 node sym_sym1
   arr_arr2 <- arrow2 node sym_sym2
   -- ensure that `sym_sym1` and `sym_sym2` end at the same node
-  guard $ mult node sym_sym1 == mult node sym_sym2
+  guard $ symbol (uncurry join arr_arr1) == symbol (uncurry join arr_arr2)
 
   -- ensure that all forks of `sym_sym1` are also forks of `sym_sym2`
   guard $
@@ -98,29 +98,30 @@ validateAngle node (sym_sym1, sym_sym2) = isJust do
 --   An extended valid coangle is also a valid coangle.
 extendCoangle :: BAC -> (Symbol, Symbol) -> Coangle -> Maybe Coangle
 extendCoangle node e (f, g) = do
-  -- ensure `e` is reachable
-  (arr, _) <- arrow2 node e
-  let node' = target arr
+  -- ensure `e`, `f`, `g` are reachable
+  (e_arr, e_subarr) <- arrow2 node e
+  (f_arr, f_subarr) <- arrow2 node f
+  (g_arr, g_subarr) <- arrow2 node g
   -- ensure `e` and `f`/`g` are composable
-  guard $ fst f == mult node e && fst g == mult node e
+  guard $ f_arr == g_arr && g_arr == e_arr `join` e_subarr
   -- compose arrow and edges
-  let f' = (fst e, mult node' (snd e, snd f))
-  let g' = (fst e, mult node' (snd e, snd g))
+  let f' = symbol2 (e_arr, e_subarr `join` f_subarr)
+  let g' = symbol2 (e_arr, e_subarr `join` g_subarr)
   return (f', g')
 
 -- | Extend an angle with an arrow starting at the vertex of this angle.
 --   An extended valid angle is also a valid angle.
 extendAngle :: BAC -> Angle -> (Symbol, Symbol) -> Maybe Angle
 extendAngle node (f, g) e = do
-  -- ensure `e` is reachable
-  _ <- arrow2 node e
+  -- ensure `e`, `f`, `g` are reachable
+  (e_arr, e_subarr) <- arrow2 node e
+  (f_arr, f_subarr) <- arrow2 node f
+  (g_arr, g_subarr) <- arrow2 node g
   -- ensure `f`/`g` and `e` are composable
-  guard $ fst e == mult node f
+  guard $ e_arr == f_arr `join` f_subarr
   -- compose edges and arrow
-  let f_node = arrow node (fst f) |> fromJust |> target
-  let f' = (fst f, mult f_node (snd f, snd e))
-  let g_node = arrow node (fst g) |> fromJust |> target
-  let g' = (fst g, mult g_node (snd g, snd e))
+  let f' = symbol2 (f_arr, f_subarr `join` e_subarr)
+  let g' = symbol2 (g_arr, g_subarr `join` e_subarr)
   return (f', g')
 
 
@@ -158,10 +159,11 @@ compatibleCoangles :: BAC -> [Coangle] -> Bool
 compatibleCoangles _ [] = True
 compatibleCoangles node coangles = isJust do
   -- ensure that all short/long edges of coangles end at the same node
-  guard $ coangles |> fmap (both (mult node)) |> allSame
-
-  -- the symbol referencing the target node of short edges of coangles
-  let sym0 = coangles |> head |> fst |> mult node
+  (sym0, _) <-
+    coangles
+    |> fmap (both (arrow2 node .> fromJust .> uncurry join .> symbol))
+    |> guarded allSame
+    |> fmap head
   
   sequence_ $ node |> foldUnder sym0 \curr results -> do
     results' <- traverse sequence results
@@ -190,12 +192,17 @@ compatibleCoanglesAngles node coangles angles =
   isJust $
     coangles |> traverse \(sym_sym1, sym_sym2) -> do
       angles |> traverse \(sym_sym1', sym_sym2') -> do
+        let arr_arr1 = arrow2 node sym_sym1 |> fromJust
+        let arr_arr2 = arrow2 node sym_sym2 |> fromJust
+        let arr_arr1' = arrow2 node sym_sym1' |> fromJust
+        let arr_arr2' = arrow2 node sym_sym2' |> fromJust
+
         -- ensure ending node of the short edge of coangle is the starting node of the
         -- long edge of angle
-        guard $ mult node sym_sym1 == fst sym_sym2'
+        guard $ uncurry join arr_arr1 == fst arr_arr2'
         -- ensure ending node of the long edge of coangle is the starting node of the
         -- short edge of angle
-        guard $ mult node sym_sym2 == fst sym_sym1'
+        guard $ uncurry join arr_arr2 == fst arr_arr1'
 
         -- compose the short edge of coangle and the long edge of angle
         -- and compose the long edge of coangle and the short edge of angle

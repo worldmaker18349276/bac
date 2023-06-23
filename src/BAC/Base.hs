@@ -64,7 +64,6 @@ module BAC.Base (
 
   root,
   join,
-  mult,
   arrow,
   symbol,
   extend,
@@ -238,14 +237,6 @@ root node = Arrow {dict = id_dict, target = node}
 --   It may crashes if two arrows are not composable.
 join :: HasCallStack => Arrow -> Arrow -> Arrow
 join arr1 arr2 = arr2 {dict = dict arr1 `cat` dict arr2}
-
--- | Reduce a pair of symbols into one symbol by joining the indicated arrows.
---   It may crashes if two symbols are not reachable or not composable.
-mult :: HasCallStack => BAC -> (Symbol, Symbol) -> Symbol
-mult node (sym1, sym2) = join arr1 arr2 |> symbol
-  where
-  arr1 = arrow node sym1 |> fromJust
-  arr2 = arrow node sym2 |> fromJust
 
 -- | Divide two arrows.  The first is divisor and the second is the dividend, and they
 --   should start at the same node.
