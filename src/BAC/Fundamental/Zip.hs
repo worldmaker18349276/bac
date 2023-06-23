@@ -15,7 +15,7 @@ module BAC.Fundamental.Zip (
 import Control.Arrow ((&&&))
 import Control.Monad (MonadPlus (mzero), guard)
 import Data.Bifunctor (Bifunctor (first, second), bimap)
-import Data.List (sort, transpose, sortOn, nub)
+import Data.List (sort, transpose, nub)
 import Data.List.Extra (allSame, anySame, nubSortOn, nubOn)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
@@ -158,43 +158,35 @@ It can be used to check lower isomorphisms for given symbols.
 
 Examples:
 
->>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffix [(2,[0,1::Int]),(4,[0,1])] crescent
+>>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffix [(2,[(1,1),(1,5)]),(4,[(1,3),(1,7)])] crescent
 [(1,[1,3]),(1,[5,7]),(0,[2,4])]
 
->>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffix [(3,[0,1::Int])] crescent
+>>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffix [(3,[(2,1),(4,1)])] crescent
 [(2,[1]),(4,[1]),(1,[2]),(1,[6]),(0,[3])]
 
->>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffix [(0,[]::[Int])] crescent
+>>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffix [(0,[])] crescent
 []
 -}
 zipSuffix ::
-  Ord k
-  => [(Symbol, [k])]
+  [(Symbol, [(Symbol, Symbol)])]
       -- ^ The symbols to zip and the keys to classify nondecomposable incoming edges.
   -> BAC
   -> Maybe [(Arrow, [Arrow])]
 zipSuffix [] _ = Just []
-zipSuffix tgts_keys node = do
-  guard $ tgts_keys |> all (snd .> anySame .> not)
-  guard $ tgts_keys |> fmap (snd .> sort) |> allSame
-  guard $ tgts_keys |> all (fst .> locate (root node) .> (/= Outer))
-
-  let pars_keys = tgts_keys |> fmap (first (suffixND node))
-  guard $ pars_keys |> fmap (fst .> length) |> allSame
-  guard $ pars_keys |> fmap (length `bimap` length) |> all (uncurry (==))
+zipSuffix tgts_suffix node = do
   guard $
-    pars_keys
-    |> fmap (uncurry zip .> sortOn snd .> fmap fst)
-    |> transpose
-    |> all (fmap (fst .> symbol) .> allSame)
+    tgts_suffix
+    |> fmap (suffixND node .> fmap symbol2 `bimap` sort)
+    |> all (uncurry (==))
+  guard $ tgts_suffix |> fmap (snd .> fmap fst) |> allSame
 
   let zipped_nd_suffix =
-        pars_keys
-        |> fmap (uncurry zip .> sortOn snd .> fmap fst)
+        tgts_suffix
+        |> fmap snd
         |> transpose
         |> fmap ((head .> fst) &&& fmap snd)
 
-  let tgts = tgts_keys |> fmap fst
+  let tgts = tgts_suffix |> fmap fst
 
   fromJust $ fromReachable (Just []) $
     node |> foldUnder (head tgts) \curr results -> do
@@ -211,8 +203,8 @@ zipSuffix tgts_keys node = do
                 |> fmap (snd .> fmap (join edge))
               _ | sym `elem` tgts ->
                 zipped_nd_suffix
-                |> filter (fst .> symbol .> (== sym0))
-                |> fmap snd
+                |> filter (fst .> (== sym0))
+                |> fmap (snd .> fmap (arrow (target curr) .> fromJust))
               _otherwise -> mzero
 
       guard $ collapse |> transpose |> all (anySame .> not)

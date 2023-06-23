@@ -126,23 +126,22 @@ mergeSymbolsOnRoot :: [Symbol] -> Symbol -> BAC -> Maybe BAC
 mergeSymbolsOnRoot tgts = mergeSymbols (base, tgts)
 
 {- |
-Merge nodes, with parameters @tgts_keys  :: [(Symbol, [k])]@ and
-@merger :: (Symbol, [Symbol]) -> Symbol@, where `tgts_keys` contains nodes to merge and
-the keys indicating correspondence among their nondecomposable incoming edges, and
-`merger` is the function to merge symbols on all ancestor nodes.  The nondecomposable
-incoming edges of the nodes to merge will be paired up by function
-`BAC.Fundamental.zipSuffix` according to the keys.  The nodes to merge should have
-distinct symbol lists except base symbol.
+Merge nodes, with parameters @tgts_suffix :: [(Symbol, [(Symbol, Symbol)])]@ and @merger
+:: (Symbol, [Symbol]) -> Symbol@, where `tgts_suffix` contains nodes to merge and their
+nondecomposable incoming edges to zip, and `merger` is the function to merge symbols on
+all ancestor nodes.  The nondecomposable incoming edges of the nodes to merge will be
+paired up by function `BAC.Fundamental.zipSuffix` according to the order of list.  The
+nodes to merge should have distinct symbol lists except base symbol.
 
 In categorical perspectives, it merges terminal morphisms.  Where `tgt` for
-@(tgt, _) <- tgts_keys@ indicates the source object of terminal morphisms to merge.  All
+@(tgt, _) <- tgts_suffix@ indicates the source object of terminal morphisms to merge.  All
 incoming morphisms of these objects, say @(s, [r1, r2, ...])@, will be merged into the
 morphism indicated by pair of symbol @(s, merger (s, [r1, r2, ...]))@.
 
 Examples:
 
->>> crescent' = fromJust $ alterSymbol (2,1) 2 crescent
->>> printBAC $ fromJust $ mergeNodes [(2,[False,True]),(4,[False,True])] (snd .> head) crescent'
+>>> crescent' = crescent |> alterSymbol (2,1) 2 |> fromJust
+>>> printBAC $ fromJust $ mergeNodes [(2,[(1,1),(1,5)]),(4,[(1,3),(1,7)])] (snd .> head) crescent'
 - 0->1; 1->2; 2->3; 5->2; 6->3
   - 0->1; 1->2; 2->2
     &0
@@ -154,7 +153,7 @@ Examples:
     *0
 
 >>> torus' = torus |> alterSymbol (2,1) 3 |> fromJust |> alterSymbol (2,2) 4 |> fromJust
->>> printBAC $ fromJust $ mergeNodes [(2,[False,True]), (5,[False,True])] (snd .> head) torus'
+>>> printBAC $ fromJust $ mergeNodes [(2,[(1,1),(1,7)]), (5,[(1,4),(1,10)])] (snd .> head) torus'
 - 0->1; 1->2; 2->3; 3->3; 6->3; 7->2; 8->3
   - 0->1; 1->3; 2->6; 3->2; 4->3
     &0
@@ -170,21 +169,21 @@ Examples:
     *0
 -}
 mergeNodes ::
-  Ord k
-  => [(Symbol, [k])]  -- ^ The symbols referencing the nodes to be merged and the keys to
-                      --   classify nondecomposable incoming morphisms.
+  [(Symbol, [(Symbol, Symbol)])]
+      -- ^ The symbols referencing the nodes to merge and the nondecomposable incoming
+      --   morphisms to zip.
   -> ((Symbol, [Symbol]) -> Symbol)
-                      -- ^ The merger of symbols.
+      -- ^ The merger of symbols.
   -> BAC
   -> Maybe BAC
-mergeNodes tgts_keys merger node = do
+mergeNodes tgts_suffix merger node = do
   -- ensure that `tgts` are distinct and reachable
-  let tgts = tgts_keys |> fmap fst
+  let tgts = tgts_suffix |> fmap fst
   guard $ notNull tgts
   guard $ tgts |> anySame |> not
   tgt_nodes <- tgts |> traverse (arrow node .> fmap target)
 
-  zipped_suffix <- zipSuffix tgts_keys node
+  zipped_suffix <- zipSuffix tgts_suffix node
 
   -- validate merger
   guard $
