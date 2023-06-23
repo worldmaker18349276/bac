@@ -13,7 +13,7 @@ module BAC.Fundamental.Split (
 
 import Control.Monad (guard)
 import Data.List (sort)
-import Data.List.Extra (anySame)
+import Data.List.Extra (anySame, disjoint)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
@@ -39,6 +39,9 @@ Examples:
 
 >>> partitionPrefix cone 2
 [[(1,1)],[(3,2)]]
+
+>>> partitionPrefix (target $ fromJust $ arrow cone 3) 2
+[[(1,1)],[(4,1)]]
 -}
 partitionPrefix :: BAC -> Symbol -> [[(Symbol, Symbol)]]
 partitionPrefix node tgt =
@@ -54,23 +57,38 @@ partitionPrefix node tgt =
   |> fmap sort
   |> sort
 
+finer :: Ord a => [[a]] -> [[a]] -> Bool
+finer partition1 partition2 = isPartition && sameHost && include
+  where
+  isPartition = concat partition1 |> anySame |> not
+  sameHost = sort (concat partition1) == sort (concat partition2)
+  include =
+    partition1
+    |> all \group ->
+      partition2
+      |> all \group' ->
+        group `disjoint` group' || group `subset` group'
+  subset a b = a |> all (`elem` b)
+
 {- |
 Split a symbol on a node, with two parameters @(src, tgt) :: (Symbol, Symbol)@ and
-@partition :: [(Symbol, [Int])]@.  `src` indicates the node to operate, `tgt` indicates
-the symbol to split, and `partition` is a list of splitted symbols and the corresponding
-indices to each group given by `partitionPrefix`.  If there is a splitted symbol which has
-an empty list of indices, it will become a nondecomposable symbol.  For simplicity, the
-direct edges to the splitted symbols will always be constructed.
+@partition :: Map Symbol [(Symbol, Symbol)]@.  `src` indicates the node to operate, `tgt`
+indicates the symbol to split, and `partition` is a list of splitted symbols and the
+corresponding group of splitted prefixes, which should be an union of some groups given by
+`partitionPrefix`.  If there is a splitted symbol which has an empty group, it will become
+a nondecomposable symbol.  For simplicity, the direct edges to the splitted symbols will
+always be constructed.
 
 In categorical perspectives, it splits a non-terminal morphism, where @(src, tgt)@
-indicates a proper morphism to split, and @(src, sym)@ for all @(sym, inds) <- partition@
-will indicate a splitted morphism, and the morphism chains in the group of indices `inds`
-will compose to this morphism.  A splitted morphism which no morphism chains compose to is
+indicates a proper morphism to split, and @(src, sym)@ for all @(sym, grps) <- partition@
+will indicate a splitted morphism, and the morphism chains in the group `grps` will
+compose to this morphism.  A splitted morphism which no morphism chains compose to is
 nondecomposable.
 
 Examples:
 
->>> printBAC $ fromJust $ splitSymbol (0,2) [(2,[0]),(7,[1])] cone
+>>> let partition_cone02 = [(2,[(1,1)]),(7,[(3,2)])]
+>>> printBAC $ fromJust $ splitSymbol (0,2) partition_cone02 cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -87,7 +105,8 @@ Examples:
 - 0->7
   *2
 
->>> printBAC $ fromJust $ splitSymbol (3,2) [(5,[0]),(6,[1]),(7,[])] cone
+>>> let partition_cone32 = [(5,[(1,1)]),(6,[(4,1)]),(7,[])]
+>>> printBAC $ fromJust $ splitSymbol (3,2) partition_cone32 cone
 - 0->1; 1->2
   - 0->1
     &0
@@ -107,9 +126,10 @@ Examples:
     *0
 -}
 splitSymbol ::
-  (Symbol, Symbol)      -- ^ The pair of symbols referencing the arrow to split.
-  -> [(Symbol, [Int])]  -- ^ The map from new symbols to indices of splittable groups
-                        --   given by `partitionPrefix`.
+  (Symbol, Symbol)  -- ^ The pair of symbols referencing the arrow to split.
+  -> [(Symbol, [(Symbol, Symbol)])]
+                    -- ^ The map from new symbols to splitted groups compatible to
+                    --   `partitionPrefix`.
   -> BAC
   -> Maybe BAC
 splitSymbol (src, tgt) partition node = do
@@ -117,13 +137,10 @@ splitSymbol (src, tgt) partition node = do
   (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
   guard $ tgt /= base
 
-  let splittable_groups = partitionPrefix (target src_arr) tgt
   -- ensure that every splittable groups have been classified to splitted symbols
-  guard $
-    partition
-    |> concatMap snd
-    |> sort
-    |> (== [0..length splittable_groups-1])
+  let splittable_groups = partitionPrefix (target src_arr) tgt
+  guard $ splittable_groups `finer` fmap snd partition
+
   -- validate splitted symbols
   guard $
     target src_arr
@@ -136,8 +153,6 @@ splitSymbol (src, tgt) partition node = do
   -- classify each prefix to a splitted symbol
   let splitter =
         partition
-        |> concatMap sequence
-        |> fmap (fmap (splittable_groups !!))
         |> concatMap sequence
         |> fmap swap
         |> Map.fromList
@@ -172,7 +187,7 @@ splitSymbol (src, tgt) partition node = do
 
 -- | Split a symbol on the root node (split an initial morphism).  See `splitSymbol` for
 --   details.
-splitSymbolOnRoot :: Symbol -> [(Symbol, [Int])] -> BAC -> Maybe BAC
+splitSymbolOnRoot :: Symbol -> [(Symbol, [(Symbol, Symbol)])] -> BAC -> Maybe BAC
 splitSymbolOnRoot tgt = splitSymbol (base, tgt)
 
 {- |
@@ -185,6 +200,9 @@ Examples:
 
 >>> partitionSymbols $ cone
 [[1,2,3,4,6]]
+
+>>> partitionSymbols $ target $ fromJust $ arrow cone 4
+[[1],[2]]
 
 >>> partitionSymbols $ target $ fromJust $ arrow crescent 1
 [[1,2,3],[5,6,7]]
@@ -211,7 +229,7 @@ will indicate the incoming morphism of splitted object with the same source obje
 
 Examples:
 
->>> partition = [(makeShifter crescent 0, [0]), (makeShifter crescent 1, [1])]
+>>> partition = [(makeShifter crescent 0, [1,2,3]), (makeShifter crescent 1, [5,6,7])]
 >>> printBAC $ fromJust $ splitNode 1 partition crescent
 - 0->1; 1->2; 2->3; 3->4
   - 0->1; 1->2
@@ -228,7 +246,7 @@ Examples:
   - 0->7; 1->6
     *2
 
->>> partition' = [(makeShifter cone 0, [0,1]), (makeShifter cone 1, [])]
+>>> partition' = [(makeShifter cone 0, [1,2]), (makeShifter cone 1, [])]
 >>> printBAC $ fromJust $ splitNode 4 partition' cone
 - 0->1; 1->2
   - 0->1
@@ -248,8 +266,8 @@ Examples:
 -}
 splitNode ::
   Symbol  -- ^ The symbol referencing the node to be splitted.
-  -> [((Symbol, Symbol) -> Symbol, [Int])]
-          -- ^ The splitters and indices of splittable groups of symbols given by
+  -> [((Symbol, Symbol) -> Symbol, [Symbol])]
+          -- ^ The splitters and splitted groups of symbols compatible to
           --   `partitionSymbols`.
   -> BAC
   -> Maybe BAC
@@ -305,7 +323,7 @@ Examples:
 
 >>> import Data.Foldable (traverse_)
 >>> crescent_1 = target $ fromJust $ arrow crescent 1
->>> traverse_ printBAC $ fromJust $ splitRootNode [[0],[1]] crescent_1
+>>> traverse_ printBAC $ fromJust $ splitRootNode [[1,2,3],[5,6,7]] crescent_1
 - 0->1; 1->2
   - 0->1
     &0
@@ -320,16 +338,15 @@ Examples:
     *0
 -}
 splitRootNode ::
-  [[Int]]  -- ^ The indices of splittable groups of symbols given by `partitionSymbols`.
+  [[Symbol]]  -- ^ The splitted groups of symbols compatible to `partitionSymbols`.
   -> BAC
   -> Maybe [BAC]
 splitRootNode partition node = do
   -- ensure that every splittable groups have been classified to splitted symbols
   let splittable_groups = partitionSymbols node
-  guard $ partition |> concat |> sort |> (== [0..length splittable_groups-1])
+  guard $ splittable_groups `finer` partition
 
   return do
-    indices <- partition
-    let group = indices |> concatMap (splittable_groups !!)
+    group <- partition
     let splitted_edges = node |> edges |> filter (symbol .> (`elem` group))
     return $ fromEdges splitted_edges

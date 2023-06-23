@@ -57,7 +57,7 @@ Examples:
   - 0->5; 1->2; 2->3
     *1
 
->>> printBAC $ fromJust $ splitSymbol (3,1) ([1,5] `zip` repeat []) cone
+>>> printBAC $ fromJust $ splitSymbol (3,1) [(1,[]),(5,[])] cone
 - 0->1; 1->2
   - 0->1
     &0
