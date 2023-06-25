@@ -7,8 +7,8 @@ module BAC.Fundamental.Remove (
   removeNDSymbolOnRoot,
   removeNode,
   removeLeafNode,
-  removePrefix,
-  removeSuffix,
+  -- removePrefix,
+  -- removeSuffix,
 ) where
 
 import Control.Monad (guard)

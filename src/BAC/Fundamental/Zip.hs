@@ -8,8 +8,8 @@ module BAC.Fundamental.Zip (
   canonicalizeRootNode,
   canonicalizeArrow,
   canonicalizeNode,
-  forwardSymbolTrieUnder,
-  backwardSymbolTrieUnder,
+  -- forwardSymbolTrieUnder,
+  -- backwardSymbolTrieUnder,
   zipSuffixes,
 ) where
 

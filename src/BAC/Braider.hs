@@ -14,18 +14,18 @@ module BAC.Braider (
 import Control.Applicative (Alternative (empty))
 import Control.Monad (guard)
 import Control.Monad.Identity (Identity (runIdentity))
-import Control.Monad.State (MonadState (get, put), StateT (runStateT), gets)
+import Control.Monad.State (StateT (runStateT), get, gets, put)
 import Control.Monad.Trans.Maybe (MaybeT (runMaybeT))
 import Data.Foldable (find, foldlM)
-import Data.List (nub)
+import Data.List (nub, sort)
 import Data.List.Extra ((!?))
 import Data.Map.Strict (Map, insert, (!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 
 import BAC.Base hiding (empty)
-import BAC.Fundamental (expandMergingSymbols)
-import Utils.Utils ((|>), (.>))
+import Utils.DisjointSet (bipartiteEqclass)
+import Utils.Utils ((.>), (|>))
 
 type DAG p = Map p (BAC, [p])
 data BraidState p = BraidState (DAG p) [p]
@@ -69,6 +69,19 @@ knot children = do
 
 newtype Path = Path [Int]
 
+expandMergingSymbols :: [[Arrow]] -> [[Symbol]]
+expandMergingSymbols =
+  fmap (fmap (dict .> Map.toList))
+  .> zip [0 :: Integer ..]
+  .> concatMap sequence
+  .> concatMap sequence
+  .> fmap (\(a, (b, c)) -> ((a, b), c))
+  .> bipartiteEqclass
+  .> fmap snd
+  .> filter (length .> (> 1))
+  .> fmap sort
+  .> sort
+
 -- | Merge symbols in the Braider.
 infixl 2 //
 (//) :: (Enum p, Ord p, Monad m) => BraiderT p m p -> [Path] -> BraiderT p m p
@@ -88,9 +101,9 @@ braiding // eqclass_paths = do
 
   let eqclass' =
         eqclass
-        |> fmap (pathToArrow .> symbol)
-        |> (: [])
-        |> expandMergingSymbols node
+        |> fmap pathToArrow
+        |> return
+        |> expandMergingSymbols
 
   let mergeSymbol sym = eqclass' |> find (elem sym) |> fmap head |> fromMaybe sym
   let merged_edges = do

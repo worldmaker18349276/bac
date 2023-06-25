@@ -8,8 +8,8 @@ module BAC.Fundamental.Duplicate (
   duplicateNDSymbolOnRoot,
   duplicateNode,
   duplicateLeafNode,
-  duplicatePrefix,
-  duplicateSuffix,
+  -- duplicatePrefix,
+  -- duplicateSuffix,
 ) where
 
 import Control.Arrow (first)

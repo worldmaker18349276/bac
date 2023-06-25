@@ -8,8 +8,9 @@ module BAC.Fundamental.Merge (
   mergeSymbolsOnRoot,
   mergeNodes,
   mergeRootNodes,
-  expandMergingSymbols,
-  mergeSymbolsAggressively,
+  -- expandMergingSymbols,
+  -- mergeSymbolsAggressively,
+  -- mergeSymbolsOnRootAggressively,
 ) where
 
 import Control.Arrow ((&&&))
@@ -351,3 +352,6 @@ mergeSymbolsAggressively (src, tgts) merger node = do
 
   fromReachable res0 lres |> fmap fst
 
+mergeSymbolsOnRootAggressively ::
+  [[Symbol]] -> ((Symbol, [Symbol]) -> Symbol) -> BAC -> Maybe BAC
+mergeSymbolsOnRootAggressively tgts = mergeSymbolsAggressively (base, tgts)
