@@ -41,7 +41,7 @@ eqStruct :: [BAC] -> Bool
 eqStruct = fmap edgesND .> fmap (fmap dict) .> allSame
 
 {- |
-Zip arrows of BACs, which shows the equality of nodes up to rewiring and relabelling.
+Zip arrows of BACs, which shows the equality of nodes up to rewiring and relabeling.
 Also, the equality of child nodes are not checked.  The correspondence between
 nondecomposable edges of the root nodes should be provided.
 -}
@@ -65,7 +65,7 @@ zipArrows nodes_prefix = do
         dicts
         |> fmap (concatMap Map.elems .> nub)
         |> fmap ((base :) .> (`zip` [base..]) .> Map.fromList)
-  -- dictionaries should become the same after relabelling
+  -- dictionaries should become the same after relabeling
   guard $ maps `zip` dicts |> fmap (sequence .> fmap (uncurry cat)) |> allSame
 
   -- zip all arrows
@@ -208,7 +208,7 @@ Examples:
 -}
 zipSuffixes ::
   [(Symbol, [(Symbol, Symbol)])]
-      -- ^ The symbols to zip and the keys to classify nondecomposable incoming edges.
+  -- ^ The symbols to zip and the keys to classify nondecomposable incoming edges.
   -> BAC
   -> Maybe [(Arrow, [Arrow])]
 zipSuffixes [] _ = Just []

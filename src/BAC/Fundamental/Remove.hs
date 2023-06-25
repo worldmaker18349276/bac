@@ -16,7 +16,7 @@ import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 
 import BAC.Base
-import Utils.Utils ((.>), (|>), guarded)
+import Utils.Utils (guarded, (.>), (|>))
 
 -- $setup
 -- >>> import Data.Maybe (fromJust)
@@ -76,25 +76,27 @@ Examples:
     *1
 -}
 removeNDSymbol ::
-  (Symbol, Symbol)  -- ^ The pair of symbols indicating the morphism to be removed.
+  (Symbol, Symbol)
+  -- ^ The pair of symbols indicating the morphism to be removed.
   -> BAC
   -> Maybe BAC
 removeNDSymbol (src, tgt) node = do
   -- ensure that `(src, tgt)` is reachable and nondecomposable
   (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
-  guard $ nondecomposable (target src_arr) tgt
+  let src_node = target src_arr
+  guard $ nondecomposable src_node tgt
 
-  -- edit the subtree of `src`
+  -- remove edge of `tgt` from `src_node`
   let src_node' = fromEdges do
-        edge <- edges (target src_arr)
+        edge <- edges src_node
         if symbol edge /= tgt
         then return edge
         else do
-          -- remove the edge and add edges by joining the removed edge to outgoing edges
-          subedge <- target edge |> edges
-          return $ edge `join` subedge
+          -- add edges by joining the removed edge to outgoing edges
+          subedge <- target tgt_subarr |> edges
+          return $ tgt_subarr `join` subedge
 
-  -- edit the whole tree
+  -- rebuild the whole tree
   fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
@@ -157,11 +159,10 @@ removeNode tgt node = do
   -- ensure that `tgt` reference a proper subnode.
   guard $ locate (root node) tgt == Inner
 
-  -- edit the whole tree
+  -- remove the node of `tgt`
   fromInner $ node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
-    -- remove the incoming edge and add edges by joining this incoming edge and outgoing
-    -- edges
+    -- repace the incoming edge by joining this edge and outgoing edges
     AtBoundary -> do
       subedge <- target edge |> edges
       return $ edge `join` subedge

@@ -23,7 +23,7 @@ module BAC.Fundamental.Add (
 import Control.Monad (guard, mzero)
 import Data.Bifunctor (second)
 import Data.Foldable (find)
-import Data.List (sort, findIndex)
+import Data.List (findIndex, sort)
 import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, snoc)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
@@ -31,7 +31,7 @@ import Data.Maybe (fromJust, isJust)
 import Data.Tuple.Extra (both)
 
 import BAC.Base
-import Utils.Utils (guarded, (.>), (|>))
+import Utils.Utils (asserted, guarded, (.>), (|>))
 
 -- $setup
 -- >>> import BAC.Serialize
@@ -59,17 +59,17 @@ validateCoangle node (sym_sym1, sym_sym2) = isJust do
   -- ensure that `sym_sym1`, `sym_sym2` are reachable
   arr_arr1 <- arrow2 node sym_sym1
   arr_arr2 <- arrow2 node sym_sym2
-  -- ensure that `sym_sym1` and `sym_sym2` start at the same node
+  -- ensure that `arr_arr1` and `arr_arr2` start at the same node
   guard $ symbol (fst arr_arr1) == symbol (fst arr_arr2)
+  let sym0 = symbol (fst arr_arr1)
 
   -- ensure that all coforks of `sym_sym1` are also coforks of `sym_sym2`
   guard $
     -- find all nondecomposable incoming edges
-    fst sym_sym1
-    |> suffixND node
-    -- group them to form coforks of `sym_sym1`
+    suffixND node sym0
+    -- group them to form coforks of `arr_arr1`
     |> groupSortOn (second (`join` snd arr_arr1) .> symbol2)
-    -- for each group, they should also be cofork of `sym_sym2`
+    -- for each group, they should also be cofork of `arr_arr2`
     |> all (fmap (second (`join` snd arr_arr2) .> symbol2) .> allSame)
 
 -- | Check whether a given value is a valid angle.  A valid angle obey: forks of the short
@@ -80,14 +80,14 @@ validateAngle node (sym_sym1, sym_sym2) = isJust do
   -- ensure that `sym_sym1`, `sym_sym2` are reachable
   arr_arr1 <- arrow2 node sym_sym1
   arr_arr2 <- arrow2 node sym_sym2
-  -- ensure that `sym_sym1` and `sym_sym2` end at the same node
+  -- ensure that `arr_arr1` and `arr_arr2` end at the same node
   guard $ symbol (uncurry join arr_arr1) == symbol (uncurry join arr_arr2)
+  let node0 = target (uncurry join arr_arr1)
 
   -- ensure that all forks of `sym_sym1` are also forks of `sym_sym2`
   guard $
     -- find all nondecomposable outgoing edges
-    target (snd arr_arr1)
-    |> edgesND
+    edgesND node0
     -- group them to form forks of `sym_sym1`
     |> groupSortOn ((snd arr_arr1 `join`) .> symbol)
     -- for each group, they should also be fork of `sym_sym2`
@@ -192,25 +192,21 @@ compatibleCoanglesAngles node coangles angles =
   isJust $
     coangles |> traverse \(sym_sym1, sym_sym2) -> do
       angles |> traverse \(sym_sym1', sym_sym2') -> do
-        let arr_arr1 = arrow2 node sym_sym1 |> fromJust
-        let arr_arr2 = arrow2 node sym_sym2 |> fromJust
-        let arr_arr1' = arrow2 node sym_sym1' |> fromJust
-        let arr_arr2' = arrow2 node sym_sym2' |> fromJust
-
-        -- ensure ending node of the short edge of coangle is the starting node of the
-        -- long edge of angle
-        guard $ uncurry join arr_arr1 == fst arr_arr2'
-        -- ensure ending node of the long edge of coangle is the starting node of the
-        -- short edge of angle
-        guard $ uncurry join arr_arr2 == fst arr_arr1'
-
-        -- compose the short edge of coangle and the long edge of angle
-        -- and compose the long edge of coangle and the short edge of angle
-        -- they should be the same
         arr_arr1 <- arrow2 node sym_sym1
         arr_arr2 <- arrow2 node sym_sym2
         arr_arr1' <- arrow2 node sym_sym1'
         arr_arr2' <- arrow2 node sym_sym2'
+
+        -- ensure ending node of the short edge of coangle is the starting node of the
+        -- long edge of angle
+        guard $ symbol (uncurry join arr_arr1) == symbol (fst arr_arr2')
+        -- ensure ending node of the long edge of coangle is the starting node of the
+        -- short edge of angle
+        guard $ symbol (uncurry join arr_arr2) == symbol (fst arr_arr1')
+
+        -- compose the short edge of coangle and the long edge of angle
+        -- and compose the long edge of coangle and the short edge of angle
+        -- they should be the same
         let arr3 = snd arr_arr1 `join` snd arr_arr2'
         let arr3' = snd arr_arr2 `join` snd arr_arr1'
         guard $ symbol arr3 == symbol arr3'
@@ -225,12 +221,15 @@ Examples:
 ([[((0,1),(0,6))]],[])
 -}
 findValidCoanglesAngles ::
-  Symbol      -- ^ The symbol indicating the source object of the morphism to be added.
-  -> Symbol   -- ^ The symbol indicating the target object of the morphism to be added.
-  -> BAC      -- ^ The root node of BAC.
+  Symbol
+  -- ^ The symbol indicating the source object of the morphism to be added.
+  -> Symbol
+  -- ^ The symbol indicating the target object of the morphism to be added.
+  -> BAC
+  -- ^ The root node of BAC.
   -> Maybe ([[Coangle]], [[Angle]])
-              -- ^ The coangles and angles need to be selected, or Nothing if it is
-              --   invalid to add such morphism.
+  -- ^ The coangles and angles need to be selected, or Nothing if it is invalid to add
+  --   such morphism.
 findValidCoanglesAngles src tgt node = do
   -- ensure that `src` and `tgt` are reachable, and check the order between `src` and `tgt`
   src_arr <- arrow node src
@@ -294,20 +293,26 @@ Examples:
     *2
 -}
 addNDSymbol ::
-  Symbol         -- ^ The symbol indicating the source object of the morphism to be added.
-  -> Symbol      -- ^ The symbol indicating the target object of the morphism to be added.
-  -> Symbol      -- ^ The symbol to be added.
-  -> [Coangle]   -- ^ The picked coangles from `findValidCoanglesAngles`.
-  -> [Angle]     -- ^ The picked angles from `findValidCoanglesAngles`.
+  Symbol
+  -- ^ The symbol indicating the source object of the morphism to be added.
+  -> Symbol
+  -- ^ The symbol indicating the target object of the morphism to be added.
+  -> Symbol
+  -- ^ The symbol to be added.
+  -> [Coangle]
+  -- ^ The picked coangles from `findValidCoanglesAngles`.
+  -> [Angle]
+  -- ^ The picked angles from `findValidCoanglesAngles`.
   -> BAC
   -> Maybe BAC
 addNDSymbol src tgt sym src_alts tgt_alts node = do
   -- ensure that `src` and `tgt` are reachable, and check the order between `src` and `tgt`
   src_arr <- arrow node src
   tgt_arr <- arrow node tgt
+  let src_node = target src_arr
   guard $ locate tgt_arr src |> (== Outer)
   -- ensure that it is valid to add symbol `sym` to the node of `src`
-  guard $ target src_arr |> symbols |> (`snoc` sym) |> anySame |> not
+  guard $ src_node |> symbols |> (`snoc` sym) |> anySame |> not
 
   -- check picked angles and coangles
   let (src_angs, tgt_angs) = findValidCoanglesAngles src tgt node |> fromJust
@@ -332,10 +337,12 @@ addNDSymbol src tgt sym src_alts tgt_alts node = do
         tgt_alts
         |> fmap (both (arrow2 node .> fromJust))
         |> concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
-        -- link base symbol to the new symbol `sym`
-        |> ((base, sym) :)
+        -- make a dictionary
         |> nubSort
+        |> asserted (fmap fst .> anySame .> not) -- checked by `compatibleAngles`
         |> Map.fromList
+        -- link base symbol to the new symbol `sym`
+        |> Map.insert base sym
   let new_edge = Arrow {dict = new_dict, target = target tgt_arr}
 
   -- find new added wire with start point `sym` on the node of `src`
@@ -344,7 +351,7 @@ addNDSymbol src tgt sym src_alts tgt_alts node = do
   let determine_new_wire (arr1, arr23) =
         -- make suffix decomposition on this edge: `arr23` => `(arr2, arr3)`
         suffixND (target arr1) (symbol arr23)
-        |> head
+        |> head -- either of these will give the same result, checked by `compatibleCoangles`
         |> \(arr2, arr3) ->
           -- determine new added wire for the nondecomposable edge `arr3` first
           -- find corresponding coangle
@@ -352,14 +359,14 @@ addNDSymbol src tgt sym src_alts tgt_alts node = do
           |> find (fst .> (== symbol2 (arr1 `join` arr2, arr3)))
           |> fromJust
           -- symbol `sym` will be mapped to the symbol referencing the long edge of this coangle
-          |> \(_, (_, s)) -> (sym, s)
+          |> (\(_, (_, s)) -> (sym, s))
           -- determine new added wire for the edge `arr23`
           |> second (dict arr2 !)
 
-  -- edit the subtree of `src`
-  let src_node' = target src_arr |> edges |> (`snoc` new_edge) |> fromEdges
+  -- add the new edge to `src_node`
+  let src_node' = src_node |> edges |> (`snoc` new_edge) |> fromEdges
 
-  -- edit the whole tree
+  -- add new wires to incoming edges of `src_node`
   fromReachable src_node' $ node |> modifyUnder src \(curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
@@ -415,10 +422,12 @@ Examples:
     *1
 -}
 addLeafNode ::
-  Symbol      -- ^ The symbol referencing the node to append.
-  -> Symbol   -- ^ The symbol referencing the added node.
+  Symbol
+  -- ^ The symbol referencing the node to append.
+  -> Symbol
+  -- ^ The symbol referencing the added node.
   -> ((Symbol, Symbol) -> Symbol)
-              -- ^ The function to insert symbol to all ancestor nodes.
+  -- ^ The function to insert symbol to all ancestor nodes.
   -> BAC
   -> Maybe BAC
 addLeafNode src sym inserter node = do
@@ -430,17 +439,15 @@ addLeafNode src sym inserter node = do
   guard $ src_node |> symbols |> (`snoc` sym) |> anySame |> not
   guard $
     arrowsUnder node src |> all \curr ->
-      curr `divide` src_arr
-      |> fmap ((curr,) .> symbol2 .> inserter)
-      |> (++ symbols (target curr))
-      |> anySame
-      |> not
+      let
+        add_list = curr `divide` src_arr |> fmap ((curr,) .> symbol2 .> inserter)
+      in
+        symbols (target curr) |> (++ add_list) |> anySame |> not
 
-  -- edit the subtree of `src`
+  -- add the new node to `src_node`
   let new_node = fromJust $ singleton sym
   let src_node' = fromEdges (edges src_node ++ edges new_node)
 
-  -- edit the whole tree
   fromReachable src_node' $
     node |> modifyUnder src \(curr, edge) -> \case
       AtOuter -> return edge
@@ -448,17 +455,17 @@ addLeafNode src sym inserter node = do
         where
         -- determine new symbol to insert
         new_sym = inserter (symbol curr, symbol edge)
-        -- add new wire `(sym, new_sym)`
         new_dict = dict edge |> Map.insert sym new_sym
       AtInner subnode -> return edge {dict = new_dict, target = subnode}
         where
         new_wires =
           -- find all arrows from the node of `src` to the target node of this edge
           (curr `join` edge) `divide` src_arr
-          -- the inserted symbol for `subarr` should be wired to the inserted symbol for `join edge subarr`
-          |> fmap (\subarr -> ((curr `join` edge, subarr), (curr, edge `join` subarr)))
-          |> fmap (both (symbol2 .> inserter))
-        new_dict = new_wires |> foldr (uncurry Map.insert) (dict edge)
+          |> fmap \subarr ->
+            -- the inserted symbol for `subarr` should be wired to the inserted symbol for `join edge subarr`
+            ((curr `join` edge, subarr), (curr, edge `join` subarr))
+            |> both (symbol2 .> inserter)
+        new_dict = dict edge `Map.union` Map.fromList new_wires
 
 {- |
 Insert a node in the middle of an arrow, where @(src, tgt) :: (Symbol, Symbol)@ indicates
@@ -502,6 +509,7 @@ addParentNode ::
 addParentNode (src, tgt) sym mapping inserter node = do
   -- ensure that `(src, tgt)` is reachable and proper
   (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
+  let src_node = target src_arr
   let tgt_arr = src_arr `join` tgt_subarr
   guard $ tgt /= base
 
@@ -509,23 +517,21 @@ addParentNode (src, tgt) sym mapping inserter node = do
   guard $ symbols (target tgt_subarr) |> (== Map.keys mapping)
   guard $ Map.elems mapping |> (base :) |> anySame |> not
   -- validate added symbols
-  guard $ symbols (target src_arr) |> (`snoc` sym) |> anySame |> not
+  guard $ symbols src_node |> (`snoc` sym) |> anySame |> not
   guard $
     arrowsUnder node src |> all \curr ->
-      curr `divide` tgt_arr
-      |> fmap ((curr,) .> symbol2 .> inserter)
-      |> (++ symbols (target curr))
-      |> anySame
-      |> not
+      let
+        add_list = curr `divide` tgt_arr |> fmap ((curr,) .> symbol2 .> inserter)
+      in
+        symbols (target curr) |> (++ add_list) |> anySame |> not
 
-  -- edit the subtree of `src`
+  -- add edge to the node of `src`
   let new_outedge = Arrow {dict = mapping, target = target tgt_subarr}
   let new_node = fromEdges [new_outedge]
   let new_indict = dict tgt_subarr |> Map.mapKeys (mapping !) |> Map.insert base sym
   let new_inedge = Arrow {dict = new_indict, target = new_node}
-  let src_node' = fromEdges $ edges (target src_arr) `snoc` new_inedge
+  let src_node' = fromEdges $ edges src_node `snoc` new_inedge
 
-  -- edit the whole tree
   fromReachable src_node' $
     node |> modifyUnder src \(curr, edge) -> \case
       AtOuter -> return edge
@@ -536,10 +542,13 @@ addParentNode (src, tgt) sym mapping inserter node = do
       AtInner subnode -> return edge {dict = new_dict, target = subnode}
         where
         new_wires =
+          -- find all arrows from the node of `src` to the target node of this edge
           (curr `join` edge) `divide` src_arr
-          |> fmap (\subarr -> ((curr `join` edge, subarr), (curr, edge `join` subarr)))
-          |> fmap (both (symbol2 .> inserter))
-        new_dict = new_wires |> foldr (uncurry Map.insert) (dict edge)
+          |> fmap \subarr ->
+            -- the inserted symbol for `subarr` should be wired to the inserted symbol for `join edge subarr`
+            ((curr `join` edge, subarr), (curr, edge `join` subarr))
+            |> both (symbol2 .> inserter)
+        new_dict = dict edge `Map.union` Map.fromList new_wires
 
 -- | Insert a node in the middle of an arrow started at the root (add an object).  See
 --   `addParentNode` for details.

@@ -11,15 +11,15 @@ module BAC.Fundamental.Restructure (
 ) where
 
 import Control.Monad (guard)
-import Data.List.Extra (snoc, anySame, replace)
+import Data.List.Extra (snoc)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromJust)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (dupe)
 import Numeric.Natural (Natural)
 
 import BAC.Base
 import Utils.Utils ((|>))
-import Data.Maybe (fromJust)
 
 -- $setup
 -- >>> import Data.Map (fromList)
@@ -68,7 +68,8 @@ Examples:
 Nothing
 -}
 rewire ::
-  (Symbol, [Symbol])  -- ^ The list of pairs of symbols of rewired edges.
+  (Symbol, [Symbol])
+  -- ^ The list of pairs of symbols of rewired edges.
   -> BAC
   -> Maybe BAC
 rewire (src, tgts) node = do
@@ -108,7 +109,8 @@ Examples:
     *1
 -}
 addEdge ::
-  (Symbol, Symbol)  -- ^ The pair of symbols of added edge.
+  (Symbol, Symbol)
+  -- ^ The pair of symbols of added edge.
   -> BAC
   -> Maybe BAC
 addEdge (src, tgt) node = do
@@ -139,7 +141,8 @@ Examples:
     *1
 -}
 removeEdge ::
-  (Symbol, Symbol)  -- ^ The pair of symbols of removed edge.
+  (Symbol, Symbol)
+  -- ^ The pair of symbols of removed edge.
   -> BAC
   -> Maybe BAC
 removeEdge (src, tgt) node = do
@@ -180,14 +183,16 @@ Nothing
 Nothing
 -}
 relabel ::
-  Symbol    -- ^ The symbol referencing to the node to relabel.
-  -> Dict   -- ^ The dictionary to relabel the symbols of the node.
+  Symbol
+  -- ^ The symbol referencing the node to relabel.
+  -> Dict
+  -- ^ The dictionary to relabel the symbols of the node.
   -> BAC
   -> Maybe BAC
 relabel tgt mapping node = do
   tgt_node <- arrow node tgt |> fmap target
 
-  -- validate the relabeling mapping
+  -- validate the relabel mapping
   guard $ Map.lookup base mapping == Just base
   guard $ Map.keys mapping == symbols tgt_node
   let unmapping = mapping |> Map.toList |> fmap swap |> Map.fromList
@@ -223,20 +228,18 @@ Examples:
     *1
 -}
 alterSymbol ::
-  (Symbol, Symbol)  -- ^ The pair of symbols to be altered.
-  -> Symbol         -- ^ The new symbol.
+  (Symbol, Symbol)
+  -- ^ The pair of symbols to be altered.
+  -> Symbol
+  -- ^ The new symbol.
   -> BAC
   -> Maybe BAC
 alterSymbol (src, tgt) sym node = do
   -- ensure that `(src, tgt)` is reachable
   (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
 
-  -- ensure that it is valid to alter the symbol `tgt` to `sym` on the node of `src`.
-  let syms = src_arr |> target |> symbols
-  guard $ syms |> replace [tgt] [sym] |> anySame |> not
-
-  -- construct the relabeling mapping
-  let mapping = syms |> fmap dupe |> Map.fromList |> Map.insert tgt sym
+  -- construct the relabel mapping
+  let mapping = symbols (target src_arr) |> fmap dupe |> Map.fromList |> Map.insert tgt sym
   node |> relabel src mapping
 
 -- | Shift a symbol `tgt` on a node referenced by `src`, where `tgt` cannot be `base`.

@@ -83,26 +83,23 @@ duplicateNDSymbol (src, tgt) syms node = do
   -- ensure that it is valid to relace `tgt` with `syms`
   guard $ src_node |> symbols |> replace [tgt] syms |> anySame |> not
 
-  -- edit the subtree of `src`
   let src_node' = fromEdges do
         edge <- edges src_node
         if symbol edge /= tgt
         then return edge
         else do
-          -- duplicate the edge of `(src, tgt)`
+          -- duplicate the edge of `(src, tgt)` by replacing link `(base, tgt)` with `(base, sym)`
           sym <- syms
-          -- replace link `(base, tgt)` with `(base, sym)`
           let dup_dict = dict edge |> Map.insert base sym
           return $ edge {dict = dup_dict}
 
-  -- edit the whole tree
   fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
     AtBoundary -> do
-      -- replace link `(tgt, _)` with `(sym, _)`
-      let sym' = dict edge ! tgt
-      let splitted_dict = syms |> foldr (`Map.insert` sym') (Map.delete tgt (dict edge))
+      -- replace link `(tgt, _)` with `(sym, _)` for `sym <- syms`
+      let duplicate (s, r) = if s == tgt then [(s', r) | s' <- syms] else [(s, r)]
+      let splitted_dict = dict edge |> Map.toList |> concatMap duplicate |> Map.fromList
       return edge {dict = splitted_dict, target = src_node'}
 
 -- | Duplicate a nondecomposable symbol on the root node (duplicate an initial
@@ -209,7 +206,6 @@ duplicateNode tgt shifters node = do
       |> anySame
       |> not
 
-  -- edit the whole tree
   fromInner $ node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {dict = duplicated_dict, target = subnode}

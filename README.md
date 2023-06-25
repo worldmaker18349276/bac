@@ -5,7 +5,7 @@
 - [ ]  improve code
     - [ ]  more precise on manipulation of `Map`
     - [ ]  more precise zip: `class Distribute`
-    - [ ]  validate parameters → compute the derived propositions → construct data structure
+    - [ ]  validate parameters -> compute the derived propositions -> construct data structure
     - [ ]  more comments, even not necessary; math sense is different from code sense
 - [ ]  enhance documentation of BAC
     - [ ]  explain `printBAC`
@@ -17,7 +17,7 @@
     - [ ]  less Maybe (which should only work for validation), more partial function (known complex condition is hard to encode into type system)
     - [ ]  propositions over efficiency (less reuse, more duplication)
     - [ ]  current problem: lack of test case, considered as unreliable
-    - [ ]  add documentation: “this package is for/is not for”
+    - [ ]  add documentation: "this package is for/is not for"
 - [ ]  interactive Hasse diagram
     - [ ]  html + js, canvas (or svg)
     - [ ]  tooltip, smooth transition, distribution algorithm

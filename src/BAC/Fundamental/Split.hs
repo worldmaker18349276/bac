@@ -57,6 +57,8 @@ partitionPrefix node tgt =
   |> fmap sort
   |> sort
 
+-- | Ckeck if `partition1` is finer than `partition2`: if two elements are in the same
+--   part in `partition1`, they are also in the same part in `partition2`.
 finer :: Ord a => [[a]] -> [[a]] -> Bool
 finer partition1 partition2 = isPartition && sameHost && include
   where
@@ -126,28 +128,24 @@ Examples:
     *0
 -}
 splitSymbol ::
-  (Symbol, Symbol)  -- ^ The pair of symbols referencing the arrow to split.
+  (Symbol, Symbol)
+  -- ^ The pair of symbols referencing the arrow to split.
   -> [(Symbol, [(Symbol, Symbol)])]
-                    -- ^ The map from new symbols to splitted groups compatible to
-                    --   `partitionPrefix`.
+  -- ^ The map from new symbols to splitted groups finer than `partitionPrefix`.
   -> BAC
   -> Maybe BAC
 splitSymbol (src, tgt) partition node = do
   -- ensure that `(src, tgt)` is reachable and proper
   (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
   guard $ tgt /= base
+  let src_node = target src_arr
 
   -- ensure that every splittable groups have been classified to splitted symbols
-  let splittable_groups = partitionPrefix (target src_arr) tgt
+  let splittable_groups = partitionPrefix src_node tgt
   guard $ splittable_groups `finer` fmap snd partition
 
   -- validate splitted symbols
-  guard $
-    target src_arr
-    |> symbols
-    |> replace [tgt] (fmap fst partition)
-    |> anySame
-    |> not
+  guard $ src_node |> symbols |> replace [tgt] (fmap fst partition) |> anySame |> not
 
   -- classify each prefix to a splitted symbol
   let splitter =
@@ -156,13 +154,13 @@ splitSymbol (src, tgt) partition node = do
         |> fmap swap
         |> Map.fromList
 
-  -- edit the subtree of `src`
   let src_node' = fromEdges do
-        edge <- target src_arr |> edges |> (tgt_subarr :)
+        -- add a direct edge to `tgt`, then modify their dictionaries
+        edge <- src_node |> edges |> (tgt_subarr :)
         let sym0 = symbol edge
         if sym0 == tgt
         then do
-          -- duplicate direct edge for each splitted symbol
+          -- duplicate the direct edge for each splitted symbol
           (sym, _) <- partition
           let duplicated_dict = dict tgt_subarr |> Map.insert base sym
           return edge {dict = duplicated_dict}
@@ -172,7 +170,6 @@ splitSymbol (src, tgt) partition node = do
           let splitted_dict = dict edge |> Map.mapWithKey split
           return edge {dict = splitted_dict}
 
-  -- edit the whole tree
   fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
@@ -264,15 +261,15 @@ Examples:
     *2
 -}
 splitNode ::
-  Symbol  -- ^ The symbol referencing the node to be splitted.
+  Symbol
+  -- ^ The symbol referencing the node to be splitted.
   -> [((Symbol, Symbol) -> Symbol, [Symbol])]
-          -- ^ The splitters and splitted groups of symbols compatible to
-          --   `partitionSymbols`.
+  -- ^ The splitters and splitted groups of symbols finer than `partitionSymbols`.
   -> BAC
   -> Maybe BAC
 splitNode tgt partition node = do
   -- ensure that `tgt` is reachable and proper
-  tgt_arr <- arrow node tgt
+  tgt_node <- arrow node tgt |> fmap target
   guard $ tgt /= base
 
   let splitter = partition |> fmap fst |> sequence
@@ -287,12 +284,9 @@ splitNode tgt partition node = do
       |> anySame
       |> not
 
-  -- edit the subtree of `tgt`
-  tgt_nodes' <-
-    target tgt_arr
-    |> splitRootNode (fmap snd partition)
+  -- split `tgt_node`
+  tgt_nodes' <- tgt_node |> splitRootNode (fmap snd partition)
 
-  -- edit the whole tree
   fromInner $ node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {dict = duplicated_dict, target = subnode}
@@ -337,7 +331,8 @@ Examples:
     *0
 -}
 splitRootNode ::
-  [[Symbol]]  -- ^ The splitted groups of symbols compatible to `partitionSymbols`.
+  [[Symbol]]
+  -- ^ The splitted groups of symbols finer than `partitionSymbols`.
   -> BAC
   -> Maybe [BAC]
 splitRootNode partition node = do

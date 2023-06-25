@@ -14,19 +14,19 @@ module BAC.Fundamental.Merge (
 
 import Control.Arrow ((&&&))
 import Control.Monad (guard)
-import Data.Bifunctor (Bifunctor (first, second))
+import Data.Bifunctor (first)
+import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
-import Data.List.Extra (allSame, anySame, groupSortOn, snoc)
+import Data.List (sort)
+import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, snoc)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, fromMaybe)
 
 import BAC.Base
 import BAC.Fundamental.Zip (zipSuffixes)
-import Utils.Utils ((.>), (|>))
-import Data.Foldable (find)
 import Utils.DisjointSet (bipartiteEqclass)
-import Data.List (sort)
+import Utils.Utils (asserted, (.>), (|>))
 
 -- $setup
 -- >>> import BAC.Serialize
@@ -81,8 +81,10 @@ Examples:
 Nothing
 -}
 mergeSymbols ::
-  (Symbol, [Symbol])  -- ^ The symbol referencing the node and symbols to be merged.
-  -> Symbol           -- ^ The new symbol after merging.
+  (Symbol, [Symbol])
+  -- ^ The symbol referencing the node and symbols to be merged.
+  -> Symbol
+  -- ^ The new symbol after merging.
   -> BAC
   -> Maybe BAC
 mergeSymbols (src, tgts) sym node = do
@@ -105,20 +107,19 @@ mergeSymbols (src, tgts) sym node = do
   guard $ suffix node src |> all \(_, edge) ->
     tgts |> fmap (dict edge !) |> allSame
 
-  -- edit the subtree of `src`
+  -- merge symbols on `src_node`
   let merge s = if s `elem` tgts then sym else s
   let src_node' = fromEdges do
         edge <- edges src_node
-        let dict' = dict edge |> Map.toList |> fmap (second merge) |> Map.fromList
+        let dict' = dict edge |> Map.map merge
         return edge {dict = dict'}
 
-  -- edit the whole tree
   fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
     AtBoundary -> return edge {dict = dict', target = src_node'}
       where
-      dict' = dict edge |> Map.toList |> fmap (first merge) |> Map.fromList
+      dict' = dict edge |> Map.mapKeys merge
 
 -- | Merge symbols on the root node (merge initial morphisms).  See `mergeSymbols` for
 --   details.
@@ -170,10 +171,10 @@ Examples:
 -}
 mergeNodes ::
   [(Symbol, [(Symbol, Symbol)])]
-      -- ^ The symbols referencing the nodes to merge and the nondecomposable incoming
-      --   morphisms to zip.
+  -- ^ The symbols referencing the nodes to merge and the nondecomposable incoming
+  --   morphisms to zip.
   -> ((Symbol, [Symbol]) -> Symbol)
-      -- ^ The merger of symbols.
+  -- ^ The merger of symbols.
   -> BAC
   -> Maybe BAC
 mergeNodes tgts_suffix merger node = do
@@ -207,9 +208,8 @@ mergeNodes tgts_suffix merger node = do
   -- merge nodes of `tgts`, where they should have distinct `symbols` except `base`
   merged_node <- mergeRootNodes tgt_nodes
 
-  -- map suffixes to merged symbols and merged dictionaries
-  let merged_syms_dicts :: Map.Map (Symbol, Symbol) (Symbol, Dict)
-      merged_syms_dicts = Map.fromList do
+  -- map suffixes to merged arrow
+  let merged_arrs = Map.fromList do
         (curr, arrs) <- zipped_suffix
         let sym0 = symbol curr
         let syms = fmap symbol arrs
@@ -219,36 +219,39 @@ mergeNodes tgts_suffix merger node = do
               |> fmap dict
               |> foldl Map.union Map.empty
               |> Map.insert base merged_sym
+        let merged_arr = Arrow { dict = merged_dict, target = merged_node }
         sym <- syms
-        return ((sym0, sym), (merged_sym, merged_dict))
+        return ((sym0, sym), merged_arr)
 
-  -- edit the whole tree
   fromReachable node $
     node |> foldUnder (head tgts) \curr results -> fromEdges do
       (subnode, edge) <- results `zip` edges (target curr)
       let sym0 = symbol curr
       let sym = symbol (curr `join` edge)
-      let collapsed_node =
-            if sym `elem` tgts
-            then merged_node
-            else subnode |> fromInner |> fromMaybe (target edge)
-      let collapsed_dict =
-            if sym `elem` tgts
-            -- a direct edge to the target => get merged dictionary
-            then merged_syms_dicts |> (! (sym0, symbol edge)) |> snd
-            -- an edge between nodes under the target => merge symbols of keys and values
-            -- of the original dictionary
-            else
-              dict edge
-              |> Map.toList
-              |> fmap (\(s1, s2) ->
-                (
-                  merged_syms_dicts |> Map.lookup (sym, s1) |> maybe s1 fst,
-                  merged_syms_dicts |> Map.lookup (sym0, s2) |> maybe s2 fst
-                )
-              )
-              |> Map.fromList
-      return edge {dict = collapsed_dict, target = collapsed_node}
+      if sym `elem` tgts
+      then
+        -- a direct edge to the target => get merged arrow
+        return $ merged_arrs ! symbol2 (curr, edge)
+      else
+        let
+          -- an edge between nodes under the target => merge symbols of keys and values
+          -- of the original dictionary
+          collapsed_node = subnode |> fromInner |> fromMaybe (target edge)
+          collapsed_dict =
+            dict edge
+            |> Map.toList
+            |> fmap (\(s1, s2) ->
+              if dict curr ! s2 `elem` tgts
+              then
+                (symbol $ merged_arrs ! (sym, s1), symbol $ merged_arrs ! (sym0, s2))
+              else
+                (s1, s2)
+            )
+            |> nubSort
+            |> asserted (fmap fst .> anySame .> not)
+            |> Map.fromList
+        in
+          return edge {dict = collapsed_dict, target = collapsed_node}
 
 {- |
 Merge root nodes (merge BACs), with a parameter `nodes :: [BAC]` indicating the nodes to
