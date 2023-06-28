@@ -1,6 +1,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module BAC.Fundamental.Zip (
   eqStruct,
