@@ -64,6 +64,7 @@ library
         BAC.Fundamental,
         BAC.Braider,
         BAC.Serialize,
+        BAC.Deserialize,
         BAC.Examples
 
     -- Modules included in this library but not exported.
@@ -90,6 +91,7 @@ library
         transformers ^>=0.6.1,
         mtl ^>=2.3.1,
         extra ^>=1.7.12,
+        parsec,
 
     -- Directories containing source files.
     hs-source-dirs:   src
