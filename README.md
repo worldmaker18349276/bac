@@ -18,16 +18,3 @@ This package is for educational purposes, not for practical use, therefore we us
 - implementation and categorical algorithm:
 
     The code to implement operations are very different from the categorical algorithm described on the paper, which is due to the data structure we designed: the tree structure enforces us to write procedure codes, which enlarges the gap between the implementations and categorical algorithm.  Therefore, this package is not conducive to understanding the full details of the algorithm.  To minimize the gap, many comments are added for the categorical perspective.
-
-
-## TODO
-
-- [ ]  enhance documentation of BAC
-    - [ ]  explain `printBAC`
-    - [ ]  add more nontrivial examples; they should touch every cases in the code
-- [ ]  interactive Hasse diagram
-    - [ ]  html + js, canvas (or svg)
-    - [ ]  tooltip, smooth transition, distribution algorithm
-    - [ ]  graph edit script:
-        - split edge, split node, add node, add edge, remove edge, remove node, merge node, merge edge
-    - [ ]  use this to make animated slide: more natural and easy to understand for diagram explanation
