@@ -18,3 +18,10 @@ This package is for educational purposes, not for practical use, therefore we us
 - implementation and categorical algorithm:
 
     The code to implement operations are very different from the categorical algorithm described on the paper, which is due to the data structure we designed: the tree structure enforces us to write procedure codes, which enlarges the gap between the implementations and categorical algorithm.  Therefore, this package is not conducive to understanding the full details of the algorithm.  To minimize the gap, many comments are added for the categorical perspective.
+
+## How To Build
+
+```
+cabal configure
+cabal build && cabal haddock --haddock-hyperlink-source
+```

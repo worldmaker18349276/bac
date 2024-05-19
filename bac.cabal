@@ -45,7 +45,9 @@ maintainer:         worldmaker18349276@gmail.com
 build-type:         Simple
 
 -- Extra doc files to be distributed with the package, such as a CHANGELOG or a README.
-extra-doc-files:    CHANGELOG.md
+extra-doc-files:
+    CHANGELOG.md
+    img/*.png
 
 -- Extra source files to be distributed with the package, such as examples, or a tutorial module.
 -- extra-source-files:
@@ -86,7 +88,7 @@ library
 
     -- Other library packages from which modules are imported.
     build-depends:
-        base ^>=4.14.3.0,
+        base ^>=4.16.4.0,
         containers ^>=0.6.7,
         transformers ^>=0.6.1,
         mtl ^>=2.3.1,

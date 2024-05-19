@@ -10,7 +10,7 @@ import Data.Maybe (fromJust)
 -- >>> import BAC.Serialize
 
 {- |
-![cone](./pictures/cone-serialize.png)
+![cone](./img/cone-serialize.png)
 
 >>> printBAC cone
 - 0->1; 1->2
@@ -39,7 +39,7 @@ cone = fromJust $ braid $ do
     // [Path [0,0], Path [1,0,0]]
 
 {- |
-![torus](./pictures/torus-serialize.png)
+![torus](./img/torus-serialize.png)
 
 >>> printBAC torus
 - 0->1; 1->2; 2->3; 3->3; 4->5; 6->3; 7->2; 8->3; 10->5
@@ -76,7 +76,7 @@ torus = fromJust $ braid $ do
 
 {- |
 
-![crescent](./pictures/crescent-serialize.png)
+![crescent](./img/crescent-serialize.png)
 
 >>> printBAC crescent
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4
