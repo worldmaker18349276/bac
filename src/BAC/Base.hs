@@ -1,7 +1,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TupleSections #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module BAC.Base (
   -- * Basic #basic#
@@ -36,11 +36,8 @@ module BAC.Base (
   --
   --   See my paper for a detailed explanation.
 
-  Tree (..),
-  showTree,
-  BAC,
+  BAC (BAC),
   edges,
-  fromEdges,
   Arrow (..),
   Dict,
   Symbol,
@@ -65,11 +62,15 @@ module BAC.Base (
   root,
   join,
   arrow,
+  path,
   symbol,
   extend,
+  inv,
   divide,
   arrows,
+  paths,
   arrowsUnder,
+  pathsUnder,
 
   -- ** Pair of Arrows #arrow2#
 
@@ -105,7 +106,7 @@ module BAC.Base (
 
 import Data.Bifunctor (bimap)
 import Data.Foldable (foldl')
-import Data.List (intercalate, sortOn)
+import Data.List (sortOn)
 import Data.List.Extra (allSame, groupSortOn, nubSort, snoc)
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
@@ -122,45 +123,13 @@ import Utils.Utils (guarded, (.>), (|>))
 -- >>> import BAC
 -- >>> import BAC.Examples (cone, torus, crescent)
 
--- | A tree whose edges are indexed by keys with type `e`.
-newtype Tree e = Tree (Map e (Tree e)) deriving (Eq, Ord, Show)
-
-{- |
-Show tree concisely.
-
-Examples:
-
->>> let leaf = Tree Map.empty
->>> putStrLn $ showTree (leaf :: Tree ())
-{}
-
->>> let branch = Tree . Map.fromList
->>> putStrLn $ showTree $ branch [("a", branch [("x", leaf), ("y", leaf)]), ("b", leaf)]
-{"a":{"x":{},"y":{}},"b":{}}
--}
-showTree :: Show e => Tree e -> String
-showTree (Tree m) =
-  m
-  |> Map.toList
-  |> fmap (\(key, subnode) -> show key ++ ":" ++ showTree subnode)
-  |> intercalate ","
-  |> (\c -> "{" ++ c ++ "}")
-
 -- | The tree representation of a bounded acyclic category.
 --   It should be validated by `validate`.
-type BAC = Tree Dict
-
--- | The edges of a node.
-edges :: BAC -> [Arrow]
-edges (Tree m) = m |> Map.toList |> fmap (uncurry Arrow)
-
--- | Construct a BAC by edges.  The structure will not be validated, use `makeBAC` instead.
-fromEdges :: [Arrow] -> BAC
-fromEdges = fmap (\Arrow {dict, target} -> (dict, target)) .> Map.fromList .> Tree
+newtype BAC e = BAC { edges :: [Arrow e] } deriving (Eq, Ord, Show, Functor)
 
 -- | Arrow to a bounded acyclic category, representing a downward functor.
 --   It should be validated by `validateArrow`, or use `makeArrow`.
-data Arrow = Arrow {dict :: Dict, target :: BAC} deriving (Eq, Ord, Show)
+data Arrow e = Arrow {dict :: Dict, value :: e, target :: BAC e} deriving (Eq, Ord, Show, Functor)
 
 -- | Dictionary of an arrow, representing mapping of objects between nodes.
 type Dict = Map Symbol Symbol
@@ -186,7 +155,7 @@ Examples:
 >>> symbols crescent
 [0,1,2,3,4]
 -}
-symbols :: BAC -> [Symbol]
+symbols :: BAC e -> [Symbol]
 symbols = edges .> concatMap (dict .> Map.elems) .> (base :) .> nubSort
 
 {- |
@@ -206,8 +175,8 @@ Examples:
 
 >>> printBAC empty
 -}
-empty :: BAC
-empty = fromEdges []
+empty :: BAC e
+empty = BAC []
 
 {- |
 a node with only one descendant (a BAC with only one proper object).
@@ -220,41 +189,44 @@ Examples:
 >>> printBAC $ fromJust $ singleton 2
 - 0->2
 -}
-singleton :: Symbol -> Maybe BAC
-singleton sym = if sym == base then Nothing else Just $ fromEdges [new_edge]
+singleton :: Symbol -> e -> Maybe (BAC e)
+singleton sym e = if sym == base then Nothing else Just $ BAC [new_edge]
   where
   new_dict = Map.singleton base sym
   new_node = empty
-  new_edge = Arrow {dict = new_dict, target = new_node}
+  new_edge = Arrow {dict = new_dict, value = e, target = new_node}
 
 -- | Root arrow of a node.
-root :: BAC -> Arrow
-root node = Arrow {dict = id_dict, target = node}
+root :: Monoid e => BAC e -> Arrow e
+root node = Arrow {dict = id_dict, value = mempty, target = node}
   where
   id_dict = node |> symbols |> fmap dupe |> Map.fromList
 
 -- | Join two arrows into one arrow.
 --   It may crashes if two arrows are not composable.
-join :: HasCallStack => Arrow -> Arrow -> Arrow
-join arr1 arr2 = arr2 {dict = dict arr1 `cat` dict arr2}
+join :: (HasCallStack, Monoid e) => Arrow e -> Arrow e -> Arrow e
+join arr1 arr2 = arr2 {dict = dict arr1 `cat` dict arr2, value = value arr1 <> value arr2}
+
+inv :: Dict -> Symbol -> [Symbol]
+inv dict sym =
+  dict
+  |> Map.toList
+  |> filter (snd .> (== sym))
+  |> fmap fst
+  |> nubSort
 
 -- | Divide two arrows.  The first is divisor and the second is the dividend, and they
 --   should start at the same node.
 --   It obeys the following law:
 --
 --   > arr23 `elem` divide arr12 arr13  ->  arr12 `join` arr23 == arr13
-divide :: Arrow -> Arrow -> [Arrow]
+divide :: Monoid e => Arrow e -> Arrow e -> [Arrow e]
 divide arr12 arr13 =
-  arr12
-  |> dict
-  |> Map.toList
-  |> filter (snd .> (== symbol arr13))
-  |> fmap fst
-  |> nubSort
+  inv (dict arr12) (symbol arr13)
   |> fmap (arrow (target arr12) .> fromJust)
 
 -- | Extend an arrow by joining to the edges of the target node.
-extend :: Arrow -> [Arrow]
+extend :: Monoid e => Arrow e -> [Arrow e]
 extend arr = target arr |> edges |> fmap (join arr)
 
 -- | The relative location between nodes.
@@ -274,7 +246,7 @@ Boundary
 >>> locate (root cone) 5
 Outer
 -}
-locate :: Arrow -> Symbol -> Location
+locate :: Arrow e -> Symbol -> Location
 locate arr sym
   | symbol arr == sym   = Boundary
   | sym `elem` dict arr = Inner
@@ -295,7 +267,7 @@ Just EQ
 >>> fromJust (arrow cone 2) `compare` fromJust (arrow cone 6)
 Nothing
 -}
-compare :: HasCallStack => Arrow -> Arrow -> Maybe Ordering
+compare :: HasCallStack => Arrow e -> Arrow e -> Maybe Ordering
 compare arr1 arr2 =
   case (locate arr1 (symbol arr2), locate arr2 (symbol arr1)) of
     (Boundary, Boundary) -> Just EQ
@@ -316,13 +288,21 @@ Just (Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
 >>> arrow cone 5
 Nothing
 -}
-arrow :: BAC -> Symbol -> Maybe Arrow
+arrow :: Monoid e => BAC e -> Symbol -> Maybe (Arrow e)
 arrow node sym = go (root node)
   where
   go arr = case locate arr sym of
     Outer    -> Nothing
     Boundary -> Just arr
     Inner    -> Just $ arr |> extend |> mapMaybe go |> head
+
+path :: Monoid e => BAC e -> Symbol -> [Arrow e]
+path node sym = go (root node)
+  where
+  go arr = case locate arr sym of
+    Outer    -> []
+    Boundary -> [arr]
+    Inner    -> arr |> extend |> concatMap go
 
 {- |
 The symbol referencing to the given arrow.
@@ -336,7 +316,7 @@ Just 3
 >>> fmap symbol (arrow cone 5)
 Nothing
 -}
-symbol :: Arrow -> Symbol
+symbol :: Arrow e -> Symbol
 symbol = dict .> (! base)
 
 {- |
@@ -353,7 +333,7 @@ Just (Arrow {dict = fromList [(0,2)], target = ...
 >>> arrow2 cone (1,2)
 Nothing
 -}
-arrow2 :: BAC -> (Symbol, Symbol) -> Maybe (Arrow, Arrow)
+arrow2 :: Monoid e => BAC e -> (Symbol, Symbol) -> Maybe (Arrow e, Arrow e)
 arrow2 node (src, tgt) = do
   src_arr <- arrow node src
   tgt_subarr <- arrow (target src_arr) tgt
@@ -371,7 +351,7 @@ Just (3,2)
 >>> fmap symbol2 (arrow2 cone (1,2))
 Nothing
 -}
-symbol2 :: (Arrow, Arrow) -> (Symbol, Symbol)
+symbol2 :: (Arrow e, Arrow e) -> (Symbol, Symbol)
 symbol2 = symbol `bimap` symbol
 
 {- |
@@ -382,15 +362,15 @@ It obeys the following law:
 > ->  arr1 `elem` edges node
 > &&  symbol (arr1 `join` arr2) == sym
 -}
-prefix :: BAC -> Symbol -> [(Arrow, Arrow)]
+prefix :: Monoid e => BAC e -> Symbol -> [(Arrow e, Arrow e)]
 prefix node sym =
   arrow node sym
   |> maybe [] \tgt_arr ->
     node
     |> edges
-    |> concatMap \arr ->
-      divide arr tgt_arr
-      |> fmap (arr,)
+    |> concatMap \edge ->
+      divide edge tgt_arr
+      |> fmap (edge,)
 
 {- |
 Find suffix edges of paths from a node to a given symbol.
@@ -400,7 +380,7 @@ It obeys the following law:
 > ->  arr2 `elem` edges (target arr1)
 > &&  symbol (arr1 `join` arr2) == sym
 -}
-suffix :: BAC -> Symbol -> [(Arrow, Arrow)]
+suffix :: Monoid e => BAC e -> Symbol -> [(Arrow e, Arrow e)]
 suffix node sym =
   arrowsUnder node sym
   |> sortOn symbol
@@ -419,14 +399,14 @@ It obeys the following law:
 > ->  arr13 `elem` extend arr12
 > &&  arr12 `join` arr24 == arr13 `join` arr34
 -}
-extend2 :: (Arrow, Arrow) -> [(Arrow, Arrow)]
+extend2 :: Monoid e => (Arrow e, Arrow e) -> [(Arrow e, Arrow e)]
 extend2 (arr1, arr2) =
   target arr1
   |> edges
   |> filter ((`locate` symbol arr2) .> (/= Outer))
-  |> concatMap \arr ->
-    arr `divide` arr2
-    |> fmap (arr1 `join` arr,)
+  |> concatMap \edge ->
+    edge `divide` arr2
+    |> fmap (arr1 `join` edge,)
 
 {- |
 Divide two tuples of arrows.  The first is divisor and the second is the dividend, and
@@ -438,7 +418,7 @@ It obeys the following laws:
 > ->  arr12 `join` arr23 == arr13
 > &&  arr23 `join` arr34 == arr34
 -}
-divide2 :: (Arrow, Arrow) -> (Arrow, Arrow) -> [Arrow]
+divide2 :: Monoid e => (Arrow e, Arrow e) -> (Arrow e, Arrow e) -> [Arrow e]
 divide2 (arr12, arr24) (arr13, arr34) =
   arr12 `divide` arr13 |> filter \arr23 ->
     symbol (arr23 `join` arr34) == symbol arr24
@@ -464,25 +444,25 @@ True
 >>> nondecomposable cone 10  -- no such arrow
 True
 -}
-nondecomposable :: BAC -> Symbol -> Bool
+nondecomposable :: BAC e -> Symbol -> Bool
 nondecomposable node sym = node |> edges |> all ((`locate` sym) .> (/= Inner))
 
 -- | Nondecomposable edges of a node.
-edgesND :: BAC -> [Arrow]
+edgesND :: BAC e -> [Arrow e]
 edgesND node =
   edges node
   |> filter (symbol .> nondecomposable node)
 
 -- | Find nondecomposible prefix edges of paths from a node to a given symbol.
 --   See `prefix`.
-prefixND :: BAC -> Symbol -> [(Arrow, Arrow)]
+prefixND :: Monoid e => BAC e -> Symbol -> [(Arrow e, Arrow e)]
 prefixND node sym =
   prefix node sym
   |> filter (\(arr1, _) -> nondecomposable node (symbol arr1))
 
 -- | Find nondecomposible suffix edges of paths from a node to a given symbol.
 --   See `suffix`.
-suffixND :: BAC -> Symbol -> [(Arrow, Arrow)]
+suffixND :: Monoid e => BAC e -> Symbol -> [(Arrow e, Arrow e)]
 suffixND node sym =
   suffix node sym
   |> filter (\(arr1, arr2) -> nondecomposable (target arr1) (symbol arr2))
@@ -490,7 +470,7 @@ suffixND node sym =
 
 -- | Check if a node is valid.  All child nodes of this node are assumed to be valid.
 --   See [Types]("BAC.Base#g:types") for detail.
-validate :: BAC -> Bool
+validate :: (Monoid e, Eq e) => BAC e -> Bool
 validate node = validateDicts && validateSup
   where
   -- check totality for all edges of this node.
@@ -501,11 +481,12 @@ validate node = validateDicts && validateSup
     |> concatMap (\edge -> edge |> target |> arrows |> fmap (join edge))
     |> (root node :)
     |> groupSortOn symbol
+    |> fmap (fmap \arr -> (dict arr, target arr))
     |> all allSame
 
 -- | Check if an arrow is valid.  The target node is assumed to be valid.
 --   See [Types]("BAC.Base#g:types") for detail.
-validateArrow :: Arrow -> Bool
+validateArrow :: (Monoid e, Eq e) => Arrow e -> Bool
 validateArrow arr = validateDict && validateSup
   where
   -- check totality for this arrow.
@@ -518,6 +499,7 @@ validateArrow arr = validateDict && validateSup
     |> fmap (join arr)
     |> (arr :)
     |> groupSortOn symbol
+    |> fmap (fmap \subarr -> (dict subarr, target subarr))
     |> all allSame
 
 {- |
@@ -534,18 +516,18 @@ True
 >>> validateAll crescent
 True
 -}
-validateAll :: BAC -> Bool
+validateAll :: (Monoid e, Eq e) => BAC e -> Bool
 validateAll node = validateChildren && validate node
   where
   validateChildren = node |> edges |> all (target .> validateAll)
 
 -- | Make a node with validation.
-makeBAC :: [Arrow] -> Maybe BAC
-makeBAC = fromEdges .> guarded validate
+makeBAC :: (Monoid e, Eq e) => [Arrow e] -> Maybe (BAC e)
+makeBAC = BAC .> guarded validate
 
 -- | Make an arrow with validation.
-makeArrow :: Dict -> BAC -> Maybe Arrow
-makeArrow dict target = Arrow {dict = dict, target = target} |> guarded validateArrow
+makeArrow :: (Monoid e, Eq e) => Dict -> e -> BAC e -> Maybe (Arrow e)
+makeArrow dict e target = Arrow {dict = dict, value = e, target = target} |> guarded validateArrow
 
 
 -- | A value labeled by the relative position of the node.
@@ -588,10 +570,11 @@ The evaluation order follows the DFS algorithm.  Each node will only be evaluate
 0
 -}
 fold ::
-  (Arrow -> [r] -> r)
+  Monoid e
+  => (Arrow e -> [r] -> r)
   -- ^ The function to reduce a node and the results into a value, where the results are
   --   reduced values of its child nodes.
-  -> BAC
+  -> BAC e
   -- ^ The root node of BAC to fold.
   -> r
   -- ^ The folding result.
@@ -620,11 +603,12 @@ The evaluation order follows the DFS algorithm.
 0
 -}
 foldUnder ::
-  Symbol
+  Monoid e
+  => Symbol
   -- ^ The symbol referencing to the boundary.
-  -> (Arrow -> [Located r] -> r)
+  -> (Arrow e -> [Located r] -> r)
   -- ^ The reduce function.  Where the results of child nodes are labeled by `Located`.
-  -> BAC
+  -> BAC e
   -- ^ The root node of BAC to fold.
   -> Located r
   -- ^ The folding result, which is labeled by `Located`.
@@ -638,31 +622,33 @@ foldUnder sym f = root .> memoizeWithKey symbol \self curr ->
 
 -- | Modify edges of BAC.
 modify ::
-  ((Arrow, Arrow) -> BAC -> [Arrow])
+  Monoid e
+  => ((Arrow e, Arrow e) -> BAC e -> [Arrow e])
   -- ^ The function to modify edge.  The first parameter is the original edge to modified,
   --   and the second parameter is the modified target node.  It should return a list of
   --   modified edges.
-  -> BAC
+  -> BAC e
   -- ^ The root node of BAC to modify.
-  -> BAC
+  -> BAC e
   -- ^ The modified result.
 modify f =
-  fold \curr results -> fromEdges do
+  fold \curr results -> BAC do
     (res, edge) <- results `zip` edges (target curr)
     f (curr, edge) res
 
 -- | Modify edges of BAC under a node.
 modifyUnder ::
-  Symbol
+  Monoid e
+  => Symbol
   -- ^ The symbol referencing to the boundary.
-  -> ((Arrow, Arrow) -> Located BAC -> [Arrow])
+  -> ((Arrow e, Arrow e) -> Located (BAC e) -> [Arrow e])
   -- ^ The modify function.  Where the results of child nodes are labeled by `Located`.
-  -> BAC
+  -> BAC e
   -- ^ The root node of BAC to modify.
-  -> Located BAC
+  -> Located (BAC e)
   -- ^ The modified result, which is labeled by `Located`.
 modifyUnder sym f =
-  foldUnder sym \curr results -> fromEdges do
+  foldUnder sym \curr results -> BAC do
     (res, edge) <- results `zip` edges (target curr)
     f (curr, edge) res
 
@@ -681,7 +667,7 @@ Examples:
 >>> fmap symbol $ arrows torus
 [3,2,5,1,0]
 -}
-arrows :: BAC -> [Arrow]
+arrows :: Monoid e => BAC e -> [Arrow e]
 arrows = root .> go [] .> fmap snd
   where
   go res curr
@@ -689,6 +675,11 @@ arrows = root .> go [] .> fmap snd
     | otherwise               = curr |> extend |> foldl' go res |> (`snoc` (sym, curr))
     where
     sym = symbol curr
+
+paths :: Monoid e => BAC e -> [Arrow e]
+paths = root .> go []
+  where
+  go res curr = curr |> extend |> foldl' go res |> (`snoc` curr)
 
 {- |
 All arrows under a given symbol of this node in evalution order of foldUnder.
@@ -701,7 +692,7 @@ Examples:
 >>> fmap symbol $ arrowsUnder cone 5
 []
 -}
-arrowsUnder :: BAC -> Symbol -> [Arrow]
+arrowsUnder :: Monoid e => BAC e -> Symbol -> [Arrow e]
 arrowsUnder node sym = node |> root |> go [] |> fmap snd
   where
   go res curr
@@ -710,6 +701,13 @@ arrowsUnder node sym = node |> root |> go [] |> fmap snd
     | otherwise                = curr |> extend |> foldl' go res |> (`snoc` (sym', curr))
     where
     sym' = symbol curr
+
+pathsUnder :: Monoid e => BAC e -> Symbol -> [Arrow e]
+pathsUnder node sym = node |> root |> go []
+  where
+  go res curr
+    | locate curr sym /= Inner = res
+    | otherwise                = curr |> extend |> foldl' go res |> (`snoc` curr)
 
 {- |
 Fold a BAC reversely.
@@ -736,7 +734,7 @@ Examples:
 1
 2
 -}
-cofold :: (Arrow -> [((Arrow, Arrow), r)] -> r) -> BAC -> [(Arrow, r)]
+cofold :: Monoid e => (Arrow e -> [((Arrow e, Arrow e), r)] -> r) -> BAC e -> [(Arrow e, r)]
 cofold f node = go [(root node, [])] []
   where
   -- go :: [(Arrow, [((Arrow, Arrow), r)])] -> [(Arrow, r)] -> [(Arrow, r)]
@@ -747,7 +745,7 @@ cofold f node = go [(root node, [])] []
     results' = if null (extend curr) then (curr, value) : results else results
     table' =
       edges (target curr)
-      |> fmap (\arr -> (curr `join` arr, ((curr, arr), value)))
+      |> fmap (\edge -> (curr `join` edge, ((curr, edge), value)))
       |> foldl' insertSlot table
   -- insertSlot ::
   --   [(Arrow, [((Arrow, Arrow), r)])]
@@ -777,7 +775,7 @@ Just [0,3,0,3,4,6]
 4
 6
 -}
-cofoldUnder :: Symbol -> (Arrow -> [((Arrow, Arrow), r)] -> r) -> BAC -> Maybe r
+cofoldUnder :: Monoid e => Symbol -> (Arrow e -> [((Arrow e, Arrow e), r)] -> r) -> BAC e -> Maybe r
 cofoldUnder tgt f node =
   if locate (root node) tgt == Outer then Nothing else Just $ go [(root node, [])]
   where
@@ -788,7 +786,7 @@ cofoldUnder tgt f node =
     value = f curr args
     table' =
       edges (target curr)
-      |> fmap (\arr -> (curr `join` arr, ((curr, arr), value)))
+      |> fmap (\edge -> (curr `join` edge, ((curr, edge), value)))
       |> filter (fst .> (`locate` tgt) .> (/= Outer))
       |> foldl' insertSlot table
   -- insertSlot ::
