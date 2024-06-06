@@ -8,8 +8,6 @@ module BAC.Fundamental.Remove (
   removeNDSymbolOnRoot,
   removeNode,
   removeLeafNode,
-  -- removePrefix,
-  -- removeSuffix,
 ) where
 
 import Control.Monad (guard)
@@ -17,7 +15,7 @@ import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 
 import BAC.Base
-import Utils.Utils (guarded, (.>), (|>))
+import Utils.Utils ((|>))
 
 -- $setup
 -- >>> import Data.Maybe (fromJust)
@@ -77,43 +75,44 @@ Examples:
     *1
 -}
 removeNDSymbol ::
-  (Symbol, Symbol)
+  Monoid e
+  => (Symbol, Symbol)
   -- ^ The pair of symbols indicating the morphism to be removed.
-  -> BAC
-  -> Maybe BAC
+  -> BAC e
+  -> Maybe (BAC e)
 removeNDSymbol (src, tgt) node = do
   -- ensure that `(src, tgt)` is reachable and nondecomposable
-  (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
+  (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
   let src_node = target src_arr
   guard $ nondecomposable src_node tgt
 
   -- remove edge of `tgt` from `src_node`
-  let src_node' = fromEdges do
+  let src_node' = BAC do
         edge <- edges src_node
         if symbol edge /= tgt
         then return edge
         else do
-          -- add edges by joining the removed edge to outgoing edges
-          subedge <- target tgt_subarr |> edges
-          return $ tgt_subarr `join` subedge
+          -- add edges by joining the removed edges to outgoing edges
+          subedge <- target edge |> edges
+          return $ edge `join` subedge
 
   -- rebuild the whole tree
+  let removed_edges = path node tgt
   fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
-    AtBoundary ->
-      [
-        -- remove link from the removed symbol
-        edge {dict = filtered_dict, target = src_node'},
-        -- add an edge by joining incoming edge to the removed edge
-        edge `join` tgt_subarr
-      ]
+    AtBoundary -> filtered_edge : do
+        -- add edges by joining incoming edge to the removed edges
+        removed_edge <- removed_edges
+        return $ edge `join` removed_edge
       where
+      -- remove link from the removed symbol
       filtered_dict = dict edge |> Map.delete tgt
+      filtered_edge = edge {dict = filtered_dict, target = src_node'}
 
 -- | Remove a nondecomposable symbol on the root node (remove a nondecomposable initial
 --   morphism).  See `removeNDSymbol` for details.
-removeNDSymbolOnRoot :: Symbol -> BAC -> Maybe BAC
+removeNDSymbolOnRoot :: Monoid e => Symbol -> BAC e -> Maybe (BAC e)
 removeNDSymbolOnRoot tgt = removeNDSymbol (base, tgt)
 
 
@@ -155,7 +154,7 @@ Examples:
   - 0->4; 2->3
     *0
 -}
-removeNode :: Symbol -> BAC -> Maybe BAC
+removeNode :: Monoid e => Symbol -> BAC e -> Maybe (BAC e)
 removeNode tgt node = do
   -- ensure that `tgt` reference a proper subnode.
   guard $ locate (root node) tgt == Inner
@@ -167,87 +166,17 @@ removeNode tgt node = do
     AtBoundary -> do
       subedge <- target edge |> edges
       return $ edge `join` subedge
-    -- remove symbols referencing the removed node
-    AtInner subnode -> return edge {dict = filtered_dict, target = subnode}
+    AtInner subnode -> return filtered_edge
       where
+      -- remove symbols referencing the removed node
       filtered_dict = dict edge |> Map.filter (\s -> dict curr ! s /= tgt)
+      filtered_edge = edge {dict = filtered_dict, target = subnode}
 
 -- | Remove a leaf node (remove a nondecomposable terminal morphism).  See `removeNode`
 --   for details.
-removeLeafNode :: Symbol -> BAC -> Maybe BAC
+removeLeafNode :: Monoid e => Symbol -> BAC e -> Maybe (BAC e)
 removeLeafNode tgt node = do
   tgt_node <- arrow node tgt |> fmap target
   guard $ tgt_node |> edges |> null
 
   removeNode tgt node
-
-
-{- |
-Remove a non-terminal decomposable morphism and all prefix morphisms, where the first
-parameter @(src, tgt) :: (Symbol, Symbol)@ indicates the morphism to remove.
-
-Identity morphism cannot be remove.
--}
-removePrefix :: (Symbol, Symbol) -> BAC -> Maybe BAC
-removePrefix (src, tgt) node = do
-  guard $ tgt /= base
-  (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
-
-  let src_node = target src_arr
-  let remove_list = arrowsUnder src_node tgt |> fmap symbol |> filter (/= base) |> (tgt :)
-
-  let src_node' =
-        src_node
-        |> edges
-        |> filter (dict .> notElem tgt)
-        |> fromEdges
-  let syms0 = symbols src_node'
-  guard $ symbols src_node |> filter (`notElem` remove_list) |> (== syms0)
-
-  fromReachable src_node' $
-    node |> modifyUnder src \(_curr, edge) -> \case
-      AtOuter -> return edge
-      AtInner subnode -> return edge {target = subnode}
-      AtBoundary -> return edge {dict = dict', target = src_node'}
-        where
-        dict' = dict edge |> Map.filterWithKey \s _ -> s `elem` syms0
-
-{- |
-Remove a non-terminal decomposable morphism and all suffix morphisms, where the first
-parameter @(src, tgt) :: (Symbol, Symbol)@ indicates the morphism to remove.
-
-Identity morphism cannot be remove.
--}
-removeSuffix :: (Symbol, Symbol) -> BAC -> Maybe BAC
-removeSuffix (src, tgt) node = do
-  guard $ tgt /= base
-  (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
-  let tgt_arr = src_arr `join` tgt_subarr
-  let tgt' = symbol tgt_arr
-  let tgt_node = target tgt_subarr
-
-  lres <- sequence $
-    node |> foldUnder tgt' \curr results -> do
-      let is_outside = null (src_arr `divide` curr)
-      let remove_list = if is_outside then [] else curr `divide` tgt_arr |> fmap symbol
-
-      results' <- traverse sequence results
-
-      let res = fromEdges do
-            (lres, edge) <- results' `zip` edges (target curr)
-            case lres of
-              AtOuter -> return edge
-              AtBoundary -> guarded (const is_outside) edge
-              AtInner subnode | null (src_arr `divide` (curr `join` edge)) ->
-                return edge {target = subnode}
-              AtInner subnode | null (src_arr `divide` (curr `join` edge)) ->
-                return edge {target = subnode}
-              AtInner subnode -> return edge {dict = dict', target = subnode}
-                where
-                dict' = target edge |> symbols |> foldr Map.delete (dict edge)
-
-      guard $ symbols (target curr) |> filter (`notElem` remove_list) |> (== symbols res)
-
-      return res
-
-  fromReachable tgt_node lres
