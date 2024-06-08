@@ -4,16 +4,16 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module BAC.Fundamental.Add (
-  Coangle,
-  Angle,
-  validateCoangle,
-  validateAngle,
-  extendCoangle,
-  extendAngle,
-  compatibleAngles,
-  compatibleCoangles,
-  compatibleCoanglesAngles,
-  findValidCoanglesAngles,
+  Cofraction,
+  Fraction,
+  validateCofraction,
+  validateFraction,
+  extendCofraction,
+  extendFraction,
+  compatibleFractions,
+  compatibleCofractions,
+  compatibleCofractionsFractions,
+  findValidCofractionsFractions,
   addNDSymbol,
   addLeafNode,
   addParentNode,
@@ -24,7 +24,7 @@ import Control.Monad (guard, mzero)
 import Data.Bifunctor (second)
 import Data.Foldable (find)
 import Data.List (findIndex, sort)
-import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, snoc)
+import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, snoc, nubSortOn)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust, isJust)
@@ -32,6 +32,7 @@ import Data.Tuple.Extra (both)
 
 import BAC.Base
 import Utils.Utils (asserted, guarded, (.>), (|>))
+import Data.Tuple (swap)
 
 -- $setup
 -- >>> import BAC.Serialize
@@ -39,128 +40,130 @@ import Utils.Utils (asserted, guarded, (.>), (|>))
 -- >>> import BAC.Examples (cone, torus, crescent)
 
 -- | Two pairs of symbols representing two morphisms with the same starting node.  The
---   first pair of symbols is called short edge; the second pair of symbols is called long
---   edge, and the starting node of edges is called vertex of the coangle.  A coangle with
---   nondecomposable short edge is said to be nondecomposable.
-type Coangle = ((Symbol, Symbol), (Symbol, Symbol))
+--   first pair of symbols is called numerator; the second pair of symbols is called
+--   denominator.
+type Cofraction = ((Symbol, Symbol), (Symbol, Symbol))
 
 -- | Two pairs of symbols representing two morphisms with the same ending node. The first
---   pair of symbols is called short edge; the second pair of symbols is called long edge,
---   and the ending node of edges is called vertec of the angle.  An angle with
---   nondecomposable short edge is said to be nondecomposable.
-type Angle = ((Symbol, Symbol), (Symbol, Symbol))
+--   pair of symbols is called numerator; the second pair of symbols is called
+--   denominator.
+type Fraction = ((Symbol, Symbol), (Symbol, Symbol))
 
 
--- | Check whether a given value is a valid coangle.  A valid coangle obey: coforks of the
---   short edge are also coforks of the long edge.  A cofork of a morphism `f` is a pair
---   of distinct morphisms @(g, g')@ such that @f . g = f . g'@.
-validateCoangle :: BAC -> Coangle -> Bool
-validateCoangle node (sym_sym1, sym_sym2) = isJust do
-  -- ensure that `sym_sym1`, `sym_sym2` are reachable
-  arr_arr1 <- arrow2 node sym_sym1
-  arr_arr2 <- arrow2 node sym_sym2
-  -- ensure that `arr_arr1` and `arr_arr2` start at the same node
-  guard $ symbol (fst arr_arr1) == symbol (fst arr_arr2)
-  let sym0 = symbol (fst arr_arr1)
+-- | Check whether a given value is a valid cofraction.  A valid cofraction obey: coforks
+--   of the denominator are also coforks of the numerator.  A cofork of a morphism `f` is
+--   a pair of distinct morphisms @(g, g')@ such that @f . g = f . g'@.
+validateCofraction :: Monoid e => BAC e -> Cofraction -> Bool
+validateCofraction node (n, d) = isJust do
+  -- ensure that `n`, `d` are reachable
+  n_arr_arr <- arrow2 node n
+  d_arr_arr <- arrow2 node d
+  -- ensure that `n_arr_arr` and `d_arr_arr` start at the same node
+  guard $ symbol (fst n_arr_arr) == symbol (fst d_arr_arr)
+  let sym0 = symbol (fst n_arr_arr)
 
-  -- ensure that all coforks of `sym_sym1` are also coforks of `sym_sym2`
+  -- ensure that all coforks of `n` are also coforks of `d`
   guard $
     -- find all nondecomposable incoming edges
     suffixND node sym0
-    -- group them to form coforks of `arr_arr1`
-    |> groupSortOn (second (`join` snd arr_arr1) .> symbol2)
-    -- for each group, they should also be cofork of `arr_arr2`
-    |> all (fmap (second (`join` snd arr_arr2) .> symbol2) .> allSame)
+    -- group them to form coforks of `d_arr_arr`
+    |> groupSortOn (second (`join` snd d_arr_arr) .> symbol2)
+    -- for each group, they should also be cofork of `n_arr_arr`
+    |> all (fmap (second (`join` snd n_arr_arr) .> symbol2) .> allSame)
 
--- | Check whether a given value is a valid angle.  A valid angle obey: forks of the short
---   edge are also forks of the long edge.  A fork of a morphism `f` is a pair of distinct
---   morphisms @(g, g')@ such that @g . f = g' . f@.
-validateAngle :: BAC -> Angle -> Bool
-validateAngle node (sym_sym1, sym_sym2) = isJust do
-  -- ensure that `sym_sym1`, `sym_sym2` are reachable
-  arr_arr1 <- arrow2 node sym_sym1
-  arr_arr2 <- arrow2 node sym_sym2
-  -- ensure that `arr_arr1` and `arr_arr2` end at the same node
-  guard $ symbol (uncurry join arr_arr1) == symbol (uncurry join arr_arr2)
-  let node0 = target (uncurry join arr_arr1)
+-- | Check whether a given value is a valid fraction.  A valid fraction obey: forks of the
+--   denominator are also forks of the numerator.  A fork of a morphism `f` is a pair of
+--   distinct morphisms @(g, g')@ such that @g . f = g' . f@.
+validateFraction :: Monoid e => BAC e -> Fraction -> Bool
+validateFraction node (n, d) = isJust do
+  -- ensure that `n`, `d` are reachable
+  n_arr_arr <- arrow2 node n
+  d_arr_arr <- arrow2 node d
+  -- ensure that `n_arr_arr` and `d_arr_arr` end at the same node
+  guard $ symbol (uncurry join n_arr_arr) == symbol (uncurry join d_arr_arr)
+  let node0 = target (uncurry join n_arr_arr)
 
-  -- ensure that all forks of `sym_sym1` are also forks of `sym_sym2`
+  -- ensure that all forks of `n` are also forks of `d`
   guard $
     -- find all nondecomposable outgoing edges
     edgesND node0
-    -- group them to form forks of `sym_sym1`
-    |> groupSortOn ((snd arr_arr1 `join`) .> symbol)
-    -- for each group, they should also be fork of `sym_sym2`
-    |> all (fmap ((snd arr_arr2 `join`) .> symbol) .> allSame)
+    -- group them to form forks of `d`
+    |> groupSortOn ((snd d_arr_arr `join`) .> symbol)
+    -- for each group, they should also be fork of `n`
+    |> all (fmap ((snd n_arr_arr `join`) .> symbol) .> allSame)
 
 
--- | Extend a coangle with an arrow ending at the vertex of this coangle.
---   An extended valid coangle is also a valid coangle.
-extendCoangle :: BAC -> (Symbol, Symbol) -> Coangle -> Maybe Coangle
-extendCoangle node e (f, g) = do
-  -- ensure `e`, `f`, `g` are reachable
-  (e_arr, e_subarr) <- arrow2 node e
-  (f_arr, f_subarr) <- arrow2 node f
-  (g_arr, g_subarr) <- arrow2 node g
-  -- ensure `e` and `f`/`g` are composable
-  guard $ f_arr == g_arr && g_arr == e_arr `join` e_subarr
+-- | Extend a cofraction with an arrow ending at the vertex of this cofraction.
+--   An extended valid cofraction is also a valid cofraction.
+extendCofraction :: Monoid e => BAC e -> (Symbol, Symbol) -> Cofraction -> Maybe Cofraction
+extendCofraction node q (n, d) = do
+  -- ensure `q`, `n`, `d` are reachable
+  (q_arr, q_subarr) <- arrow2 node q
+  (n_arr, n_subarr) <- arrow2 node n
+  (d_arr, d_subarr) <- arrow2 node d
+  -- ensure `q` and `n`/`d` are composable
+  guard $
+    symbol n_arr == symbol d_arr
+    && symbol n_arr == symbol (q_arr `join` q_subarr)
   -- compose arrow and edges
-  let f' = symbol2 (e_arr, e_subarr `join` f_subarr)
-  let g' = symbol2 (e_arr, e_subarr `join` g_subarr)
-  return (f', g')
+  let n' = symbol2 (q_arr, q_subarr `join` n_subarr)
+  let d' = symbol2 (q_arr, q_subarr `join` d_subarr)
+  return (n', d')
 
--- | Extend an angle with an arrow starting at the vertex of this angle.
---   An extended valid angle is also a valid angle.
-extendAngle :: BAC -> Angle -> (Symbol, Symbol) -> Maybe Angle
-extendAngle node (f, g) e = do
-  -- ensure `e`, `f`, `g` are reachable
-  (e_arr, e_subarr) <- arrow2 node e
-  (f_arr, f_subarr) <- arrow2 node f
-  (g_arr, g_subarr) <- arrow2 node g
-  -- ensure `f`/`g` and `e` are composable
-  guard $ e_arr == f_arr `join` f_subarr
+-- | Extend a fraction with an arrow starting at the vertex of this fraction.
+--   An extended valid fraction is also a valid fraction.
+extendFraction :: Monoid e => BAC e -> Fraction -> (Symbol, Symbol) -> Maybe Fraction
+extendFraction node (n, d) q = do
+  -- ensure `q`, `n`, `d` are reachable
+  (q_arr, q_subarr) <- arrow2 node q
+  (d_arr, d_subarr) <- arrow2 node d
+  (n_arr, n_subarr) <- arrow2 node n
+  -- ensure `n`/`d` and `q` are composable
+  guard $
+    symbol (n_arr `join` n_subarr) == symbol (d_arr `join` d_subarr)
+    && symbol q_arr == symbol (d_arr `join` d_subarr)
   -- compose edges and arrow
-  let f' = symbol2 (f_arr, f_subarr `join` e_subarr)
-  let g' = symbol2 (g_arr, g_subarr `join` e_subarr)
-  return (f', g')
+  let n' = symbol2 (n_arr, n_subarr `join` q_subarr)
+  let d' = symbol2 (d_arr, d_subarr `join` q_subarr)
+  return (n', d')
 
 
--- | Check whether a list of angles are compatible with each other.
---   Angle @(f, g)@ and angle @(f', g')@ are compatible if @h . f = h' . f'@ implies @h .
---   g = h' . g'@ for all `h` and 'h''.  That is, two angles are compatible if their
---   extensions are unique on the short edge.
---   A valid angle is compatible with itself.
-compatibleAngles :: BAC -> [Angle] -> Bool
-compatibleAngles node angles = isJust do
-  -- ensure that all short/long edges of angles start at the same node
-  guard $ angles |> fmap (both fst) |> allSame
+-- | Check whether a list of fractions are compatible with each other.
+--   Fraction @(n, d)@ and fraction @(n', d')@ are compatible if @q . d = q' . d'@ implies
+--   @q . n = q' . n'@ for all `q` and 'q''.  That is, two fractions are compatible if
+--   their extensions are unique on the denominator.
+--   A valid fraction is compatible with itself.
+compatibleFractions :: Monoid e => BAC e -> [Fraction] -> Bool
+compatibleFractions node fractions = isJust do
+  -- ensure that all denominators/numerators of fractions start at the same node
+  guard $ fractions |> fmap (both fst) |> allSame
 
-  pairs <- angles |> traverse \(sym_sym1, sym_sym2) -> do
-    arr_arr1 <- arrow2 node sym_sym1
-    arr_arr2 <- arrow2 node sym_sym2
-    -- zip values of dictionaries of the short edge and the long edge
+  pairs <- fractions |> traverse \(n, d) -> do
+    n_arr_arr <- arrow2 node n
+    d_arr_arr <- arrow2 node d
+    -- zip values of dictionaries of the denominator and the numerator
     -- which form pairs between symbols on the starting nodes of those two edges
-    let syms1 = arr_arr1 |> snd |> dict |> Map.elems
-    let syms2 = arr_arr2 |> snd |> dict |> Map.elems
-    return $ syms1 `zip` syms2
+    let n_syms = n_arr_arr |> snd |> dict |> Map.elems
+    let d_syms = d_arr_arr |> snd |> dict |> Map.elems
+    return $ n_syms `zip` d_syms
   
-  -- if two pairs have the same first symbol, their second symbols should also be the same
-  -- that means the first symbol of distinct pair is unique
-  guard $ pairs |> concat |> nubSort |> fmap fst |> anySame |> not
+  -- if two pairs have the same second symbol, their first symbols should also be the same
+  guard $ pairs |> concat |> nubSort |> fmap snd |> anySame |> not
 
--- | Check whether a list of coangles are compatible.
---   Coangle @(f, g)@ and coangle @(f', g')@ are compatible if @f . h = f' . h'@ implies
---   @g . h = g' . h'@ for all `h` and 'h''.  That is, two coangles are compatible if
---   their extensions are unique on the short edge.
---   A valid coangle is compatible with itself.
---   For simplicity, we assume that the short edges of coangles are the edges of the node.
---   In fact, we only deal with angles and coangles that are nondecomposable.
-compatibleCoangles :: BAC -> [Coangle] -> Bool
-compatibleCoangles _ [] = True
-compatibleCoangles node coangles = isJust do
-  -- ensure that all short/long edges of coangles end at the same node
-  (sym0, _) <-
-    coangles
+-- | Check whether a list of cofractions are compatible.
+--   Cofraction @(n, d)@ and cofraction @(n', d')@ are compatible if @d . q = d' . q'@
+--   implies @n . q = n' . q'@ for all `q` and 'q''.  That is, two cofractions are
+--   compatible if their extensions are unique on the denominator.
+--   A valid cofraction is compatible with itself.
+--   For simplicity, we assume that the denominators of cofractions are edges of the node.
+--   In fact, we only deal with fractions and cofractions whose denominators are
+--   nondecomposable.
+compatibleCofractions :: Monoid e => BAC e -> [Cofraction] -> Bool
+compatibleCofractions _ [] = True
+compatibleCofractions node cofractions = isJust do
+  -- ensure that all denominators/numerators of cofractions end at the same node
+  (_, sym0) <-
+    cofractions
     |> fmap (both (arrow2 node .> fromJust .> uncurry join .> symbol))
     |> guarded allSame
     |> fmap head
@@ -168,113 +171,116 @@ compatibleCoangles node coangles = isJust do
   sequence_ $ node |> foldUnder sym0 \curr results -> do
     results' <- traverse sequence results
 
-    -- find extended coangle whose vertex is this node, and return two symbols referencing
-    -- the short edge and the long edge of this coangle.
+    -- find extended cofraction whose vertex is this node, and return two symbols referencing
+    -- the denominator and the numerator of this cofraction.
     let pairs = do
           (res, edge) <- results' `zip` edges (target curr)
           case res of
             AtOuter -> mzero
             AtInner subpairs -> subpairs |> fmap (both (dict edge !))
             AtBoundary ->
-              coangles
-              |> find (fst .> (== symbol2 (curr, edge)))
+              cofractions
+              |> find (snd .> (== symbol2 (curr, edge)))
               |> fmap (both snd)
               |> maybe mzero return
 
-    -- if two pairs have the same first symbol, their second symbols should also be the same
-    -- that means the first symbol of distinct pair is unique
-    pairs |> nubSort |> guarded (fmap fst .> anySame .> not)
+    -- if two pairs have the same second symbol, their first symbols should also be the same
+    pairs |> nubSort |> guarded (fmap snd .> anySame .> not)
 
--- | Check whether coangles and angles are compatible each others.
---   Coangle @(f, g)@ and angle @(g', f')@ are compatible if @f' . f = g' . g@.
-compatibleCoanglesAngles :: BAC -> [Coangle] -> [Angle] -> Bool
-compatibleCoanglesAngles node coangles angles =
+-- | Check whether cofractions and fractions are compatible each others.
+--   Cofraction @(n, d)@ and fraction @(n', d')@ are compatible if @n' . d = d' . n@.
+compatibleCofractionsFractions :: Monoid e => BAC e -> [Cofraction] -> [Fraction] -> Bool
+compatibleCofractionsFractions node cofractions fractions =
   isJust $
-    coangles |> traverse \(sym_sym1, sym_sym2) -> do
-      angles |> traverse \(sym_sym1', sym_sym2') -> do
-        arr_arr1 <- arrow2 node sym_sym1
-        arr_arr2 <- arrow2 node sym_sym2
-        arr_arr1' <- arrow2 node sym_sym1'
-        arr_arr2' <- arrow2 node sym_sym2'
+    cofractions |> traverse \(n_sym_sym, d_sym_sym) -> do
+      fractions |> traverse \(n_sym_sym', d_sym_sym') -> do
+        n_arr_arr <- arrow2 node n_sym_sym
+        d_arr_arr <- arrow2 node d_sym_sym
+        n_arr_arr' <- arrow2 node n_sym_sym'
+        d_arr_arr' <- arrow2 node d_sym_sym'
 
-        -- ensure ending node of the short edge of coangle is the starting node of the
-        -- long edge of angle
-        guard $ symbol (uncurry join arr_arr1) == symbol (fst arr_arr2')
-        -- ensure ending node of the long edge of coangle is the starting node of the
-        -- short edge of angle
-        guard $ symbol (uncurry join arr_arr2) == symbol (fst arr_arr1')
+        -- ensure ending node of the denominator of cofraction is the starting node of the
+        -- numerator of fraction
+        guard $ symbol (uncurry join d_arr_arr) == symbol (fst n_arr_arr')
+        -- ensure ending node of the numerator of cofraction is the starting node of the
+        -- denominator of fraction
+        guard $ symbol (uncurry join n_arr_arr) == symbol (fst d_arr_arr')
 
-        -- compose the short edge of coangle and the long edge of angle
-        -- and compose the long edge of coangle and the short edge of angle
+        -- compose the denominator of cofraction and the numerator of fraction
+        -- and compose the numerator of cofraction and the denominator of fraction
         -- they should be the same
-        let arr3 = snd arr_arr1 `join` snd arr_arr2'
-        let arr3' = snd arr_arr2 `join` snd arr_arr1'
-        guard $ symbol arr3 == symbol arr3'
+        let arr = snd d_arr_arr `join` snd n_arr_arr'
+        let arr' = snd n_arr_arr `join` snd d_arr_arr'
+        guard $ symbol arr == symbol arr'
 
 {- |
-Find all valid nondecomposable coangles and angles, which is used for adding a morphism.
-The results are the angles and coangles need to be selected, or Nothing if it is invalid.
+Find all valid nondecomposable cofractions and fractions, which is used for adding a
+morphism.  The results are the fractions and cofractions need to be selected, or Nothing
+if it is invalid.
 
 Examples:
 
->>> fromJust $ findValidCoanglesAngles 1 6 cone
+>>> fromJust $ findValidCofractionsFractions 1 6 cone
 ([[((0,1),(0,6))]],[])
 -}
-findValidCoanglesAngles ::
-  Symbol
+findValidCofractionsFractions ::
+  Monoid e
+  => Symbol
   -- ^ The symbol indicating the source object of the morphism to be added.
   -> Symbol
   -- ^ The symbol indicating the target object of the morphism to be added.
-  -> BAC
+  -> BAC e
   -- ^ The root node of BAC.
-  -> Maybe ([[Coangle]], [[Angle]])
-  -- ^ The coangles and angles need to be selected, or Nothing if it is invalid to add
-  --   such morphism.
-findValidCoanglesAngles src tgt node = do
+  -> Maybe ([[Cofraction]], [[Fraction]])
+  -- ^ The cofractions and fractions need to be selected, or Nothing if it is invalid to
+  --   add such morphism.
+findValidCofractionsFractions src tgt node = do
   -- ensure that `src` and `tgt` are reachable, and check the order between `src` and `tgt`
   src_arr <- arrow node src
   tgt_arr <- arrow node tgt
   guard $ locate tgt_arr src == Outer
 
-  let src_alts = sort do
-        (arr1, arr2) <- src |> suffixND node
-        return $ sort do
-          -- construct nondecomposable coangle and validate it
-          arr2' <- arr1 `divide` tgt_arr
-          let coangle = (symbol2 (arr1, arr2), symbol2 (arr1, arr2'))
-          guard $ validateCoangle node coangle
-          return coangle
-  let tgt_alts = sort do
-        edge <- target tgt_arr |> edgesND
-        return $ sort do
-          -- construct nondecomposable angle and validate it
+  let src_alts =
+        suffixND node src
+        |> nubSortOn symbol2
+        |> fmap \(arr, edge) -> sort do
+          -- construct nondecomposable cofraction and validate it
+          arr' <- arr `divide` tgt_arr
+          let cofraction = (symbol2 (arr, arr'), symbol2 (arr, edge))
+          guard $ validateCofraction node cofraction
+          return cofraction
+  let tgt_alts =
+        edgesND (target tgt_arr)
+        |> nubSortOn symbol
+        |> fmap \edge -> sort do
+          -- construct nondecomposable fraction and validate it
           arr' <- src_arr `divide` (tgt_arr `join` edge)
-          let angle = (symbol2 (tgt_arr, edge), symbol2 (src_arr, arr'))
-          guard $ validateAngle node angle
-          return angle
+          let fraction = (symbol2 (src_arr, arr'), symbol2 (tgt_arr, edge))
+          guard $ validateFraction node fraction
+          return fraction
   return (src_alts, tgt_alts)
-
+  
 {- |
-Add a nondecomposable symbol on a node, where the parameters @src :: Symbol@ and
-@tgt :: Symbol@ are the symbols of source node and target node of the added edge, and
-@sym :: Symbol@ is the symbol to be added.  @src_alts :: [Coangle]@ is the list of picked
-coangles, and @tgt_alts :: [Angle]@ is the list of picked angles.
+Add a nondecomposable symbol on a node, where the parameters @src :: Symbol@ and @tgt ::
+Symbol@ are the symbols of source node and target node of the added edge, and @sym ::
+Symbol@ is the symbol to be added.  @src_alts :: [Cofraction]@ is the list of picked
+cofractions, and @tgt_alts :: [Fraction]@ is the list of picked fractions.
 
 In categorical perspectives, it adds a non-terminal nondecomposable morphism, where `src`
 and `tgt` indicates the source object and target object of the added morphism, and
 `(src, sym)` will become the pair of symbol indicating the added morphism.
 
-Coangles and angles represent possible choices of composition rules, and can be obtained
-by a helper function `findValidCoanglesAngles`, which returns two groups of picklists.
-The second group contains picklists of angles, which are used to determine the outgoing
-wires.  The first group contains picklists of coangles, which are used to determine the
-incoming wires.  User should select one angle or coangle for each picklist.  A valid
-choice of angles and coangles can be checked by functions `compatibleAngles`,
-`compatibleCoangles` and `compatibleCoanglesAngles`.
+Cofractions and fraction s represent possible choices of composition rules, and can be
+obtained by a helper function `findValidCofractionsFractions`, which returns two groups of
+picklists.  The second group contains picklists of fractions, which are used to determine
+the outgoing wires.  The first group contains picklists of cofractions, which are used to
+determine the incoming wires.  User should select one fraction or cofraction for each
+picklist.  A valid choice of fractions and cofractions can be checked by functions
+`compatibleFractions`, `compatibleCofractions` and `compatibleCofractionsFractions`.
 
 Examples:
 
->>> fromJust $ findValidCoanglesAngles 1 6 cone
+>>> fromJust $ findValidCofractionsFractions 1 6 cone
 ([[((0,1),(0,6))]],[])
 >>> printBAC $ fromJust $ addNDSymbol 1 6 2 [((0,1),(0,6))] [] cone
 - 0->1; 1->2; 2->6
@@ -293,19 +299,21 @@ Examples:
     *2
 -}
 addNDSymbol ::
-  Symbol
+  Monoid e
+  => Symbol
   -- ^ The symbol indicating the source object of the morphism to be added.
   -> Symbol
   -- ^ The symbol indicating the target object of the morphism to be added.
   -> Symbol
   -- ^ The symbol to be added.
-  -> [Coangle]
-  -- ^ The picked coangles from `findValidCoanglesAngles`.
-  -> [Angle]
-  -- ^ The picked angles from `findValidCoanglesAngles`.
-  -> BAC
-  -> Maybe BAC
-addNDSymbol src tgt sym src_alts tgt_alts node = do
+  -> e
+  -> [Cofraction]
+  -- ^ The picked fractions from `findValidCofractionsFractions`.
+  -> [Fraction]
+  -- ^ The picked fractions from `findValidCofractionsFractions`.
+  -> BAC e
+  -> Maybe (BAC e)
+addNDSymbol src tgt sym e src_alts tgt_alts node = do
   -- ensure that `src` and `tgt` are reachable, and check the order between `src` and `tgt`
   src_arr <- arrow node src
   tgt_arr <- arrow node tgt
@@ -314,36 +322,37 @@ addNDSymbol src tgt sym src_alts tgt_alts node = do
   -- ensure that it is valid to add symbol `sym` to the node of `src`
   guard $ src_node |> symbols |> (`snoc` sym) |> anySame |> not
 
-  -- check picked angles and coangles
-  let (src_angs, tgt_angs) = findValidCoanglesAngles src tgt node |> fromJust
+  -- check picked fractions and cofractions
+  let (cofractions, fractions) = findValidCofractionsFractions src tgt node |> fromJust
   guard $
     src_alts
-    |> traverse (\ang -> src_angs |> findIndex (elem ang))
-    |> maybe False (sort .> (== [0 .. length src_angs - 1]))
+    |> traverse (\cofraction -> cofractions |> findIndex (elem cofraction))
+    |> maybe False (sort .> (== [0 .. length cofractions - 1]))
   guard $
     tgt_alts
-    |> traverse (\ang -> tgt_angs |> findIndex (elem ang))
-    |> maybe False (sort .> (== [0 .. length tgt_angs - 1]))
+    |> traverse (\fraction -> fractions |> findIndex (elem fraction))
+    |> maybe False (sort .> (== [0 .. length fractions - 1]))
 
-  -- ensure that picked angles and coangles are compatible
-  guard $ compatibleAngles node tgt_alts
-  guard $ compatibleCoanglesAngles node src_alts tgt_alts
-  guard $ compatibleCoangles node src_alts
+  -- ensure that picked fractions and cofractions are compatible
+  guard $ compatibleFractions node tgt_alts
+  guard $ compatibleCofractionsFractions node src_alts tgt_alts
+  guard $ compatibleCofractions node src_alts
 
   -- construct added edge
   let new_dict =
-        -- zip values of dictionaries of the short edge and the long edge
+        -- zip values of dictionaries of the denominator and the numerator
         -- which form wires from node of `tgt` to `src`
         tgt_alts
         |> fmap (both (arrow2 node .> fromJust))
-        |> concatMap (both (snd .> dict .> Map.elems) .> uncurry zip)
+        |> concatMap (both (snd .> dict .> Map.elems) .> swap .> uncurry zip)
         -- make a dictionary
         |> nubSort
-        |> asserted (fmap fst .> anySame .> not) -- checked by `compatibleAngles`
+        |> asserted (fmap fst .> anySame .> not) -- checked by `compatibleFractions`
         |> Map.fromList
         -- link base symbol to the new symbol `sym`
         |> Map.insert base sym
-  let new_edge = Arrow {dict = new_dict, target = target tgt_arr}
+        |> asserted (Map.keys .> (== symbols (target tgt_arr)))
+  let new_edge = Arrow {dict = new_dict, value = e, target = target tgt_arr}
 
   -- find new added wire with start point `sym` on the node of `src`
   -- the parameter is 2-chain representing a proper edge to add a wire
@@ -351,20 +360,20 @@ addNDSymbol src tgt sym src_alts tgt_alts node = do
   let determine_new_wire (arr1, arr23) =
         -- make suffix decomposition on this edge: `arr23` => `(arr2, arr3)`
         suffixND (target arr1) (symbol arr23)
-        |> head -- either of these will give the same result, checked by `compatibleCoangles`
+        |> head -- either of these will give the same result, checked by `compatibleCofractions`
         |> \(arr2, arr3) ->
           -- determine new added wire for the nondecomposable edge `arr3` first
-          -- find corresponding coangle
+          -- find corresponding cofraction
           src_alts
-          |> find (fst .> (== symbol2 (arr1 `join` arr2, arr3)))
+          |> find (snd .> (== symbol2 (arr1 `join` arr2, arr3)))
           |> fromJust
-          -- symbol `sym` will be mapped to the symbol referencing the long edge of this coangle
-          |> (\(_, (_, s)) -> (sym, s))
+          -- symbol `sym` will be mapped to the symbol referencing the numerator of this cofraction
+          |> (\((_, s), _) -> (sym, s))
           -- determine new added wire for the edge `arr23`
           |> second (dict arr2 !)
 
   -- add the new edge to `src_node`
-  let src_node' = src_node |> edges |> (`snoc` new_edge) |> fromEdges
+  let src_node' = src_node |> edges |> (new_edge :) |> BAC
 
   -- add new wires to incoming edges of `src_node`
   fromReachable src_node' $ node |> modifyUnder src \(curr, edge) -> \case
@@ -422,15 +431,17 @@ Examples:
     *1
 -}
 addLeafNode ::
-  Symbol
+  Monoid e
+  => Symbol
   -- ^ The symbol referencing the node to append.
   -> Symbol
   -- ^ The symbol referencing the added node.
+  -> e
   -> ((Symbol, Symbol) -> Symbol)
   -- ^ The function to insert symbol to all ancestor nodes.
-  -> BAC
-  -> Maybe BAC
-addLeafNode src sym inserter node = do
+  -> BAC e
+  -> Maybe (BAC e)
+addLeafNode src sym e inserter node = do
   -- ensure that `src` is reachable
   src_arr <- arrow node src
   let src_node = target src_arr
@@ -445,8 +456,8 @@ addLeafNode src sym inserter node = do
         symbols (target curr) |> (++ add_list) |> anySame |> not
 
   -- add the new node to `src_node`
-  let new_node = fromJust $ singleton sym
-  let src_node' = fromEdges (edges src_node ++ edges new_node)
+  let new_edge = Arrow (Map.singleton base sym) e empty
+  let src_node' = src_node |> edges |> (new_edge :) |> BAC
 
   fromReachable src_node' $
     node |> modifyUnder src \(curr, edge) -> \case
@@ -499,14 +510,16 @@ Examples:
       *1
 -}
 addParentNode ::
-  (Symbol, Symbol)  -- ^ The pair of symbols indicating the arrow to be interpolated.
+  Monoid e
+  => (Symbol, Symbol)  -- ^ The pair of symbols indicating the arrow to be interpolated.
   -> Symbol         -- ^ The symbol referencing the added node.
   -> Dict           -- ^ The dictionary of the edge of the added node.
+  -> (e, e)
   -> ((Symbol, Symbol) -> Symbol)
                     -- ^ The function to insert symbol to all ancestor nodes.
-  -> BAC
-  -> Maybe BAC
-addParentNode (src, tgt) sym mapping inserter node = do
+  -> BAC e
+  -> Maybe (BAC e)
+addParentNode (src, tgt) sym mapping (e1, e2) inserter node = do
   -- ensure that `(src, tgt)` is reachable and proper
   (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
   let src_node = target src_arr
@@ -526,11 +539,11 @@ addParentNode (src, tgt) sym mapping inserter node = do
         symbols (target curr) |> (++ add_list) |> anySame |> not
 
   -- add edge to the node of `src`
-  let new_outedge = Arrow {dict = mapping, target = target tgt_subarr}
-  let new_node = fromEdges [new_outedge]
+  let new_outedge = Arrow {dict = mapping, value = e2, target = target tgt_subarr}
+  let new_node = BAC [new_outedge]
   let new_indict = dict tgt_subarr |> Map.mapKeys (mapping !) |> Map.insert base sym
-  let new_inedge = Arrow {dict = new_indict, target = new_node}
-  let src_node' = fromEdges $ edges src_node `snoc` new_inedge
+  let new_inedge = Arrow {dict = new_indict, value = e1, target = new_node}
+  let src_node' = src_node |> edges |> (new_inedge :) |> BAC
 
   fromReachable src_node' $
     node |> modifyUnder src \(curr, edge) -> \case
@@ -552,5 +565,5 @@ addParentNode (src, tgt) sym mapping inserter node = do
 
 -- | Insert a node in the middle of an arrow started at the root (add an object).  See
 --   `addParentNode` for details.
-addParentNodeOnRoot :: Symbol -> Symbol -> Dict -> BAC -> Maybe BAC
-addParentNodeOnRoot tgt sym mapping = addParentNode (base, tgt) sym mapping undefined
+addParentNodeOnRoot :: Monoid e => Symbol -> Symbol -> Dict -> (e, e) -> BAC e -> Maybe (BAC e)
+addParentNodeOnRoot tgt sym mapping (e1, e2) = addParentNode (base, tgt) sym mapping (e1, e2) undefined
