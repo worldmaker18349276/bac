@@ -12,17 +12,18 @@ module BAC.Fundamental.Split (
 ) where
 
 import Control.Monad (guard)
+import Data.Foldable.Extra (notNull)
 import Data.List (sort)
-import Data.List.Extra (anySame, disjoint, replace)
+import Data.List.Extra (anySame, disjoint, nubSortOn, replace)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromJust)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
 
 import BAC.Base
 import Utils.DisjointSet (bipartiteEqclass)
-import Utils.Utils ((.>), (|>))
+import Utils.Utils (zipIf, (.>), (|>))
 
 -- $setup
 -- >>> import BAC.Serialize
@@ -43,11 +44,12 @@ Examples:
 >>> partitionPrefix (target $ fromJust $ arrow cone 3) 2
 [[(1,1)],[(4,1)]]
 -}
-partitionPrefix :: BAC -> Symbol -> [[(Symbol, Symbol)]]
+partitionPrefix :: Monoid e => BAC e -> Symbol -> [[(Symbol, Symbol)]]
 partitionPrefix node tgt =
   prefix node tgt
+  |> nubSortOn symbol2
   -- suffix decomposition: `arr23` => `(arr2, arr3)`
-  |> concatMap (\(arr1, arr23) -> suffix (target arr1) (symbol arr23) |> fmap (arr1,))
+  |> concatMap (\(arr1, arr23) -> suffixND (target arr1) (symbol arr23) |> nubSortOn symbol2 |> fmap (arr1,))
   -- connect prefix and suffix
   |> fmap (\(arr1, (arr2, arr3)) -> ((arr1, arr2 `join` arr3), (arr1 `join` arr2, arr3)))
   |> fmap (both symbol2)
@@ -57,12 +59,14 @@ partitionPrefix node tgt =
   |> fmap sort
   |> sort
 
+isPartition :: Eq a => [[a]] -> Bool
+isPartition partition = concat partition |> anySame |> not
+
 -- | Ckeck if `partition1` is finer than `partition2`: if two elements are in the same
 --   part in `partition1`, they are also in the same part in `partition2`.
 finer :: Ord a => [[a]] -> [[a]] -> Bool
-finer partition1 partition2 = isPartition && sameHost && include
+finer partition1 partition2 = isPartition partition1 && sameHost && include
   where
-  isPartition = concat partition1 |> anySame |> not
   sameHost = sort (concat partition1) == sort (concat partition2)
   include =
     partition1
@@ -74,12 +78,13 @@ finer partition1 partition2 = isPartition && sameHost && include
 
 {- |
 Split a symbol on a node, with two parameters @(src, tgt) :: (Symbol, Symbol)@ and
-@partition :: Map Symbol [(Symbol, Symbol)]@.  `src` indicates the node to operate, `tgt`
-indicates the symbol to split, and `partition` is a list of splitted symbols and the
-corresponding group of splitted prefixes, which should be an union of some groups given by
-`partitionPrefix`.  If there is a splitted symbol which has an empty group, it will become
-a nondecomposable symbol.  For simplicity, the direct edges to the splitted symbols will
-always be constructed.
+@partition :: [(Symbol, [(Symbol, Symbol)])]@ and @direct_splitted_symbols :: [Symbol]@.
+`src` indicates the node to operate, `tgt` indicates the symbol to split, and `partition`
+is a list of splitted symbols and the corresponding group of splitted prefixes, which
+should be an union of some groups given by `partitionPrefix`.  `direct_splitted_symbols`
+is the splitted symbols for each direct edge of @(src, tgt)@.  If there is a
+splitted symbol which has an empty group, it should be an direct edge being classified to
+this symbol.
 
 In categorical perspectives, it splits a non-terminal morphism, where @(src, tgt)@
 indicates a proper morphism to split, and @(src, sym)@ for all @(sym, grps) <- partition@
@@ -128,47 +133,57 @@ Examples:
     *0
 -}
 splitSymbol ::
-  (Symbol, Symbol)
+  Monoid e
+  => (Symbol, Symbol)
   -- ^ The pair of symbols referencing the arrow to split.
   -> [(Symbol, [(Symbol, Symbol)])]
-  -- ^ The map from new symbols to splitted groups finer than `partitionPrefix`.
-  -> BAC
-  -> Maybe BAC
-splitSymbol (src, tgt) partition node = do
+  -- ^ List of splitted symbol and corresponding splitted group of prefixes.
+  -> [Symbol]
+  -- ^ The list of splitted symbols for each the direct edge.
+  -> BAC e
+  -> Maybe (BAC e)
+splitSymbol (src, tgt) partition direct_splitted_symbols node = do
   -- ensure that `(src, tgt)` is reachable and proper
-  (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
+  (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
   guard $ tgt /= base
   let src_node = target src_arr
 
   -- ensure that every splittable groups have been classified to splitted symbols
   let splittable_groups = partitionPrefix src_node tgt
+  guard $ isPartition (fmap snd partition)
   guard $ splittable_groups `finer` fmap snd partition
+
+  -- ensure each direct edge will be classified to a splitted symbol
+  let direct_edge_count =
+        edges src_node
+        |> filter (symbol .> (== tgt))
+        |> length
+  guard $ length direct_splitted_symbols == direct_edge_count
+  guard $ direct_splitted_symbols |> all (`elem` fmap fst partition)
+
+  -- ensure each splitted symbol should have been classified by at least one edge
+  guard $ partition |> all \(s, splitted_group) ->
+    notNull splitted_group || (s `elem` direct_splitted_symbols)
 
   -- validate splitted symbols
   guard $ src_node |> symbols |> replace [tgt] (fmap fst partition) |> anySame |> not
 
   -- classify each prefix to a splitted symbol
-  let splitter =
+  let partition_mapping =
         partition
         |> concatMap sequence
         |> fmap swap
         |> Map.fromList
 
-  let src_node' = fromEdges do
-        -- add a direct edge to `tgt`, then modify their dictionaries
-        edge <- src_node |> edges |> (tgt_subarr :)
-        let sym0 = symbol edge
-        if sym0 == tgt
-        then do
-          -- duplicate the direct edge for each splitted symbol
-          (sym, _) <- partition
-          let duplicated_dict = dict tgt_subarr |> Map.insert base sym
-          return edge {dict = duplicated_dict}
-        else do
-          -- modify the dictionary of the edge for corresponding splitted symbol
-          let split s r = Map.lookup (sym0, s) splitter |> fromMaybe r
-          let splitted_dict = dict edge |> Map.mapWithKey split
-          return edge {dict = splitted_dict}
+  let src_node' = BAC do
+        (sym, edge) <- zipIf (symbol .> (== tgt)) direct_splitted_symbols (edges src_node)
+        let splitted_dict =
+              dict edge
+              |> Map.mapWithKey \s r ->
+                if r /= tgt then r
+                else if s /= base then partition_mapping ! (symbol edge, s)
+                else fromJust sym
+        return edge {dict = splitted_dict}
 
   fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
@@ -176,14 +191,12 @@ splitSymbol (src, tgt) partition node = do
     AtBoundary -> return edge {dict = merged_dict, target = src_node'}
       where
       -- map splitted symbols like before splitting
-      merge (s, r)
-        | s == tgt  = [(s', r) | (s', _) <- partition]
-        | otherwise = [(s, r)]
+      merge (s, r) = if s == tgt then fmap fst partition |> fmap (, r) else [(s, r)]
       merged_dict = dict edge |> Map.toList |> concatMap merge |> Map.fromList
 
 -- | Split a symbol on the root node (split an initial morphism).  See `splitSymbol` for
 --   details.
-splitSymbolOnRoot :: Symbol -> [(Symbol, [(Symbol, Symbol)])] -> BAC -> Maybe BAC
+splitSymbolOnRoot :: Monoid e => Symbol -> [(Symbol, [(Symbol, Symbol)])] -> [Symbol] -> BAC e -> Maybe (BAC e)
 splitSymbolOnRoot tgt = splitSymbol (base, tgt)
 
 {- |
@@ -203,7 +216,7 @@ Examples:
 >>> partitionSymbols $ target $ fromJust $ arrow crescent 1
 [[1,2,3],[5,6,7]]
 -}
-partitionSymbols :: BAC -> [[Symbol]]
+partitionSymbols :: BAC e -> [[Symbol]]
 partitionSymbols =
   edges
   .> fmap (dict .> Map.elems)
@@ -215,8 +228,8 @@ partitionSymbols =
 
 {- |
 Split a node, with parameters @tgt :: Symbol@, the symbol of the node to split, and
-@partition :: [((Symbol, Symbol) -> Symbol, [Int])]@, list of splitter functions and
-indices to splittable groups given by `partitionSymbols`.
+@partition :: [((Symbol, Symbol) -> Symbol, [Symbol])]@, list of split functions and
+splitted groups of symbols coarser than `partitionSymbols`.
 
 In categorical perspectives, it splits a terminal morphism, where `tgt` indicates the
 source object of morphism to split.  For all incoming morphisms of this object, say
@@ -261,12 +274,13 @@ Examples:
     *2
 -}
 splitNode ::
-  Symbol
+  Monoid e
+  => Symbol
   -- ^ The symbol referencing the node to be splitted.
   -> [((Symbol, Symbol) -> Symbol, [Symbol])]
-  -- ^ The splitters and splitted groups of symbols finer than `partitionSymbols`.
-  -> BAC
-  -> Maybe BAC
+  -- ^ The splitters and splitted groups of symbols coarser than `partitionSymbols`.
+  -> BAC e
+  -> Maybe (BAC e)
 splitNode tgt partition node = do
   -- ensure that `tgt` is reachable and proper
   tgt_node <- arrow node tgt |> fmap target
@@ -333,8 +347,8 @@ Examples:
 splitRootNode ::
   [[Symbol]]
   -- ^ The splitted groups of symbols finer than `partitionSymbols`.
-  -> BAC
-  -> Maybe [BAC]
+  -> BAC e
+  -> Maybe [BAC e]
 splitRootNode partition node = do
   -- ensure that every splittable groups have been classified to splitted symbols
   let splittable_groups = partitionSymbols node
@@ -343,4 +357,4 @@ splitRootNode partition node = do
   return do
     group <- partition
     let splitted_edges = node |> edges |> filter (symbol .> (`elem` group))
-    return $ fromEdges splitted_edges
+    return $ BAC splitted_edges

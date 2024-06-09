@@ -1,4 +1,4 @@
-module Utils.Utils ((|>), (.>), guarded, asserted) where
+module Utils.Utils ((|>), (.>), guarded, asserted, zipIf) where
 
 import Control.Applicative (Alternative (empty))
 import GHC.Stack (HasCallStack)
@@ -16,3 +16,8 @@ guarded f a = if f a then pure a else empty
 
 asserted :: HasCallStack => (a -> Bool) -> a -> a
 asserted f a = if f a then a else error "assertion fail"
+
+zipIf :: (b -> Bool) -> [a] -> [b] -> [(Maybe a, b)]
+zipIf _ _ [] = []
+zipIf f [] (h:t) = (Nothing, h) : zipIf f [] t
+zipIf f (a:b) (h:t) = if f h then (Just a, h) : zipIf f b t else (Nothing, h) : zipIf f (a:b) t
