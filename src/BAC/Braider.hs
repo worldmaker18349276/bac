@@ -1,10 +1,12 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE TupleSections #-}
 
 module BAC.Braider (
   BraiderT,
   knot,
+  Edge (..),
   Path (..),
   (//),
   braidM,
@@ -27,16 +29,16 @@ import BAC.Base hiding (empty)
 import Utils.DisjointSet (bipartiteEqclass)
 import Utils.Utils ((.>), (|>))
 
-type DAG p = Map p (BAC, [p])
-data BraidState p = BraidState (DAG p) [p]
+type DAG e p = Map p (BAC e, [Edge e p])
+data BraidState e p = BraidState (DAG e p) [p]
 
-newtype BraiderT p m v = BraiderT {runBraiderT :: StateT (BraidState p) (MaybeT m) v}
+newtype BraiderT e p m v = BraiderT {runBraiderT :: StateT (BraidState e p) (MaybeT m) v}
   deriving (Functor, Applicative, Alternative, Monad)
 
-getTable :: Monad m => BraiderT p m (DAG p)
+getTable :: Monad m => BraiderT e p m (DAG e p)
 getTable = BraiderT $ gets (\(BraidState table _) -> table)
 
-insertNode :: (Ord p, Monad m) => BAC -> [p] -> BraiderT p m p
+insertNode :: (Ord p, Monad m) => BAC e -> [Edge e p] -> BraiderT e p m p
 insertNode node children = BraiderT $ do
   state <- get
   let BraidState table (p : counter') = state
@@ -44,34 +46,36 @@ insertNode node children = BraiderT $ do
   put $ BraidState table' counter'
   return p
 
+data Edge e p = Edge e p
+
 -- | Make a knot in the Braider.
-knot :: (Enum p, Ord p, Monad m) => [p] -> BraiderT p m p
+knot :: (Enum p, Ord p, Monad m) => [Edge e p] -> BraiderT e p m p
 knot children = do
   table <- getTable
 
   let nums =
         children
-        |> fmap ((table !) .> fst .> symbols .> maximum .> (+ 1))
+        |> fmap ((\(Edge _ p) -> p) .> (table !) .> fst .> symbols .> maximum .> (+ 1))
         |> scanl (+) 1
   let node =
         children
-        |> fmap (table !)
-        |> fmap fst
+        |> fmap (\(Edge e p) -> (e, fst (table ! p)))
         |> zip nums
-        |> fmap (\(num, subnode) -> Arrow {
+        |> fmap (\(num, (e, subnode)) -> Arrow {
             dict = subnode |> symbols |> fmap (\a -> (a, num + a)) |> Map.fromList,
+            value = e,
             target = subnode
           }
         )
-        |> fromEdges
+        |> BAC
 
   insertNode node children
 
 newtype Path = Path [Int]
 
-expandMergingSymbols :: [[Arrow]] -> [[Symbol]]
+expandMergingSymbols :: [[Dict]] -> [[Symbol]]
 expandMergingSymbols =
-  fmap (fmap (dict .> Map.toList))
+  fmap (fmap Map.toList)
   .> zip [0 :: Integer ..]
   .> concatMap sequence
   .> concatMap sequence
@@ -84,24 +88,26 @@ expandMergingSymbols =
 
 -- | Merge symbols in the Braider.
 infixl 2 //
-(//) :: (Enum p, Ord p, Monad m) => BraiderT p m p -> [Path] -> BraiderT p m p
+(//) :: (Enum p, Ord p, Monad m) => BraiderT e p m p -> [Path] -> BraiderT e p m p
 braiding // eqclass_paths = do
   p <- braiding
   table <- getTable
   let (node, children) = table ! p
   let eqclass = eqclass_paths |> fmap (\(Path list) -> list)
 
-  let pathToPointer = foldlM (\p index -> p |> (table !) |> snd |> (!? index)) p
+  let pathToPointer = foldlM (\p index -> p |> (table !) |> snd |> fmap (\(Edge _ p) -> p) |> (!? index)) p
 
   ptrs <- eqclass |> traverse (pathToPointer .> maybe empty return)
   guard $ ptrs |> nub |> length |> (<= 1)
   guard $ ptrs /= [p]
 
-  let pathToArrow = foldl (\arr index -> arr |> extend |> (!! index)) (root node)
+  let root' node = symbols node |> fmap (\a -> (a, a)) |> Map.fromList |> (, node)
+  let extend' (d, node) = node |> edges |> fmap (\edge -> (d `cat` dict edge, target edge))
+  let pathToDict = foldl (\arr' index -> arr' |> extend' |> (!! index)) (root' node) |> fmap fst
 
   let eqclass' =
         eqclass
-        |> fmap pathToArrow
+        |> fmap pathToDict
         |> return
         |> expandMergingSymbols
 
@@ -110,14 +116,14 @@ braiding // eqclass_paths = do
         arr <- edges node
         let merged_dict = dict arr |> fmap mergeSymbol
         return arr {dict = merged_dict}
-  let merged_node = fromEdges merged_edges
+  let merged_node = BAC merged_edges
 
   insertNode merged_node children
 
 type Pointer = Integer
 
 -- | Make a BAC by a monad-typed builder.
-braidM :: Monad m => (forall p. (Enum p, Ord p) => BraiderT p m p) -> m (Maybe BAC)
+braidM :: Monad m => (forall p. (Enum p, Ord p) => BraiderT e p m p) -> m (Maybe (BAC e))
 braidM braiding = runMaybeT $ do
   let init = BraidState mempty [toEnum 0 :: Pointer ..]
   (p, final) <- runStateT (runBraiderT braiding) init
@@ -125,5 +131,5 @@ braidM braiding = runMaybeT $ do
   let (res, _) = table ! p
   return res
 
-braid :: (forall p. (Enum p, Ord p) => BraiderT p Identity p) -> Maybe BAC
+braid :: (forall p. (Enum p, Ord p) => BraiderT e p Identity p) -> Maybe (BAC e)
 braid braiding = runIdentity (braidM braiding)
