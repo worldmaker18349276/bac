@@ -19,7 +19,7 @@ import Control.Monad (guard)
 import Data.Bifunctor (first)
 import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
-import Data.List (sort)
+import Data.List (sort, transpose)
 import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, snoc)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
@@ -83,12 +83,13 @@ Examples:
 Nothing
 -}
 mergeSymbols ::
-  (Symbol, [Symbol])
+  Monoid e
+  => (Symbol, [Symbol])
   -- ^ The symbol referencing the node and symbols to be merged.
   -> Symbol
   -- ^ The new symbol after merging.
-  -> BAC
-  -> Maybe BAC
+  -> BAC e
+  -> Maybe (BAC e)
 mergeSymbols (src, tgts) sym node = do
   -- ensure that `(src, tgt)` for all `tgt <- tgts` are reachable
   guard $ notNull tgts
@@ -102,6 +103,8 @@ mergeSymbols (src, tgts) sym node = do
   guard $ tgt_arrs |> fmap (dict .> Map.delete base) |> allSame
   -- ensure that all targets of arrows to be merged are the same
   -- it is needed only when `src == base`
+  -- due to the previous check, only the first layer need to be checked
+  -- the equality of values carried by edges is not checked
   guard $
     src /= base
     || (tgt_arrs |> fmap (target .> edges .> fmap dict) |> allSame)
@@ -111,7 +114,7 @@ mergeSymbols (src, tgts) sym node = do
 
   -- merge symbols on `src_node`
   let merge s = if s `elem` tgts then sym else s
-  let src_node' = fromEdges do
+  let src_node' = BAC do
         edge <- edges src_node
         let dict' = dict edge |> Map.map merge
         return edge {dict = dict'}
@@ -125,7 +128,7 @@ mergeSymbols (src, tgts) sym node = do
 
 -- | Merge symbols on the root node (merge initial morphisms).  See `mergeSymbols` for
 --   details.
-mergeSymbolsOnRoot :: [Symbol] -> Symbol -> BAC -> Maybe BAC
+mergeSymbolsOnRoot :: Monoid e => [Symbol] -> Symbol -> BAC e -> Maybe (BAC e)
 mergeSymbolsOnRoot tgts = mergeSymbols (base, tgts)
 
 {- |
@@ -172,13 +175,14 @@ Examples:
     *0
 -}
 mergeNodes ::
-  [(Symbol, [(Symbol, Symbol)])]
+  Monoid e
+  => [(Symbol, [(Symbol, Symbol)])]
   -- ^ The symbols referencing the nodes to merge and the nondecomposable incoming
   --   morphisms to zip.
   -> ((Symbol, [Symbol]) -> Symbol)
   -- ^ The merger of symbols.
-  -> BAC
-  -> Maybe BAC
+  -> BAC e
+  -> Maybe (BAC e)
 mergeNodes tgts_suffix merger node = do
   -- ensure that `tgts` are distinct and reachable
   let tgts = tgts_suffix |> fmap fst
@@ -186,54 +190,53 @@ mergeNodes tgts_suffix merger node = do
   guard $ tgts |> anySame |> not
   tgt_nodes <- tgts |> traverse (arrow node .> fmap target)
 
-  zipped_suffix <- zipSuffixes tgts_suffix node
+  -- zip suffixes
+  guard $ tgts_suffix |> all (snd .> notNull)
+  guard $ tgts_suffix |> fmap (snd .> fmap fst) |> allSame
+  let suffixes = tgts_suffix |> fmap snd |> transpose |> fmap \suff -> (fst (head suff), fmap snd suff)
+  zipped_suffix <- zipSuffixes node suffixes
 
   -- validate merger
   guard $
     zipped_suffix
-    |> groupSortOn (fst .> symbol)
+    |> groupSortOn fst
     |> fmap ((head .> fst) &&& fmap snd)
-    |> all \(curr, groups) ->
-      let
-        sym0 = symbol curr
-        syms = groups |> concat |> fmap symbol
-        syms' = groups |> fmap (fmap symbol .> (sym0,) .> merger)
-      in
-        curr
+    |> all \(sym0, groups) ->
+      arrow node sym0
+      |> fromJust
         |> target
         |> symbols
-        |> filter (`notElem` syms)
-        |> (++ syms')
+      |> filter (`notElem` concat groups)
+      |> (++ fmap ((sym0,) .> merger) groups)
         |> anySame
         |> not
 
   -- merge nodes of `tgts`, where they should have distinct `symbols` except `base`
   merged_node <- mergeRootNodes tgt_nodes
 
-  -- map suffixes to merged arrow
-  let merged_arrs = Map.fromList do
-        (curr, arrs) <- zipped_suffix
-        let sym0 = symbol curr
-        let syms = fmap symbol arrs
+  -- map suffixes to merged dict
+  let merged_dicts = Map.fromList do
+        (sym0, syms) <- zipped_suffix
         let merged_sym = merger (sym0, syms)
+        let node0 = arrow node sym0 |> fromJust |> target
         let merged_dict =
-              arrs
+              syms
+              |> fmap (arrow node0 .> fromJust)
               |> fmap dict
               |> foldl Map.union Map.empty
               |> Map.insert base merged_sym
-        let merged_arr = Arrow { dict = merged_dict, target = merged_node }
         sym <- syms
-        return ((sym0, sym), merged_arr)
+        return ((sym0, sym), merged_dict)
 
   fromReachable node $
-    node |> foldUnder (head tgts) \curr results -> fromEdges do
+    node |> foldUnder (head tgts) \curr results -> BAC do
       (subnode, edge) <- results `zip` edges (target curr)
       let sym0 = symbol curr
       let sym = symbol (curr `join` edge)
       if sym `elem` tgts
       then
-        -- a direct edge to the target => get merged arrow
-        return $ merged_arrs ! symbol2 (curr, edge)
+        -- a direct edge to the target
+        return edge {dict = merged_dicts ! symbol2 (curr, edge), target = merged_node}
       else
         let
           -- an edge between nodes under the target => merge symbols of keys and values
@@ -245,7 +248,7 @@ mergeNodes tgts_suffix merger node = do
             |> fmap (\(s1, s2) ->
               if dict curr ! s2 `elem` tgts
               then
-                (symbol $ merged_arrs ! (sym, s1), symbol $ merged_arrs ! (sym0, s2))
+                (merged_dicts ! (sym, s1) ! base, merged_dicts ! (sym0, s2) ! base)
               else
                 (s1, s2)
             )
@@ -281,13 +284,13 @@ Examples:
     *2
 - 0->6
 -}
-mergeRootNodes :: [BAC] -> Maybe BAC
+mergeRootNodes :: [BAC e] -> Maybe (BAC e)
 mergeRootNodes nodes = do
   guard $ nodes |> concatMap (symbols .> filter (/= base)) |> anySame |> not
-  return $ nodes |> concatMap edges |> fromEdges
+  return $ nodes |> concatMap edges |> BAC
 
 
-expandMergingSymbols :: BAC -> [[Symbol]] -> [[Symbol]]
+expandMergingSymbols :: Monoid e => BAC e -> [[Symbol]] -> [[Symbol]]
 expandMergingSymbols node =
   fmap (fmap (arrow node .> fromJust .> dict .> Map.toList))
   .> zip [0 :: Integer ..]
@@ -301,12 +304,13 @@ expandMergingSymbols node =
   .> sort
 
 mergeSymbolsAggressively ::
-  (Symbol, [[Symbol]]) -> ((Symbol, [Symbol]) -> Symbol) -> BAC -> Maybe BAC
+  Monoid e => (Symbol, [[Symbol]]) -> ((Symbol, [Symbol]) -> Symbol) -> BAC e -> Maybe (BAC e)
 mergeSymbolsAggressively (src, tgts) merger node = do
   src_arr <- arrow node src
 
   tgt_arrs <- tgts |> traverse (traverse (arrow (target src_arr)))
-  guard $ tgt_arrs |> all (fmap target .> allSame)
+  -- guard $ tgt_arrs |> all (fmap target .> allSame)
+  guard $ tgt_arrs |> all (fmap (join src_arr .> symbol) .> allSame)
 
   let validateMerger curr merging_lists =
         target curr
@@ -320,7 +324,7 @@ mergeSymbolsAggressively (src, tgts) merger node = do
   guard $ validateMerger src_arr merging_lists
 
   let mergeSymbol (src', tgts') s = tgts' |> find (elem s) |> maybe s ((src',) .> merger)
-  let merged_node = fromEdges do
+  let merged_node = BAC do
         edge <- target src_arr |> edges
         let merged_dict = dict edge |> fmap (mergeSymbol (src, merging_lists))
         return edge {dict = merged_dict}
@@ -341,7 +345,7 @@ mergeSymbolsAggressively (src, tgts) merger node = do
             |> expandMergingSymbols (target curr)
       guard $ validateMerger curr merging_lists
 
-      let merged_node = fromEdges do
+      let merged_node = BAC do
             ((subnode, merging_lists'), edge) <- results' `zip` edges (target curr)
             let sym = symbol (curr `join` edge)
             let merged_dict =
@@ -354,5 +358,5 @@ mergeSymbolsAggressively (src, tgts) merger node = do
   fromReachable res0 lres |> fmap fst
 
 mergeSymbolsOnRootAggressively ::
-  [[Symbol]] -> ((Symbol, [Symbol]) -> Symbol) -> BAC -> Maybe BAC
+  Monoid e => [[Symbol]] -> ((Symbol, [Symbol]) -> Symbol) -> BAC e -> Maybe (BAC e)
 mergeSymbolsOnRootAggressively tgts = mergeSymbolsAggressively (base, tgts)
