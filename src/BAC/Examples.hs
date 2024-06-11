@@ -25,16 +25,16 @@ import Data.Maybe (fromJust)
   - 0->4; 1->2; 2->3
     *1
 -}
-cone :: BAC
+cone :: BAC ()
 cone = fromJust $ braid $ do
   y <- knot []
   b <- knot []
-  p <- knot [y]
-  c <- knot [y, b]
-  v <- knot [c, c]
+  p <- knot [Edge () y]
+  c <- knot [Edge () y, Edge () b]
+  v <- knot [Edge () c, Edge () c]
     // [Path [0,0], Path [1,0]]
     // [Path [0,1], Path [1,1]]
-  knot [p, v]
+  knot [Edge () p, Edge () v]
     // [Path [1,0], Path [1,1]]
     // [Path [0,0], Path [1,0,0]]
 
@@ -60,17 +60,17 @@ cone = fromJust $ braid $ do
   - 0->10; 1->2; 2->8
     *2
 -}
-torus :: BAC
+torus :: BAC ()
 torus = fromJust $ braid $ do
   t <- knot []
-  c <- knot [t, t]
-  c' <- knot [t, t]
-  p <- knot [c, c', c, c']
+  c <- knot [Edge () t, Edge () t]
+  c' <- knot [Edge () t, Edge () t]
+  p <- knot [Edge () c, Edge () c', Edge () c, Edge () c']
     // [Path [0,1], Path [1,0]]
     // [Path [1,1], Path [2,1]]
     // [Path [2,0], Path [3,1]]
     // [Path [3,0], Path [0,0]]
-  knot [p]
+  knot [Edge () p]
     // [Path [0,0], Path [0,2]]
     // [Path [0,1], Path [0,3]]
 
@@ -93,15 +93,15 @@ torus = fromJust $ braid $ do
   - 0->7; 1->6
     *2
 -}
-crescent :: BAC
+crescent :: BAC ()
 crescent = fromJust $ braid $ do
   s <- knot []
-  c <- knot [s]
-  c' <- knot [s]
-  p <- knot [c, c', c, c']
+  c <- knot [Edge () s]
+  c' <- knot [Edge () s]
+  p <- knot [Edge () c, Edge () c', Edge () c, Edge () c']
     // [Path [0,0], Path [1,0]]
     // [Path [2,0], Path [3,0]]
-  knot [p]
+  knot [Edge () p]
     // [Path [0,0,0], Path [0,1,0]]
     // [Path [0,0], Path [0,2]]
     // [Path [0,1], Path [0,3]]
