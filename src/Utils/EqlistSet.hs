@@ -74,9 +74,9 @@ gradedEqlistKey grade order = fmap grade &&& second (nublistKey order) . nubWith
 --   (gradedEqlistKey grade)@ up to order.
 canonicalizeGradedEqlistSet :: (Eq a, Ord g) => (a -> g) -> EqlistSet a -> [EqlistSet a]
 canonicalizeGradedEqlistSet grade eqlistset =
-  fmap (\(order, _) -> sortOn (gradedEqlistKey grade order) eqlistset)
+  fmap (\order -> sortOn (gradedEqlistKey grade order) eqlistset)
   -- search possibility layer by layer
-  $ go $ set
+  $ finish $ go $ set
   -- extract out remaining parts
   $ fmap (fmap (snd . snd))
   -- presort eqlist
@@ -86,6 +86,9 @@ canonicalizeGradedEqlistSet grade eqlistset =
   where
   set :: Eq a => [[[a]]] -> [([a], [[[a]]])]
   set groups = [([], groups)]
+
+  finish :: [([a], [[[a]]])] -> [[a]]
+  finish = fmap fst
 
   go :: Eq a => [([a], [[[a]]])] -> [([a], [[[a]]])]
   go states =
