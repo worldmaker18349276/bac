@@ -19,7 +19,7 @@ import Control.Monad (guard)
 import Data.Bifunctor (first)
 import Data.Foldable (find)
 import Data.Foldable.Extra (notNull)
-import Data.List (sort, transpose)
+import Data.List (sort)
 import Data.List.Extra (allSame, anySame, groupSortOn, nubSort, snoc)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
@@ -191,10 +191,7 @@ mergeNodes tgts_suffix merger node = do
   tgt_nodes <- tgts |> traverse (arrow node .> fmap target)
 
   -- zip suffixes
-  guard $ tgts_suffix |> all (snd .> notNull)
-  guard $ tgts_suffix |> fmap (snd .> fmap fst) |> allSame
-  let suffixes = tgts_suffix |> fmap snd |> transpose |> fmap \suff -> (fst (head suff), fmap snd suff)
-  zipped_suffix <- zipSuffixes node suffixes
+  zipped_suffix <- zipSuffixes tgts_suffix node
 
   -- validate merger
   guard $
