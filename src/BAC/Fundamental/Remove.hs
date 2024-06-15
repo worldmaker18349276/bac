@@ -101,10 +101,8 @@ removeNDSymbol (src, tgt) node = do
   fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
-    AtBoundary -> filtered_edge : do
-        -- add edges by joining incoming edge to the removed edges
-        removed_edge <- removed_edges
-        return $ edge `join` removed_edge
+    -- add edges by joining incoming edge to the removed edges
+    AtBoundary -> removed_edges |> fmap (join edge) |> (filtered_edge :)
       where
       -- remove link from the removed symbol
       filtered_dict = dict edge |> Map.delete tgt
@@ -162,10 +160,8 @@ removeNode tgt node = do
   -- remove the node of `tgt`
   fromInner $ node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
-    -- repace the incoming edge by joining this edge and outgoing edges
-    AtBoundary -> do
-      subedge <- target edge |> edges
-      return $ edge `join` subedge
+    -- replace the incoming edge by joining this edge and outgoing edges
+    AtBoundary -> target edge |> edges |> fmap (join edge)
     AtInner subnode -> return filtered_edge
       where
       -- remove symbols referencing the removed node

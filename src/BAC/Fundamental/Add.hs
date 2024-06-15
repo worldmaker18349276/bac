@@ -354,6 +354,9 @@ addNDSymbol src tgt sym e src_alts tgt_alts node = do
         |> asserted (Map.keys .> (== symbols (target tgt_arr)))
   let new_edge = Arrow {dict = new_dict, value = e, target = target tgt_arr}
 
+  -- add the new edge to `src_node`
+  let src_node' = src_node |> edges |> (new_edge :) |> BAC
+
   -- find new added wire with start point `sym` on the node of `src`
   -- the parameter is 2-chain representing a proper edge to add a wire
   -- it return a pair of symbols representing the added wire
@@ -371,9 +374,6 @@ addNDSymbol src tgt sym e src_alts tgt_alts node = do
           |> (\((_, s), _) -> (sym, s))
           -- determine new added wire for the edge `arr23`
           |> second (dict arr2 !)
-
-  -- add the new edge to `src_node`
-  let src_node' = src_node |> edges |> (new_edge :) |> BAC
 
   -- add new wires to incoming edges of `src_node`
   fromReachable src_node' $ node |> modifyUnder src \(curr, edge) -> \case

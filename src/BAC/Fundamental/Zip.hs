@@ -8,6 +8,7 @@
 module BAC.Fundamental.Zip (
   canonicalizeArrow,
   unifiable,
+  unify,
   canonicalizeSuffixND,
   zipSuffixes,
 ) where
