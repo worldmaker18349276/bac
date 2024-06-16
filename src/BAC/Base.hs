@@ -98,6 +98,7 @@ module BAC.Base (
   foldUnder,
   modify,
   modifyUnder,
+  map,
   cofold,
   cofoldUnder,
 ) where
@@ -639,6 +640,14 @@ modifyUnder sym f =
   foldUnder sym \curr results -> BAC do
     (res, edge) <- results `zip` edges (target curr)
     f (curr, edge) res
+
+map :: Monoid e => (e -> s) -> Arrow e -> Arrow s
+map f arr =
+  mapArrow arr $
+    arr |> fold \curr results ->
+      edges (target curr) `zip` results |> fmap (uncurry mapArrow) |> BAC
+  where
+  mapArrow arr node = arr {value = f (value arr), target = node}
 
 {- |
 All arrows of this node in evalution order of fold.
