@@ -1,14 +1,35 @@
 {-# LANGUAGE BlockArguments #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module BAC.Deserialize (deserialize) where
+module BAC.Deserialize (deserialize, deserializeWithValue) where
 
 import Control.Applicative ((<|>))
-import Control.Monad (void)
+import Control.Monad (guard, void)
 import Data.Char (digitToInt)
+import Data.Foldable (foldl')
+import Data.List.Extra (allSame, groupSortOn, snoc)
 import Data.Map (Map, fromList, insert, lookup, member)
-import Text.Parsec (Parsec, crlf, digit, eof, getState, many, many1, newline, parserFail,
-  runParser, sepBy1, setState, string', ParseError)
+import qualified Data.Map as Map
+import Data.Map.Strict ((!))
+import Data.Tuple.Extra (dupe)
+import Text.Parsec
+  ( ParseError,
+    Parsec,
+    crlf,
+    digit,
+    eof,
+    getState,
+    letter,
+    many,
+    many1,
+    manyTill,
+    newline,
+    parserFail,
+    runParser,
+    sepBy1,
+    setState,
+    string',
+  )
 import Prelude hiding (lookup)
 
 import BAC.Base hiding (modify)
@@ -28,8 +49,26 @@ True
 >>> deserialize (serialize crescent) == Right crescent
 True
 -}
-deserialize :: String -> Either ParseError BAC
-deserialize = runParser (parseNode "" << eof) mempty ""
+deserialize :: String -> Either ParseError (BAC ())
+deserialize = runParser (parseNode (\_ -> return ()) "" << eof) (ParserState mempty mempty) "" .> fmap fst
+
+{- |
+Deserialize a string to a BAC with value.
+
+For example:
+
+>>> import BAC.Examples
+>>> import BAC.Serialize
+>>> let parse_value str = if str == "()" then Just () else Nothing
+>>> deserializeWithValue parse_value (serializeWithValue cone) == Right cone
+True
+>>> deserializeWithValue parse_value (serializeWithValue torus) == Right torus
+True
+>>> deserializeWithValue parse_value (serializeWithValue crescent) == Right crescent
+True
+-}
+deserializeWithValue :: Monoid e => (String -> Maybe e) -> String -> Either ParseError (BAC e)
+deserializeWithValue parse_value = runParser (parseNode (parseInlineValue parse_value) "" << eof) (ParserState mempty mempty) "" .> fmap fst
 
 parseInt :: Parsec String s Int
 parseInt =
@@ -43,6 +82,9 @@ parseInt =
 
 parseEnd :: Parsec String s ()
 parseEnd = void newline <|> void crlf <|> eof
+
+parseLine :: String -> Parsec String s String
+parseLine indent = string' indent >> manyTill letter parseEnd
 
 infixr 2 <<
 (<<) :: Monad m => m a -> m b -> m a
@@ -68,43 +110,101 @@ parseRef indent = string' (indent ++ "&") >> parseInt << parseEnd
 parseDeref :: String -> Parsec String s Int
 parseDeref indent = string' (indent ++ "*") >> parseInt << parseEnd
 
-parseEdge :: String -> Parsec String (Map Int BAC) Arrow
-parseEdge indent = do
+type NodeSharedPtr = Int
+type NodeUniquePtr = Int
+data ParserState e = ParserState
+  (Map NodeSharedPtr NodeUniquePtr)
+  (Map NodeUniquePtr (BAC e, Map Symbol NodeUniquePtr))
+
+parseInlineValue :: (String -> Maybe e) -> String -> Parsec String s e
+parseInlineValue parser indent = do
+  line <- parseLine indent
+  case parser line of
+    Nothing -> parserFail "invalid value"
+    Just val -> return val
+
+parseEdge :: Monoid e => (String -> Parsec String (ParserState e) e) -> String -> Parsec String (ParserState e) (Arrow e, Map Symbol NodeUniquePtr)
+parseEdge value_parser indent = do
   dict <- parseDict indent
-  target <- parseTarget ("  " ++ indent)
-  case makeArrow dict target of
+  val <- value_parser ("  " ++ indent)
+  target <- parseTarget value_parser ("  " ++ indent)
+  case makeArrow dict val target of
     Nothing -> parserFail "invalid edge"
     Just arr -> return arr
 
-parseTarget :: String -> Parsec String (Map Int BAC) BAC
-parseTarget indent =
+rootDict :: BAC e -> (Dict, BAC e)
+rootDict node = (symbols node |> fmap dupe |> Map.fromList, node)
+
+extendDict :: (Dict, BAC e) -> [(Dict, BAC e)]
+extendDict arr = edges (snd arr) |> fmap (\edge -> (fst arr `cat` dict edge, target edge))
+
+arrowsDict :: BAC e -> [(Dict, BAC e)]
+arrowsDict = rootDict .> go [] .> fmap snd
+  where
+  go res curr
+    | sym `elem` fmap fst res = res
+    | otherwise               = curr |> extendDict |> foldl' go res |> (`snoc` (sym, curr))
+    where
+    sym = fst curr ! base
+
+makeArrow :: Dict -> e -> (BAC e, Map Symbol NodeUniquePtr) -> Maybe (Arrow e, Map Symbol NodeUniquePtr)
+makeArrow arr_dict arr_value (arr_target, ptrs) = do
+  -- check totality for this arrow.
+  guard $ Map.keys arr_dict == symbols arr_target
+  -- check supportivity for all paths prefixed with this arrow.
+  guard $ arr_dict ! base /= base
+  guard $
+    arr_target
+    |> arrowsDict
+    |> fmap (\arr -> (arr_dict `cat` fst arr, ptrs ! (fst arr ! base)))
+    |> groupSortOn (fst .> (! base))
+    |> all allSame
+  let ptrs' = ptrs |> Map.mapKeys (arr_dict !)
+  return (Arrow {dict = arr_dict, value = arr_value, target = arr_target}, ptrs')
+
+makeBAC :: [(Arrow e, Map Symbol NodeUniquePtr)] -> Parsec String (ParserState e) (BAC e, Map Symbol NodeUniquePtr)
+makeBAC node_edges = do
+  -- check supportivity for all edges.
+  guard $
+    node_edges
+    |> concatMap (snd .> Map.toList)
+    |> groupSortOn fst
+    |> all allSame
+  ParserState shared unique <- getState
+  let ptr = length unique
+  let ptrs' = node_edges |> concatMap (snd .> Map.toList) |> ((base, ptr) :) |> Map.fromList
+  let res = (BAC (fmap fst node_edges), ptrs')
+  let unique = insert ptr res unique
+  setState $ ParserState shared unique
+  return res
+
+parseTarget :: Monoid e => (String -> Parsec String (ParserState e) e) -> String -> Parsec String (ParserState e) (BAC e, Map Symbol NodeUniquePtr)
+parseTarget value_parser indent =
   parseDerefnode indent
-  <|> parseRefnode indent
-  <|> parseNode indent
+  <|> parseRefnode value_parser indent
+  <|> parseNode value_parser indent
 
-parseNode :: String -> Parsec String (Map Int BAC) BAC
-parseNode indent = do
-  edges <- many $ parseEdge indent
-  case makeBAC edges of
-    Nothing -> parserFail "invalid node"
-    Just res -> return res
+parseNode :: Monoid e => (String -> Parsec String (ParserState e) e) -> String -> Parsec String (ParserState e) (BAC e, Map Symbol NodeUniquePtr)
+parseNode value_parser indent = do
+  edges <- many $ parseEdge value_parser indent
+  makeBAC edges <|> parserFail "invalid node"
 
-parseRefnode :: String -> Parsec String (Map Int BAC) BAC
-parseRefnode indent = do
+parseRefnode :: Monoid e => (String -> Parsec String (ParserState e) e) -> String -> Parsec String (ParserState e) (BAC e, Map Symbol NodeUniquePtr)
+parseRefnode value_parser indent = do
   ref <- parseRef indent
-  res <- parseNode indent
-  table <- getState
-  if ref `member` table
+  res <- parseNode value_parser indent
+  ParserState shared unique <- getState
+  if ref `member` shared
   then
     parserFail "invalid ref"
   else do
-    setState $ insert ref res table
+    setState $ ParserState (insert ref (snd res ! base) shared) unique
     return res
 
-parseDerefnode :: String -> Parsec String (Map Int BAC) BAC
+parseDerefnode :: String -> Parsec String (ParserState e) (BAC e, Map Symbol NodeUniquePtr)
 parseDerefnode indent = do
   deref <- parseDeref indent
-  table <- getState
-  case lookup deref table of
+  ParserState shared unique <- getState
+  case lookup deref shared of
     Nothing -> parserFail "invalid deref"
-    Just res -> return res
+    Just ptr -> return (unique ! ptr)
