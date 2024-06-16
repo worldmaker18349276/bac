@@ -70,7 +70,7 @@ addEdge (src, tgt) e node = do
         |> BAC
 
   -- rebuild BAC with the new node
-  fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
+  fromReachable src_node' $ root node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
     AtBoundary -> return edge {target = src_node'}
@@ -120,7 +120,7 @@ removeEdge (src, tgt) e node = do
         |> BAC
 
   -- rebuild BAC with the new node
-  fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
+  fromReachable src_node' $ root node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
     AtBoundary -> return edge {target = src_node'}
@@ -161,7 +161,7 @@ alterEdges (src, tgt) action node = do
         |> BAC
 
   -- rebuild BAC with the new node
-  fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
+  fromReachable src_node' $ root node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
     AtBoundary -> return edge {target = src_node'}
@@ -218,7 +218,7 @@ relabel tgt mapping node = do
         return edge {dict = mapping `cat` dict edge}
 
   -- rebuild BAC with the new node
-  fromReachable tgt_node' $ node |> modifyUnder tgt \(_curr, edge) -> \case
+  fromReachable tgt_node' $ root node |> modifyUnder tgt \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
     AtBoundary -> return edge {dict = dict edge `cat` unmapping, target = tgt_node'}
