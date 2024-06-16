@@ -7,17 +7,25 @@
 
 module BAC.Fundamental.Zip (
   canonicalizeArrow,
+  canonicalMapping,
+  UnifyKey,
+  unifyKey,
   unifiable,
-  unify,
+  unifyNodes,
   canonicalizeSuffixND,
+  ZipKey,
+  zipKey,
+  zippable,
   zipSuffixes,
 ) where
 
 import Control.Arrow ((&&&))
 import Control.Monad (guard, mzero)
 import Data.Bifunctor (bimap)
-import Data.List (nub, sort, sortOn, transpose)
-import Data.List.Extra (allSame, anySame, nubSort, nubSortOn)
+import Data.Foldable (foldl')
+import Data.Foldable.Extra (notNull)
+import Data.List (elemIndex, mapAccumL, nub, sort, sortOn, transpose)
+import Data.List.Extra (allSame, anySame, nubSort, nubSortOn, snoc)
 import Data.Map (Map)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
@@ -26,8 +34,6 @@ import Data.Maybe (fromJust, mapMaybe)
 import Utils.EqlistSet (canonicalizeGradedEqlistSet)
 import Utils.Utils ((.>), (|>))
 import BAC.Base
-import Data.Foldable (foldl')
-import Data.Foldable.Extra (notNull)
 
 -- $setup
 -- >>> import BAC
@@ -37,16 +43,16 @@ import Data.Foldable.Extra (notNull)
 
 
 {- |
-Find mappings to canonicalize the order of symbols of the target node of an arrow.  The
-induced automorphisms are invariant under the mapping of the arrow.  It can be used to
-check the upper isomorphism between objects.
+Find all possible orders of nondecomposable symbols to canonicalize the order of symbols
+of the target node of an arrow.  Use `canonicalMapping` to obtain the relabel mapping.
+The induced automorphisms are invariant under the mapping of the arrow.
 
 Examples:
 
 >>> fmap elems $ canonicalizeArrow $ fromJust $ arrow crescent 1
 [[0,1,2,5,3,4,6],[0,3,4,6,1,2,5]]
 -}
-canonicalizeArrow :: Arrow e -> [Dict]
+canonicalizeArrow :: Arrow e -> [[Symbol]]
 canonicalizeArrow arr =
   target arr
   |> edgesND
@@ -54,36 +60,72 @@ canonicalizeArrow arr =
   |> fmap dict
   |> fmap Map.elems
   |> canonicalizeGradedEqlistSet (dict arr !)
-  |> fmap (concat .> nub .> (base :))
-  |> fmap ((`zip` [base..]) .> Map.fromList)
+  |> fmap (fmap head)
 
-unifiable :: Monoid e => BAC e -> Symbol -> Maybe (Map Symbol [Dict])
-unifiable node sym = do
-  guard $ sym /= base
-  tgt_arr <- arrow node sym
+{- |
+Make a mapping based on given order of nondecomposable symbols (obtained by
+`canonicalizeArrow`) to canonicalize the order of symbols of the target node of given
+arrow.
+-}
+canonicalMapping :: Arrow e -> [Symbol] -> Dict
+canonicalMapping arr =
+  concatMap (dicts !) .> nub .> (base :) .> (`zip` [base..]) .> Map.fromList
+  where
+  dicts = target arr |> edges |> fmap dict |> fmap Map.elems |> fmap (\s -> (head s, s)) |> Map.fromList
 
-  let symbolsND arr =
+newtype UnifyKey =
+  UnifyKey
+  [( Symbol -- ^ identity (symbol from the root node) of the target node of a nondecomposable outgoing edge
+  , [Symbol] -- ^ relabelled value list of dictionary of this edge
+  )]
+  deriving (Eq, Ord, Show)
+
+{- |
+Get canonical key based on a canonical order to check if canonicalized nodes can be
+unified.  Any valid canonical order obtained by `canonicalizeArrow` should have the same
+key.
+It can be used to check the upper isomorphism between objects.
+-}
+unifyKey :: Monoid e => Arrow e -> [Symbol] -> UnifyKey
+unifyKey arr canonical_order =
+  target arr
+  |> edgesND
+  |> fmap (\edge -> (dict arr ! symbol edge, mapping `cat` dict edge))
+  |> nubSortOn fst
+  |> fmap (fmap Map.elems)
+  |> UnifyKey
+  where
+  mapping = canonicalMapping arr canonical_order
+
+{- |
+Find all possible nodes they can be unified with a given symbol, and compute canonical
+orders for them.
+-}
+unifiable :: Monoid e => BAC e -> Symbol -> Maybe (Map Symbol [[Symbol]])
+unifiable node tgt = do
+  guard $ tgt /= base
+  tgt_arr <- arrow node tgt
+
+  let childrenND arr =
         target arr
         |> edgesND
         |> nubSortOn symbol
         |> fmap (join arr .> symbol)
         |> sort
-  let tgt_symbolsND = symbolsND tgt_arr
+  let tgt_childrenND = childrenND tgt_arr
 
   let cand_arrs =
         arrows node
-        |> filter ((`locate` sym) .> (/= Inner))
+        |> filter ((`locate` tgt) .> (/= Inner))
         |> filter (symbol .> (tgt_arr `locate`) .> (/= Inner))
-        |> filter (symbolsND .> (== tgt_symbolsND))
+        |> filter (childrenND .> (== tgt_childrenND))
 
   let cand_result = cand_arrs |> fmap (symbol &&& canonicalizeArrow) |> Map.fromList
-  let cand_key = Map.fromList $ cand_arrs |> fmap \arr ->
-        target arr
-        |> edgesND
-        |> fmap (dict .> cat (head (cand_result ! symbol arr)))
-        |> nubSort
-        |> (symbol arr,)
-  let key0 = cand_key ! sym
+  let cand_key =
+        cand_arrs
+        |> fmap (\arr -> (symbol arr, unifyKey arr (head (cand_result ! symbol arr))))
+        |> Map.fromList
+  let key0 = cand_key ! tgt
 
   return $ cand_result |> Map.filterWithKey \sym _ -> cand_key ! sym == key0
 
@@ -92,14 +134,13 @@ Zip and unify nodes, with parameters @tgts :: [Symbol]@, where `tgts` is a list 
 to be zipped.  It will checks if the structures of the target nodes referenced by `tgts`
 are the same, and zip target nodes.
 -}
-unify ::
+unifyNodes ::
   Monoid e
   => [Symbol]
-  -- ^ The symbol referencing the node and symbols to be zipped.
+  -- ^ The symbols referencing the nodes to be zipped.
   -> BAC e
   -> Maybe (BAC e)
-unify tgts node = do
-  -- ensure that `(src, tgt)` for all `tgt <- tgts` are reachable
+unifyNodes tgts node = do
   guard $ notNull tgts
   tgt_arrs <- tgts |> traverse (arrow node)
 
@@ -120,25 +161,89 @@ unify tgts node = do
 
   return $ foldl' replaceNode node tgts
 
+
+rdict :: Monoid e => BAC e -> (Arrow e, Arrow e) -> [((Symbol, Symbol), (Symbol, Symbol))]
+rdict node (src_arr, tgt_arr) =
+  arrowsUnder node (symbol src_arr)
+  |> fmap (\arr1 -> (arr1, arr1 `divide` src_arr))
+  |> concatMap sequence
+  |> fmap (\(arr1, arr2) -> (symbol2 (arr1, arr2), symbol2 (arr1, arr2 `join` tgt_arr)))
+  |> sortOn fst
+  |> (((symbol src_arr, base), symbol2 (src_arr, tgt_arr)) :)
+
+{- |
+Find order of nondecomposable incoming edges to canonicalize the order of suffixes of the
+arrow to the target node.
+-}
 canonicalizeSuffixND :: Monoid e => BAC e -> Symbol -> [[(Symbol, Symbol)]]
 canonicalizeSuffixND node sym =
   suffixND node sym
   |> nubSortOn symbol2
-  |> fmap (\(src_arr, tgt_arr) ->
-    arrowsUnder node (symbol src_arr)
-    |> fmap (\arr1 -> (arr1, arr1 `divide` src_arr))
-    |> concatMap sequence
-    |> fmap (\(arr1, arr2) -> (symbol2 (arr1, arr2), symbol2 (arr1, arr2 `join` tgt_arr)))
-    |> sortOn fst
-    |> fmap snd
-    |> (symbol2 (src_arr, tgt_arr) :)
-  )
+  |> fmap (rdict node .> fmap snd)
   |> canonicalizeGradedEqlistSet fst
   |> fmap (fmap head)
 
+newtype ZipKey =
+  ZipKey
+  [( Symbol -- ^ identity (symbol from the root node) of the source node of a nondecomposable incoming edge
+  , [Int] -- ^ relabelled value list of reversed dictionary of this edge
+  )]
+  deriving (Eq, Ord, Show)
+
+{- |
+Get canonical key based on a canonical order to check if canonicalized nodes can be
+zipped.  Any valid canonical order obtained by `canonicalizeSuffixND` should have the same
+key.
+It can be used to check the lower isomorphism between objects.
+-}
+zipKey :: Monoid e => BAC e -> Symbol -> [(Symbol, Symbol)] -> ZipKey
+zipKey node sym canonical_order =
+  suffixND node sym
+  |> nubSortOn (\arr2 -> elemIndex (symbol2 arr2) canonical_order)
+  |> fmap (rdict node .> fmap snd)
+  |> mapAccumL (\accum list -> relabelList accum list |> fmap (fst (head list),)) []
+  |> snd
+  |> ZipKey
+  where
+  relabelList :: Eq a => [a] -> [a] -> ([a], [Int])
+  relabelList = relabelList' []
+  relabelList' :: Eq a => [Int] -> [a] -> [a] -> ([a], [Int])
+  relabelList' res accum [] = (accum, res)
+  relabelList' res accum (h:t) =
+    case elemIndex h accum of
+      Just i -> relabelList' (res `snoc` i) accum t
+      Nothing -> relabelList' (res `snoc` length accum) (accum `snoc` h) t
+
+{- |
+Find all possible nodes they can be zipped with a given node, and compute canonical orders
+for them.
+-}
+zippable :: Monoid e => BAC e -> Symbol -> Maybe (Map Symbol [[(Symbol, Symbol)]])
+zippable node tgt = do
+  guard $ tgt /= base
+  tgt_arr <- arrow node tgt
+
+  let parentsND = symbol .> suffixND node .> fmap symbol2 .> nubSort .> fmap fst .> sort
+  let tgt_parentsND = parentsND tgt_arr
+
+  let cand_syms =
+        arrows node
+        |> filter ((`locate` tgt) .> (/= Inner))
+        |> filter (symbol .> (tgt_arr `locate`) .> (/= Inner))
+        |> filter (parentsND .> (== tgt_parentsND))
+        |> fmap symbol
+
+  let cand_result = cand_syms |> fmap (id &&& canonicalizeSuffixND node) |> Map.fromList
+  let cand_key =
+        cand_syms
+        |> fmap (\sym -> (sym, zipKey node sym (head (cand_result ! sym))))
+        |> Map.fromList
+  let key0 = cand_key ! tgt
+
+  return $ cand_result |> Map.filterWithKey \sym _ -> cand_key ! sym == key0
+
 {- |
 Zip all suffixes of given nodes.
-It can be used to check lower isomorphisms for given symbols.
 
 Examples:
 
