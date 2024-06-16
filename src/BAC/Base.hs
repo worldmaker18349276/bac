@@ -52,8 +52,6 @@ module BAC.Base (
   validate,
   validateArrow,
   validateAll,
-  makeBAC,
-  makeArrow,
 
   -- * Arrows #arrows#
 
@@ -117,18 +115,16 @@ import Numeric.Natural (Natural)
 import Prelude hiding (compare, map)
 
 import Utils.Memoize (memoizeWithKey)
-import Utils.Utils (guarded, (.>), (|>))
+import Utils.Utils ((.>), (|>))
 
 -- $setup
 -- >>> import BAC
 -- >>> import BAC.Examples (cone, torus, crescent)
 
 -- | The tree representation of a bounded acyclic category.
---   It should be validated by `validate`.
 newtype BAC e = BAC { edges :: [Arrow e] } deriving (Eq, Ord, Show, Functor)
 
 -- | Arrow to a bounded acyclic category, representing a downward functor.
---   It should be validated by `validateArrow`, or use `makeArrow`.
 data Arrow e = Arrow {dict :: Dict, value :: e, target :: BAC e} deriving (Eq, Ord, Show, Functor)
 
 -- | Dictionary of an arrow, representing mapping of objects between nodes.
@@ -520,14 +516,6 @@ validateAll :: (Monoid e, Eq e) => BAC e -> Bool
 validateAll node = validateChildren && validate node
   where
   validateChildren = node |> edges |> all (target .> validateAll)
-
--- | Make a node with validation.
-makeBAC :: (Monoid e, Eq e) => [Arrow e] -> Maybe (BAC e)
-makeBAC = BAC .> guarded validate
-
--- | Make an arrow with validation.
-makeArrow :: (Monoid e, Eq e) => Dict -> e -> BAC e -> Maybe (Arrow e)
-makeArrow dict e target = Arrow {dict = dict, value = e, target = target} |> guarded validateArrow
 
 
 -- | A value labeled by the relative position of the node.
