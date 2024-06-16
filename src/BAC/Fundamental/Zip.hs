@@ -154,7 +154,7 @@ unifyNodes tgts node = do
   -- zip target nodes
   let tgt_node' = tgt_arrs |> concatMap (target .> edges) |> BAC
   let replaceNode node tgt =
-        fromJust $ fromInner $ node |> modifyUnder tgt \(_curr, edge) -> \case
+        fromJust $ fromInner $ root node |> modifyUnder tgt \(_curr, edge) -> \case
           AtOuter -> return edge
           AtBoundary -> return edge {target = tgt_node'}
           AtInner res -> return edge {target = res}
@@ -279,7 +279,7 @@ zipSuffixes tgts_suffix node = do
   let tgts = tgts_suffix |> fmap fst
 
   fromJust $ fromReachable (Just []) $
-    node |> foldUnder (head tgts) \curr results -> do
+    root node |> foldUnder (head tgts) \curr results -> do
       results' <- results |> traverse sequence
 
       let collapse = nubSort do

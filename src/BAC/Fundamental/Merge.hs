@@ -119,7 +119,7 @@ mergeSymbols (src, tgts) sym node = do
         let dict' = dict edge |> Map.map merge
         return edge {dict = dict'}
 
-  fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
+  fromReachable src_node' $ root node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
     AtBoundary -> return edge {dict = dict', target = src_node'}
@@ -226,7 +226,7 @@ mergeNodes tgts_suffix merger node = do
         return ((sym0, sym), merged_dict)
 
   fromReachable node $
-    node |> foldUnder (head tgts) \curr results -> BAC do
+    root node |> foldUnder (head tgts) \curr results -> BAC do
       (subnode, edge) <- results `zip` edges (target curr)
       let sym0 = symbol curr
       let sym = symbol (curr `join` edge)
@@ -328,7 +328,7 @@ mergeSymbolsAggressively (src, tgts) merger node = do
   let res0 = (merged_node, merging_lists)
 
   lres <- sequence $
-    node |> foldUnder src \curr results -> do
+    root node |> foldUnder src \curr results -> do
       let sym0 = symbol curr
       results' <-
         traverse sequence results

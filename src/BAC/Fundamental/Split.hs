@@ -185,7 +185,7 @@ splitSymbol (src, tgt) partition direct_splitted_symbols node = do
                 else fromJust sym
         return edge {dict = splitted_dict}
 
-  fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
+  fromReachable src_node' $ root node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
     AtBoundary -> return edge {dict = merged_dict, target = src_node'}
@@ -301,7 +301,7 @@ splitNode tgt partition node = do
   -- split `tgt_node`
   tgt_nodes' <- tgt_node |> splitRootNode (fmap snd partition)
 
-  fromInner $ node |> modifyUnder tgt \(curr, edge) -> \case
+  fromInner $ root node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {dict = duplicated_dict, target = subnode}
       where

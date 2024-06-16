@@ -98,7 +98,7 @@ removeNDSymbol (src, tgt) node = do
 
   -- rebuild the whole tree
   let removed_edges = path node tgt
-  fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
+  fromReachable src_node' $ root node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
     -- add edges by joining incoming edge to the removed edges
@@ -158,7 +158,7 @@ removeNode tgt node = do
   guard $ locate (root node) tgt == Inner
 
   -- remove the node of `tgt`
-  fromInner $ node |> modifyUnder tgt \(curr, edge) -> \case
+  fromInner $ root node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
     -- replace the incoming edge by joining this edge and outgoing edges
     AtBoundary -> target edge |> edges |> fmap (join edge)

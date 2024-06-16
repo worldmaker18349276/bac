@@ -168,7 +168,7 @@ compatibleCofractions node cofractions = isJust do
     |> guarded allSame
     |> fmap head
   
-  sequence_ $ node |> foldUnder sym0 \curr results -> do
+  sequence_ $ root node |> foldUnder sym0 \curr results -> do
     results' <- traverse sequence results
 
     -- find extended cofraction whose vertex is this node, and return two symbols referencing
@@ -376,7 +376,7 @@ addNDSymbol src tgt sym e src_alts tgt_alts node = do
           |> second (dict arr2 !)
 
   -- add new wires to incoming edges of `src_node`
-  fromReachable src_node' $ node |> modifyUnder src \(curr, edge) -> \case
+  fromReachable src_node' $ root node |> modifyUnder src \(curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
     -- add new wire for added symbol
@@ -460,7 +460,7 @@ addLeafNode src sym e inserter node = do
   let src_node' = src_node |> edges |> (new_edge :) |> BAC
 
   fromReachable src_node' $
-    node |> modifyUnder src \(curr, edge) -> \case
+    root node |> modifyUnder src \(curr, edge) -> \case
       AtOuter -> return edge
       AtBoundary -> return edge {dict = new_dict, target = src_node'}
         where
@@ -546,7 +546,7 @@ addParentNode (src, tgt) sym mapping (e1, e2) inserter node = do
   let src_node' = src_node |> edges |> (new_inedge :) |> BAC
 
   fromReachable src_node' $
-    node |> modifyUnder src \(curr, edge) -> \case
+    root node |> modifyUnder src \(curr, edge) -> \case
       AtOuter -> return edge
       AtBoundary -> return edge {dict = new_dict, target = src_node'}
         where

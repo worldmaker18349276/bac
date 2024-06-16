@@ -94,7 +94,7 @@ duplicateNDSymbol (src, tgt) syms node = do
           let dup_dict = dict edge |> Map.insert base sym
           return $ edge {dict = dup_dict}
 
-  fromReachable src_node' $ node |> modifyUnder src \(_curr, edge) -> \case
+  fromReachable src_node' $ root node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
     AtBoundary -> do
@@ -207,7 +207,7 @@ duplicateNode tgt shifters node = do
       |> anySame
       |> not
 
-  fromInner $ node |> modifyUnder tgt \(curr, edge) -> \case
+  fromInner $ root node |> modifyUnder tgt \(curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {dict = duplicated_dict, target = subnode}
       where
@@ -269,7 +269,7 @@ duplicatePrefix (src, tgt) shifters node = do
           |> fmap \dict' -> edge {dict = dict'}
 
   fromReachable src_node' $
-    node |> modifyUnder src \(_curr, edge) -> \case
+    root node |> modifyUnder src \(_curr, edge) -> \case
       AtOuter -> return edge
       AtInner subnode -> return edge {target = subnode}
       AtBoundary ->
@@ -304,7 +304,7 @@ duplicateSuffix (src, tgt) shifters node = do
   let tgt' = symbol tgt_arr
 
   fromInner $
-    node |> modifyUnder tgt' \(curr, edge) lres -> do
+    root node |> modifyUnder tgt' \(curr, edge) lres -> do
       let is_outside = null (src_arr `divide` curr)
       let sym = symbol curr
       let sym' = symbol (curr `join` edge)
