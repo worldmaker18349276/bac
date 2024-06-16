@@ -1,6 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 
-module BAC.Serialize (serializeDict, serializeAsYAML, serialize, printBAC) where
+module BAC.Serialize (serializeDict, serializeAsYAML, serialize, printBAC, serializeWithValue, printBACWithValue) where
 
 import Control.Monad (when)
 import Control.Monad.State (MonadState (get), State, execState, modify)
@@ -22,7 +22,7 @@ serializeDict =
   .> intercalate "; "
 
 -- | Count the number of shown references.
-countRef :: Arrow -> [(Symbol, Int)]
+countRef :: Monoid e => Arrow e -> [(Symbol, Int)]
 countRef = go .> (`execState` mempty)
   where
   go = extend .> traverse_ \arr -> do
@@ -36,7 +36,7 @@ countRef = go .> (`execState` mempty)
   incre a ((a', n) : rest) = if a == a' then (a', n+1) : rest else (a', n) : incre a rest
 
 -- | Assign pointers to multi-referenced symbols.
-makePointers :: Enum p => p -> BAC -> Map Symbol p
+makePointers :: (Enum p, Monoid e) => p -> BAC e -> Map Symbol p
 makePointers p =
   root
   .> countRef
@@ -70,16 +70,52 @@ dictionary of this edge, and the following indented block is the target of this 
 notations `&n` and `*n` at the first line of a block are referencing and dereferencing of
 blocks, indicating implicitly shared nodes.
 -}
-serialize :: BAC -> String
+serialize :: BAC () -> String
 serialize node =
   root node
-  |> format 0
+  |> format (\_ _ -> "") 0
+  |> (`execState` FormatterState (makePointers 0 node) [] "")
+  |> output
+
+{- |
+Serialize a BAC into a YAML-like string with edge value.
+
+For example:
+
+>>> import BAC.Examples
+>>> putStr $ serializeWithValue cone
+- 0->1; 1->2
+  ()
+  - 0->1
+    ()
+    &0
+- 0->3; 1->4; 2->2; 3->6; 4->4
+  ()
+  - 0->1; 1->2; 2->3
+    ()
+    &1
+    - 0->1
+      ()
+      *0
+    - 0->2
+      ()
+  - 0->4; 1->2; 2->3
+    ()
+    *1
+-}
+serializeWithValue :: (Monoid e, Show e) => BAC e -> String
+serializeWithValue node =
+  root node
+  |> format (\indent val -> indent ++ show val ++ "\n") 0
   |> (`execState` FormatterState (makePointers 0 node) [] "")
   |> output
 
 -- | print a BAC concisely.  See `serialize` for details.
-printBAC :: BAC -> IO ()
+printBAC :: BAC () -> IO ()
 printBAC = serialize .> putStr
+
+printBACWithValue :: (Monoid e, Show e) => BAC e -> IO ()
+printBACWithValue = serializeWithValue .> putStr
 
 {- |
 Serialize a BAC into a YAML string.
@@ -89,24 +125,31 @@ For example:
 >>> import BAC.Examples
 >>> putStr $ serializeAsYAML cone
 - dict: '0->1; 1->2'
+  value: ()
   target:
     - dict: '0->1'
+      value: ()
       target: &0 []
 - dict: '0->3; 1->4; 2->2; 3->6; 4->4'
+  value: ()
   target:
     - dict: '0->1; 1->2; 2->3'
+      value: ()
       target: &1
         - dict: '0->1'
+          value: ()
           target: *0
         - dict: '0->2'
+          value: ()
           target: []
     - dict: '0->4; 1->2; 2->3'
+      value: ()
       target: *1
 -}
-serializeAsYAML :: BAC -> String
+serializeAsYAML :: (Monoid e, Show e) => BAC e -> String
 serializeAsYAML node =
   root node
-  |> formatYAML 0
+  |> formatYAML show 0
   |> (`execState` FormatterState (makePointers 0 node) [] "")
   |> output
 
@@ -120,8 +163,8 @@ data FormatterState = FormatterState
 write :: String -> State FormatterState ()
 write str = modify \state -> state {output = output state ++ str}
 
-format :: Int -> Arrow -> State FormatterState ()
-format level curr = do
+format :: Monoid e => (String -> e -> String) -> Int -> Arrow e -> State FormatterState ()
+format format_value level curr = do
   let indent = replicate (level * 2) ' '
 
   let sym = symbol curr
@@ -140,14 +183,16 @@ format level curr = do
           write ""
       edges (target curr) |> traverse_ \edge -> do
         write $ indent ++ "- " ++ serializeDict (dict edge) ++ "\n"
-        format (level + 1) (curr `join` edge)
+        write $ format_value (indent ++ "  ") (value edge)
+        format format_value (level + 1) (curr `join` edge)
 
-formatYAML :: Int -> Arrow -> State FormatterState ()
-formatYAML level curr =
+formatYAML :: Monoid e => (e -> String) -> Int -> Arrow e -> State FormatterState ()
+formatYAML format_value level curr =
   edges (target curr) |> traverse_ \edge -> do
     let indent = replicate (level * 4) ' '
 
     write $ indent ++ "- dict: '" ++ serializeDict (dict edge) ++ "'\n"
+    write $ indent ++ "  value: " ++ format_value (value edge) ++ "\n"
     write indent
 
     let arr = curr `join` edge
@@ -169,4 +214,4 @@ formatYAML level curr =
       _ | null (edges (target arr)) -> write " []\n"
       _ -> do
         write "\n"
-        formatYAML (level + 1) arr
+        formatYAML format_value (level + 1) arr
