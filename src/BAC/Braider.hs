@@ -30,7 +30,7 @@ import Utils.DisjointSet (bipartiteEqclass)
 import Utils.Utils ((.>), (|>))
 
 type DAG e p = Map p (BAC e, [Edge e p])
-data BraidState e p = BraidState (DAG e p) [p]
+data BraidState e p = BraidState (DAG e p) p
 
 newtype BraiderT e p m v = BraiderT {runBraiderT :: StateT (BraidState e p) (MaybeT m) v}
   deriving (Functor, Applicative, Alternative, Monad)
@@ -38,12 +38,12 @@ newtype BraiderT e p m v = BraiderT {runBraiderT :: StateT (BraidState e p) (May
 getTable :: Monad m => BraiderT e p m (DAG e p)
 getTable = BraiderT $ gets (\(BraidState table _) -> table)
 
-insertNode :: (Ord p, Monad m) => BAC e -> [Edge e p] -> BraiderT e p m p
+insertNode :: (Ord p, Enum p, Monad m) => BAC e -> [Edge e p] -> BraiderT e p m p
 insertNode node children = BraiderT $ do
   state <- get
-  let BraidState table (p : counter') = state
+  let BraidState table p = state
   let table' = insert p (node, children) table
-  put $ BraidState table' counter'
+  put $ BraidState table' (succ p)
   return p
 
 data Edge e p = Edge e p
@@ -125,7 +125,7 @@ type Pointer = Integer
 -- | Make a BAC by a monad-typed builder.
 braidM :: Monad m => (forall p. (Enum p, Ord p) => BraiderT e p m p) -> m (Maybe (BAC e))
 braidM braiding = runMaybeT $ do
-  let init = BraidState mempty [toEnum 0 :: Pointer ..]
+  let init = BraidState mempty (toEnum 0 :: Pointer)
   (p, final) <- runStateT (runBraiderT braiding) init
   let BraidState table _ = final
   let (res, _) = table ! p
