@@ -73,7 +73,7 @@ Examples:
   - 0->5; 1->2; 2->3
     *1
 -}
-duplicateNDSymbol :: (Symbol, Symbol) -> [Symbol] -> BAC -> Maybe BAC
+duplicateNDSymbol :: Monoid e => (Symbol, Symbol) -> [Symbol] -> BAC e -> Maybe (BAC e)
 duplicateNDSymbol (src, tgt) syms node = do
   guard $ notNull syms
   -- ensure that `(src, tgt)` is reachable, proper and nondecomposable
@@ -84,7 +84,7 @@ duplicateNDSymbol (src, tgt) syms node = do
   -- ensure that it is valid to relace `tgt` with `syms`
   guard $ src_node |> symbols |> replace [tgt] syms |> anySame |> not
 
-  let src_node' = fromEdges do
+  let src_node' = BAC do
         edge <- edges src_node
         if symbol edge /= tgt
         then return edge
@@ -105,7 +105,7 @@ duplicateNDSymbol (src, tgt) syms node = do
 
 -- | Duplicate a nondecomposable symbol on the root node (duplicate an initial
 --   nondecomposable morphism).  See `duplicateNDSymbol` for details.
-duplicateNDSymbolOnRoot :: Symbol -> [Symbol] -> BAC -> Maybe BAC
+duplicateNDSymbolOnRoot :: Monoid e => Symbol -> [Symbol] -> BAC e -> Maybe (BAC e)
 duplicateNDSymbolOnRoot tgt = duplicateNDSymbol (base, tgt)
 
 
@@ -191,7 +191,7 @@ Examples:
   - 0->7; 1->6; 2->13
     *3
 -}
-duplicateNode :: Symbol -> [(Symbol, Symbol) -> Symbol] -> BAC -> Maybe BAC
+duplicateNode :: Monoid e => Symbol -> [(Symbol, Symbol) -> Symbol] -> BAC e -> Maybe (BAC e)
 duplicateNode tgt shifters node = do
   -- ensure that `tgt` is reachable and proper
   guard $ locate (root node) tgt |> (== Inner)
@@ -228,14 +228,14 @@ duplicateNode tgt shifters node = do
 
 -- | Duplicate a leaf node (duplicate a nondecomposable terminal morphism).  See
 --   `duplicateNode` for details.
-duplicateLeafNode :: Symbol -> [(Symbol, Symbol) -> Symbol] -> BAC -> Maybe BAC
+duplicateLeafNode :: Monoid e => Symbol -> [(Symbol, Symbol) -> Symbol] -> BAC e -> Maybe (BAC e)
 duplicateLeafNode tgt shifters node = do
   tgt_arr <- arrow node tgt
   guard $ target tgt_arr |> edges |> null
   duplicateNode tgt shifters node
 
 
-duplicatePrefix :: (Symbol, Symbol) -> [Symbol -> Symbol] -> BAC -> Maybe BAC
+duplicatePrefix :: Monoid e => (Symbol, Symbol) -> [Symbol -> Symbol] -> BAC e -> Maybe (BAC e)
 duplicatePrefix (src, tgt) shifters node = do
   guard $ tgt /= base
   (src_arr, _tgt_subarr) <- arrow2 node (src, tgt)
@@ -251,7 +251,7 @@ duplicatePrefix (src, tgt) shifters node = do
     |> anySame
     |> not
 
-  let src_node' = fromEdges do
+  let src_node' = BAC do
         edge <- edges (target src_arr)
         if symbol edge `notElem` dup_list
         then return edge
@@ -280,7 +280,7 @@ duplicatePrefix (src, tgt) shifters node = do
         |> Map.fromList
         |> \dict' -> return edge {dict = dict', target = src_node'}
 
-duplicateSuffix :: (Symbol, Symbol) -> [(Symbol, Symbol) -> Symbol] -> BAC -> Maybe BAC
+duplicateSuffix :: Monoid e => (Symbol, Symbol) -> [(Symbol, Symbol) -> Symbol] -> BAC e -> Maybe (BAC e)
 duplicateSuffix (src, tgt) shifters node = do
   guard $ tgt /= base
   (src_arr, tgt_subarr) <- arrow2 node (src, tgt)
