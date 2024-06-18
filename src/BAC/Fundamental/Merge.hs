@@ -69,15 +69,22 @@ Examples:
     *2
 
 >>> crescent_1 = arrow crescent 1 |> fromJust |> target
->>> printBAC $ fromJust $ mergeSymbols (0,[1,3]) 1 crescent_1
+>>> crescent_1' = fromJust $ unifyNodes [1,3] crescent_1
+>>> printBAC $ fromJust $ mergeSymbols (0,[1,3]) 1 crescent_1'
 - 0->1; 1->2
+  &0
   - 0->1
+    &1
+  - 0->1
+    *1
+- 0->1; 1->2
+  *0
 - 0->5; 1->6
   - 0->1
-    &0
+    &2
 - 0->7; 1->6
   - 0->1
-    *0
+    *2
 
 >>> mergeSymbols (0,[1,5]) 1 crescent_1
 Nothing
@@ -146,7 +153,7 @@ morphism indicated by pair of symbol @(s, merger (s, [r1, r2, ...]))@.
 
 Examples:
 
->>> crescent' = crescent |> alterSymbol (2,1) 2 |> fromJust
+>>> crescent' = crescent |> alterSymbol (4,1) 2 |> fromJust
 >>> printBAC $ fromJust $ mergeNodes [(2,[(1,1),(1,5)]),(4,[(1,3),(1,7)])] (snd .> head) crescent'
 - 0->1; 1->2; 2->3; 5->2; 6->3
   - 0->1; 1->2; 2->2
@@ -155,13 +162,17 @@ Examples:
       &1
     - 0->2
       *1
+  - 0->1; 1->2; 2->2
+    *0
+  - 0->5; 1->6; 2->6
+    *0
   - 0->5; 1->6; 2->6
     *0
 
->>> torus' = torus |> alterSymbol (2,1) 3 |> fromJust |> alterSymbol (2,2) 4 |> fromJust
+>>> torus' = torus |> alterSymbol (5,1) 3 |> fromJust |> alterSymbol (5,2) 4 |> fromJust
 >>> printBAC $ fromJust $ mergeNodes [(2,[(1,1),(1,7)]), (5,[(1,4),(1,10)])] (snd .> head) torus'
 - 0->1; 1->2; 2->3; 3->3; 6->3; 7->2; 8->3
-  - 0->1; 1->3; 2->6; 3->2; 4->3
+  - 0->1; 1->2; 2->3; 3->3; 4->6
     &0
     - 0->1
       &1
@@ -171,7 +182,11 @@ Examples:
       *1
     - 0->4
       *1
-  - 0->7; 1->2; 2->8; 3->8; 4->6
+  - 0->1; 1->2; 2->3; 3->3; 4->6
+    *0
+  - 0->7; 1->8; 2->6; 3->2; 4->8
+    *0
+  - 0->7; 1->8; 2->6; 3->2; 4->8
     *0
 -}
 mergeNodes ::
@@ -261,11 +276,12 @@ merge, which should have disjoint symbol lists except the base symbol.
 
 Examples:
 
->>> printBAC $ fromJust $ mergeRootNodes [fromJust $ singleton 1, empty, fromJust $ singleton 2]
+>>> printBAC $ fromJust $ mergeRootNodes [fromJust $ singleton 1 (), empty, fromJust $ singleton 2 ()]
 - 0->1
 - 0->2
 
->>> printBAC $ fromJust $ mergeRootNodes [fromJust $ singleton 6, crescent]
+>>> printBAC $ fromJust $ mergeRootNodes [fromJust $ singleton 6 (), crescent]
+- 0->6
 - 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4
   - 0->1; 1->2
     &0
@@ -279,7 +295,6 @@ Examples:
     *0
   - 0->7; 1->6
     *2
-- 0->6
 -}
 mergeRootNodes :: [BAC e] -> Maybe (BAC e)
 mergeRootNodes nodes = do

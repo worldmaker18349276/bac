@@ -221,7 +221,7 @@ if it is invalid.
 Examples:
 
 >>> fromJust $ findValidCofractionsFractions 1 6 cone
-([[((0,1),(0,6))]],[])
+([[((0,6),(0,1))]],[])
 -}
 findValidCofractionsFractions ::
   Monoid e
@@ -281,20 +281,20 @@ picklist.  A valid choice of fractions and cofractions can be checked by functio
 Examples:
 
 >>> fromJust $ findValidCofractionsFractions 1 6 cone
-([[((0,1),(0,6))]],[])
->>> printBAC $ fromJust $ addNDSymbol 1 6 2 [((0,1),(0,6))] [] cone
+([[((0,6),(0,1))]],[])
+>>> printBAC $ fromJust $ addNDSymbol 1 6 2 () [((0,6),(0,1))] [] cone
 - 0->1; 1->2; 2->6
-  - 0->1
-    &0
   - 0->2
+    &0
+  - 0->1
     &1
 - 0->3; 1->4; 2->2; 3->6; 4->4
   - 0->1; 1->2; 2->3
     &2
     - 0->1
-      *0
-    - 0->2
       *1
+    - 0->2
+      *0
   - 0->4; 1->2; 2->3
     *2
 -}
@@ -402,7 +402,7 @@ the same source object.
 
 Examples:
 
->>> printBAC $ fromJust $ addLeafNode 2 1 (makeShifter cone 1) cone
+>>> printBAC $ fromJust $ addLeafNode 2 1 () (makeShifter cone 1) cone
 - 0->1; 1->2; 2->8
   - 0->1; 1->2
     &0
@@ -416,17 +416,17 @@ Examples:
   - 0->4; 1->2; 2->3; 3->6
     *1
 
->>> printBAC $ fromJust $ addLeafNode 4 3 (makeShifter cone 1) cone
+>>> printBAC $ fromJust $ addLeafNode 4 3 () (makeShifter cone 1) cone
 - 0->1; 1->2
   - 0->1
     &0
 - 0->3; 1->4; 2->2; 3->6; 4->4; 5->10; 8->10
   - 0->1; 1->2; 2->3; 3->5
     &1
+    - 0->3
     - 0->1
       *0
     - 0->2
-    - 0->3
   - 0->4; 1->2; 2->3; 3->8
     *1
 -}
@@ -493,21 +493,21 @@ Examples:
 
 >>> import Control.Arrow ((&&&))
 >>> mapping = arrow cone 4 |> fromJust |> target |> symbols |> fmap (id &&& (+1)) |> Map.fromList
->>> printBAC $ fromJust $ addParentNode (3,1) 5 mapping (makeShifter cone 1) cone
+>>> printBAC $ fromJust $ addParentNode (3,1) 5 mapping ((), ()) (makeShifter cone 1) cone
 - 0->1; 1->2
   - 0->1
     &0
 - 0->3; 1->4; 2->2; 3->6; 4->4; 5->9
-  - 0->1; 1->2; 2->3
-    &1
-    - 0->1
-      *0
-    - 0->2
-  - 0->4; 1->2; 2->3
-    *1
   - 0->5; 1->1; 2->2; 3->3
     - 0->1; 1->2; 2->3
-      *1
+      &1
+      - 0->1
+        *0
+      - 0->2
+  - 0->1; 1->2; 2->3
+    *1
+  - 0->4; 1->2; 2->3
+    *1
 -}
 addParentNode ::
   Monoid e

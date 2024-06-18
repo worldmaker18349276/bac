@@ -15,11 +15,11 @@ import Data.Tuple.Extra (dupe)
 import Text.Parsec
   ( ParseError,
     Parsec,
+    anyToken,
     crlf,
     digit,
     eof,
     getState,
-    letter,
     many,
     many1,
     manyTill,
@@ -84,7 +84,7 @@ parseEnd :: Parsec String s ()
 parseEnd = void newline <|> void crlf <|> eof
 
 parseLine :: String -> Parsec String s String
-parseLine indent = string' indent >> manyTill letter parseEnd
+parseLine indent = string' indent >> manyTill anyToken parseEnd
 
 infixr 2 <<
 (<<) :: Monad m => m a -> m b -> m a
@@ -174,8 +174,8 @@ makeBAC node_edges = do
   let ptr = length unique
   let ptrs' = node_edges |> concatMap (snd .> Map.toList) |> ((base, ptr) :) |> Map.fromList
   let res = (BAC (fmap fst node_edges), ptrs')
-  let unique = insert ptr res unique
-  setState $ ParserState shared unique
+  let unique' = insert ptr res unique
+  setState $ ParserState shared unique'
   return res
 
 parseTarget :: Monoid e => (String -> Parsec String (ParserState e) e) -> String -> Parsec String (ParserState e) (BAC e, Map Symbol NodeUniquePtr)

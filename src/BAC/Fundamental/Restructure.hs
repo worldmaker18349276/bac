@@ -35,18 +35,18 @@ process.
 
 Examples:
 
->>> printBAC $ fromJust $ cone |> addEdge (3,2)
+>>> printBAC $ fromJust $ cone |> addEdge (3,2) ()
 - 0->1; 1->2
   - 0->1
     &0
 - 0->3; 1->4; 2->2; 3->6; 4->4
+  - 0->2
+    *0
   - 0->1; 1->2; 2->3
     &1
     - 0->1
       *0
     - 0->2
-  - 0->2
-    *0
   - 0->4; 1->2; 2->3
     *1
 -}
@@ -81,8 +81,8 @@ this process.
 
 Examples:
 
->>> cone' = fromJust $ cone |> addEdge (3,2)
->>> printBAC $ fromJust $ cone' |> removeEdge (3,2)
+>>> cone' = fromJust $ cone |> addEdge (3,2) ()
+>>> printBAC $ fromJust $ cone' |> removeEdge (3,2) ()
 - 0->1; 1->2
   - 0->1
     &0
@@ -178,12 +178,12 @@ Examples:
   - 0->1
     &0
 - 0->3; 1->2; 2->6; 3->4; 4->4
-  - 0->3; 1->1; 2->2
+  - 0->4; 1->1; 2->2
     &1
     - 0->1
       *0
     - 0->2
-  - 0->4; 1->1; 2->2
+  - 0->3; 1->1; 2->2
     *1
 
 >>> relabel 3 (fromList [(0,0), (1,4), (2,1), (3,2)]) cone
@@ -233,12 +233,12 @@ Examples:
   - 0->1
     &0
 - 0->3; 2->2; 3->6; 4->4; 5->4
-  - 0->4; 1->2; 2->3
+  - 0->5; 1->2; 2->3
     &1
     - 0->1
       *0
     - 0->2
-  - 0->5; 1->2; 2->3
+  - 0->4; 1->2; 2->3
     *1
 -}
 alterSymbol ::

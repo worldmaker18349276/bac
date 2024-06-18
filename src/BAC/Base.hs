@@ -170,7 +170,7 @@ A node without descendant (a BAC without proper object).
 
 Examples:
 
->>> printBAC empty
+>>> printBAC (empty :: BAC ())
 -}
 empty :: BAC e
 empty = BAC []
@@ -180,10 +180,10 @@ a node with only one descendant (a BAC with only one proper object).
 
 Examples:
 
->>> printBAC $ fromJust $ singleton 1
+>>> printBAC $ fromJust $ singleton 1 ()
 - 0->1
 
->>> printBAC $ fromJust $ singleton 2
+>>> printBAC $ fromJust $ singleton 2 ()
 - 0->2
 -}
 singleton :: Symbol -> e -> Maybe (BAC e)
@@ -204,6 +204,7 @@ root node = Arrow {dict = id_dict, value = mempty, target = node}
 join :: (HasCallStack, Monoid e) => Arrow e -> Arrow e -> Arrow e
 join arr1 arr2 = arr2 {dict = dict arr1 `cat` dict arr2, value = value arr1 <> value arr2}
 
+-- | The preimage of a dictionary.
 inv :: Dict -> Symbol -> [Symbol]
 inv dict sym =
   dict
@@ -280,7 +281,7 @@ node.
 Examples:
 
 >>> arrow cone 3
-Just (Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
+Just (Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], value = (), target = ...
 
 >>> arrow cone 5
 Nothing
@@ -293,6 +294,18 @@ arrow node sym = go (root node)
     Boundary -> Just arr
     Inner    -> Just $ arr |> extend |> mapMaybe go |> head
 
+{- |
+All paths to the node referenced by the given symbol, where the value of arrows are
+composed by the values on the path.
+
+Examples:
+
+>>> path cone 3
+[Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], value = (), target = ...
+
+>>> path cone 5
+[]
+-}
 path :: Monoid e => BAC e -> Symbol -> [Arrow e]
 path node sym = go (root node)
   where
@@ -322,10 +335,10 @@ A 2-chain referenced by the given pair of symbols.
 Examples:
 
 >>> fmap fst (arrow2 cone (3,2))
-Just (Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], target = ...
+Just (Arrow {dict = fromList [(0,3),(1,4),(2,2),(3,6),(4,4)], value = (), target = ...
 
 >>> fmap snd (arrow2 cone (3,2))
-Just (Arrow {dict = fromList [(0,2)], target = ...
+Just (Arrow {dict = fromList [(0,2)], value = (), target = ...
 
 >>> arrow2 cone (1,2)
 Nothing
@@ -539,19 +552,19 @@ Fold a BAC.  All nodes are visited only once according to symbols.
 
 Examples:
 
->>> fold (\curr results -> concat results `snoc` symbol curr) cone
+>>> fold (\curr results -> concat results `snoc` symbol curr) (root cone)
 [2,1,2,6,4,2,6,4,3,0]
 
->>> fold (\curr results -> concat results `snoc` symbol curr) crescent
+>>> fold (\curr results -> concat results `snoc` symbol curr) (root crescent)
 [3,2,3,4,3,2,3,4,1,0]
 
->>> fold (\curr results -> concat results `snoc` symbol curr) torus
+>>> fold (\curr results -> concat results `snoc` symbol curr) (root torus)
 [3,3,2,3,3,5,3,3,2,3,3,5,1,0]
 
 The evaluation order follows the DFS algorithm.  Each node will only be evaluated once.
 
 >>> import Debug.Trace (traceShow)
->>> fold (\curr results -> results == results `seq` traceShow (symbol curr) ()) torus `seq` return ()
+>>> fold (\curr results -> results == results `seq` traceShow (symbol curr) ()) (root torus) `seq` return ()
 3
 2
 5
@@ -576,16 +589,16 @@ Fold a BAC under a node.
 
 Examples:
 
->>> foldUnder 6 (\_ results -> "<" ++ concat (mapMaybe fromInner results) ++ ">") cone
+>>> foldUnder 6 (\_ results -> "<" ++ concat (mapMaybe fromInner results) ++ ">") (root cone)
 AtInner "<<<><>>>"
 
->>> foldUnder 6 (\curr results -> concat (mapMaybe fromInner results) `snoc` symbol curr) cone
+>>> foldUnder 6 (\curr results -> concat (mapMaybe fromInner results) `snoc` symbol curr) (root cone)
 AtInner [4,4,3,0]
 
 The evaluation order follows the DFS algorithm.
 
 >>> import Debug.Trace (traceShow)
->>> res = foldUnder 6 (\curr results -> results == results `seq` traceShow (symbol curr) ()) cone
+>>> res = foldUnder 6 (\curr results -> results == results `seq` traceShow (symbol curr) ()) (root cone)
 >>> res == res `seq` return ()
 4
 3
@@ -641,6 +654,7 @@ modifyUnder sym f =
     (res, edge) <- results `zip` edges (target curr)
     f (curr, edge) res
 
+-- | Map values of edges.
 map :: Monoid e => (e -> s) -> Arrow e -> Arrow s
 map f arr =
   mapArrow arr $
@@ -673,6 +687,9 @@ arrows = root .> go [] .> fmap snd
     where
     sym = symbol curr
 
+{- |
+All paths of this node.
+-}
 paths :: Monoid e => BAC e -> [Arrow e]
 paths = root .> go []
   where
@@ -699,6 +716,9 @@ arrowsUnder node sym = node |> root |> go [] |> fmap snd
     where
     sym' = symbol curr
 
+{- |
+All paths under a given symbol of this node.
+-}
 pathsUnder :: Monoid e => BAC e -> Symbol -> [Arrow e]
 pathsUnder node sym = node |> root |> go []
   where

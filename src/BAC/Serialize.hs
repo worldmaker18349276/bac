@@ -70,7 +70,7 @@ dictionary of this edge, and the following indented block is the target of this 
 notations `&n` and `*n` at the first line of a block are referencing and dereferencing of
 blocks, indicating implicitly shared nodes.
 -}
-serialize :: BAC () -> String
+serialize :: Monoid e => BAC e -> String
 serialize node =
   root node
   |> format (\_ _ -> "") 0
@@ -111,7 +111,7 @@ serializeWithValue node =
   |> output
 
 -- | print a BAC concisely.  See `serialize` for details.
-printBAC :: BAC () -> IO ()
+printBAC :: Monoid e => BAC e -> IO ()
 printBAC = serialize .> putStr
 
 printBACWithValue :: (Monoid e, Show e) => BAC e -> IO ()

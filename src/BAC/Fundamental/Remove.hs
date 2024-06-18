@@ -55,9 +55,12 @@ Examples:
   - 0->1
     &0
 - 0->4; 1->2; 2->6
+  &1
   - 0->1
     *0
   - 0->2
+- 0->4; 1->2; 2->6
+  *1
 
 >>> printBAC $ cone |> removeNDSymbol (3,1) |> fromJust |> removeNDSymbol (3,4) |> fromJust
 - 0->1; 1->2
@@ -68,11 +71,18 @@ Examples:
     *0
   - 0->3
     &1
+  - 0->2
+    *0
+  - 0->3
+    *1
 - 0->4; 1->2; 2->6
+  &2
   - 0->1
     *0
   - 0->2
     *1
+- 0->4; 1->2; 2->6
+  *2
 -}
 removeNDSymbol ::
   Monoid e
@@ -97,7 +107,7 @@ removeNDSymbol (src, tgt) node = do
           return $ edge `join` subedge
 
   -- rebuild the whole tree
-  let removed_edges = path node tgt
+  let removed_edges = path src_node tgt
   fromReachable src_node' $ root node |> modifyUnder src \(_curr, edge) -> \case
     AtOuter -> return edge
     AtInner subnode -> return edge {target = subnode}
@@ -130,9 +140,12 @@ Examples:
   - 0->1
     &0
 - 0->4; 1->2; 2->6
+  &1
   - 0->1
     *0
   - 0->2
+- 0->4; 1->2; 2->6
+  *1
 
 >>> printBAC $ fromJust $ removeNode 4 cone
 - 0->1; 1->2
@@ -142,6 +155,11 @@ Examples:
   - 0->2
     *0
   - 0->3
+    &1
+  - 0->2
+    *0
+  - 0->3
+    *1
 
 >>> printBAC $ fromJust $ removeNode 2 cone
 - 0->1

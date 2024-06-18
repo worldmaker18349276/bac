@@ -49,8 +49,11 @@ The induced automorphisms are invariant under the mapping of the arrow.
 
 Examples:
 
->>> fmap elems $ canonicalizeArrow $ fromJust $ arrow crescent 1
-[[0,1,2,5,3,4,6],[0,3,4,6,1,2,5]]
+>>> let arr = fromJust $ arrow crescent 1
+>>> fmap symbol $ edgesND $ target arr
+[1,3,5,7]
+>>> canonicalizeArrow arr
+[[1,5,3,7],[5,1,7,3]]
 -}
 canonicalizeArrow :: Arrow e -> [[Symbol]]
 canonicalizeArrow arr =
@@ -66,6 +69,12 @@ canonicalizeArrow arr =
 Make a mapping based on given order of nondecomposable symbols (obtained by
 `canonicalizeArrow`) to canonicalize the order of symbols of the target node of given
 arrow.
+
+Examples:
+
+>>> let arr = fromJust $ arrow crescent 1
+>>> fmap Map.elems $ fmap (canonicalMapping arr) $ canonicalizeArrow arr
+[[0,1,2,5,3,4,6],[0,3,4,6,1,2,5]]
 -}
 canonicalMapping :: Arrow e -> [Symbol] -> Dict
 canonicalMapping arr =
@@ -85,13 +94,19 @@ Get canonical key based on a canonical order to check if canonicalized nodes can
 unified.  Any valid canonical order obtained by `canonicalizeArrow` should have the same
 key.
 It can be used to check the upper isomorphism between objects.
+
+Examples:
+
+>>> let arr = fromJust $ arrow crescent 1
+>>> fmap (unifyKey arr) $ canonicalizeArrow arr
+[UnifyKey [(2,[1,2]),(2,[3,4]),(4,[5,2]),(4,[6,4])],UnifyKey [(2,[1,2]),(2,[3,4]),(4,[5,2]),(4,[6,4])]]
 -}
-unifyKey :: Monoid e => Arrow e -> [Symbol] -> UnifyKey
+unifyKey :: Arrow e -> [Symbol] -> UnifyKey
 unifyKey arr canonical_order =
   target arr
   |> edgesND
-  |> fmap (\edge -> (dict arr ! symbol edge, mapping `cat` dict edge))
-  |> nubSortOn fst
+  |> nubSortOn (dict .> (! base) .> (`elemIndex` canonical_order))
+  |> fmap (\edge -> (dict arr ! (dict edge ! base), mapping `cat` dict edge))
   |> fmap (fmap Map.elems)
   |> UnifyKey
   where
@@ -100,6 +115,12 @@ unifyKey arr canonical_order =
 {- |
 Find all possible nodes they can be unified with a given symbol, and compute canonical
 orders for them.
+
+Examples:
+
+>>> let arr = fromJust $ arrow crescent 1
+>>> fromJust $ unifiable (target arr) 1
+fromList [(1,[[1]]),(3,[[1]])]
 -}
 unifiable :: Monoid e => BAC e -> Symbol -> Maybe (Map Symbol [[Symbol]])
 unifiable node tgt = do
@@ -133,6 +154,40 @@ unifiable node tgt = do
 Zip and unify nodes, with parameters @tgts :: [Symbol]@, where `tgts` is a list of symbols
 to be zipped.  It will checks if the structures of the target nodes referenced by `tgts`
 are the same, and zip target nodes.
+
+Examples:
+
+>>> let arr = fromJust $ arrow crescent 1
+>>> printBAC $ target arr
+- 0->1; 1->2
+  - 0->1
+    &0
+- 0->3; 1->2
+  - 0->1
+    *0
+- 0->5; 1->6
+  - 0->1
+    &1
+- 0->7; 1->6
+  - 0->1
+    *1
+>>> printBAC $ fromJust $ unifyNodes [1,3] (target arr)
+- 0->1; 1->2
+  - 0->1
+    &0
+  - 0->1
+    *0
+- 0->3; 1->2
+  - 0->1
+    *0
+  - 0->1
+    *0
+- 0->5; 1->6
+  - 0->1
+    &1
+- 0->7; 1->6
+  - 0->1
+    *1
 -}
 unifyNodes ::
   Monoid e
@@ -174,6 +229,14 @@ rdict node (src_arr, tgt_arr) =
 {- |
 Find order of nondecomposable incoming edges to canonicalize the order of suffixes of the
 arrow to the target node.
+
+Examples:
+
+>>> canonicalizeSuffixND crescent 2
+[[(1,1),(1,5)],[(1,5),(1,1)]]
+
+>>> canonicalizeSuffixND crescent 4
+[[(1,3),(1,7)],[(1,7),(1,3)]]
 -}
 canonicalizeSuffixND :: Monoid e => BAC e -> Symbol -> [[(Symbol, Symbol)]]
 canonicalizeSuffixND node sym =
@@ -195,6 +258,14 @@ Get canonical key based on a canonical order to check if canonicalized nodes can
 zipped.  Any valid canonical order obtained by `canonicalizeSuffixND` should have the same
 key.
 It can be used to check the lower isomorphism between objects.
+
+Examples:
+
+>>> zipKey crescent 2 [(1,1),(1,5)]
+ZipKey [(1,[0,1]),(1,[2,1])]
+ 
+>>> zipKey crescent 4 [(1,3),(1,7)]
+ZipKey [(1,[0,1]),(1,[2,1])]
 -}
 zipKey :: Monoid e => BAC e -> Symbol -> [(Symbol, Symbol)] -> ZipKey
 zipKey node sym canonical_order =
@@ -217,6 +288,11 @@ zipKey node sym canonical_order =
 {- |
 Find all possible nodes they can be zipped with a given node, and compute canonical orders
 for them.
+
+Examples:
+
+>>> fromJust $ zippable crescent 2
+fromList [(2,[[(1,1),(1,5)],[(1,5),(1,1)]]),(4,[[(1,3),(1,7)],[(1,7),(1,3)]])]
 -}
 zippable :: Monoid e => BAC e -> Symbol -> Maybe (Map Symbol [[(Symbol, Symbol)]])
 zippable node tgt = do
@@ -247,13 +323,13 @@ Zip all suffixes of given nodes.
 
 Examples:
 
->>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffixes [(2,[(1,1),(1,5)]),(4,[(1,3),(1,7)])] crescent
+>>> fromJust $ zipSuffixes [(2,[(1,1),(1,5)]),(4,[(1,3),(1,7)])] crescent
 [(1,[1,3]),(1,[5,7]),(0,[2,4])]
 
->>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffixes [(3,[(2,1),(4,1)])] crescent
+>>> fromJust $ zipSuffixes [(3,[(2,1),(4,1)])] crescent
 [(2,[1]),(4,[1]),(1,[2]),(1,[6]),(0,[3])]
 
->>> fmap (symbol `bimap` fmap symbol) $ fromJust $ zipSuffixes [(0,[])] crescent
+>>> fromJust $ zipSuffixes [(0,[])] crescent
 []
 -}
 zipSuffixes ::
