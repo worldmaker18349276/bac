@@ -67,7 +67,8 @@ library
         BAC.Braider,
         BAC.Serialize,
         BAC.Deserialize,
-        BAC.Examples
+        BAC.Examples,
+        Routes
 
     -- Modules included in this library but not exported.
     other-modules:

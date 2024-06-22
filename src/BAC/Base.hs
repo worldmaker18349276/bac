@@ -60,6 +60,7 @@ module BAC.Base (
   root,
   join,
   arrow,
+  chain,
   path,
   symbol,
   extend,
@@ -104,7 +105,7 @@ module BAC.Base (
 ) where
 
 import Data.Bifunctor (bimap)
-import Data.Foldable (foldl')
+import Data.Foldable (foldl', find)
 import Data.List (sortOn)
 import Data.List.Extra (allSame, groupSortOn, nubSort, snoc)
 import Data.Map.Strict (Map, (!))
@@ -293,6 +294,16 @@ arrow node sym = go (root node)
     Outer    -> Nothing
     Boundary -> Just arr
     Inner    -> Just $ arr |> extend |> mapMaybe go |> head
+
+
+chain :: BAC e -> Symbol -> Maybe [Arrow e]
+chain node sym =
+  node
+  |> edges
+  |> find (dict .> Map.elems .> elem sym)
+  >>= \edge ->
+    chain (target edge) (head $ inv (dict edge) sym)
+    |> fmap (edge :)
 
 {- |
 All paths to the node referenced by the given symbol, where the value of arrows are
