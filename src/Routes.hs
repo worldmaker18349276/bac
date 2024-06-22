@@ -23,6 +23,9 @@ module Routes (
   swing,
   addEdge,
   removeEdge,
+  isNondecomposable,
+  removeRoute,
+  removeTarget,
 ) where
 
 import Control.Monad (guard)
@@ -36,6 +39,7 @@ import qualified BAC.Base as BAC
 import qualified BAC.Fundamental.Split as Split
 import Utils.Utils ((|>), (.>))
 import qualified BAC.Fundamental.Restructure as Restructure
+import qualified BAC.Fundamental.Remove as Remove
 
 
 data PrefixOrdering = LessBy String | Equal | GreaterBy String deriving (Eq, Ord, Show)
@@ -192,3 +196,19 @@ removeEdge (Compass node) route@(Route _ chain) = do
   node' <- Restructure.removeEdge (BAC.symbol2 arr_arr) value node
   return $ Compass node'
 
+isNondecomposable :: Route -> Bool
+isNondecomposable (Route arr chain) =
+  length chain == 1 && BAC.nondecomposable (BAC.target arr) (BAC.symbol (head chain))
+
+removeRoute :: Compass -> Route -> Maybe Compass
+removeRoute (Compass node) route = do
+  let arr_arr = getArrow route
+  guard $ fst arr_arr |> BAC.symbol |> (/= BAC.base)
+  node' <- Remove.removeNDSymbol (BAC.symbol2 arr_arr) node
+  return $ Compass node'
+
+removeTarget :: Compass -> Route -> Maybe Compass
+removeTarget (Compass node) route = do
+  let arr = getArrow route |> uncurry BAC.join
+  node' <- Remove.removeNode (BAC.symbol arr) node
+  return $ Compass node'
