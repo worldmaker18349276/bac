@@ -1,5 +1,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use uncurry" #-}
 module Routes (
   Compass,
   Route,
@@ -26,20 +28,28 @@ module Routes (
   isNondecomposable,
   removeRoute,
   removeTarget,
+  getRouteRuleSelection,
+  compatibleRouteRule,
+  addRoute,
+  addTarget,
+  interpolateTarget,
 ) where
 
 import Control.Monad (guard)
 import Data.Foldable (find)
 import Data.List (uncons)
 import Data.List.Extra (firstJust, snoc, unsnoc)
+import qualified Data.Map as Map
 import Data.Maybe (fromJust, isJust, isNothing, mapMaybe)
+import Data.Tuple.Extra (both)
 
-import BAC.Base (BAC, Arrow)
+import BAC.Base (Arrow, BAC, Symbol)
 import qualified BAC.Base as BAC
-import qualified BAC.Fundamental.Split as Split
-import Utils.Utils ((|>), (.>))
-import qualified BAC.Fundamental.Restructure as Restructure
+import qualified BAC.Fundamental.Add as Add
 import qualified BAC.Fundamental.Remove as Remove
+import qualified BAC.Fundamental.Restructure as Restructure
+import qualified BAC.Fundamental.Split as Split
+import Utils.Utils ((.>), (|>))
 
 
 data PrefixOrdering = LessBy String | Equal | GreaterBy String deriving (Eq, Ord, Show)
@@ -110,8 +120,11 @@ fromString (Compass node) str = do
   chain <- follow (BAC.target arr) str
   return $ Route arr chain
 
-fromArrow :: (Arrow String, Arrow String) -> Route
-fromArrow (arr1, arr2) = Route arr1 (fromJust $ BAC.chain (BAC.target arr1) (BAC.symbol arr2))
+fromSymbol2 :: BAC String -> (Symbol, Symbol) -> Maybe Route
+fromSymbol2 node (sym1, sym2) = do
+  arr <- BAC.arrow node sym1
+  chain <- BAC.chain (BAC.target arr) sym2
+  return $ Route arr chain
 
 getString :: Route -> String
 getString (Route _ chain) = concatMap BAC.value chain
@@ -211,4 +224,53 @@ removeTarget :: Compass -> Route -> Maybe Compass
 removeTarget (Compass node) route = do
   let arr = getArrow route |> uncurry BAC.join
   node' <- Remove.removeNode (BAC.symbol arr) node
+  return $ Compass node'
+
+
+type Cofraction = (Route, Route)
+type Fraction = (Route, Route)
+type RouteRule = ([Cofraction], [Fraction])
+
+getRouteRuleSelection :: Compass -> Route -> Route -> Maybe ([[Cofraction]], [[Fraction]])
+getRouteRuleSelection (Compass node) src tgt = do
+  let arr_src = getArrow src |> uncurry BAC.join
+  let arr_tgt = getArrow tgt |> uncurry BAC.join
+  selections <- Add.findValidCofractionsFractions (BAC.symbol arr_src) (BAC.symbol arr_tgt) node
+  return $ selections |> both (fmap (fmap (both (fromSymbol2 node .> fromJust))))
+
+compatibleRouteRule :: Compass -> RouteRule -> Bool
+compatibleRouteRule (Compass node) rule =
+  Add.compatibleFractions node (snd rule')
+  && Add.compatibleCofractions node (fst rule')
+  && uncurry (Add.compatibleCofractionsFractions node) rule'
+  where
+  rule' = rule |> both (fmap (both (getArrow .> BAC.symbol2)))
+
+addRoute :: Compass -> Route -> Route -> RouteRule -> String -> Maybe Compass
+addRoute com@(Compass node) src tgt rule str = do
+  guard $ null $ searchString com str
+  let arr_src = getArrow src |> uncurry BAC.join
+  let arr_tgt = getArrow tgt |> uncurry BAC.join
+  guard $ BAC.symbol arr_src /= BAC.base
+  let rule' = rule |> both (fmap (both (getArrow .> BAC.symbol2)))
+  let sym = BAC.target arr_src |> BAC.symbols |> maximum |> (+ 1)
+  node' <- Add.addNDSymbol (BAC.symbol arr_src) (BAC.symbol arr_tgt) sym str (fst rule') (snd rule') node
+  return $ Compass node'
+
+addTarget :: Compass -> Route -> String -> Maybe Compass
+addTarget com@(Compass node) src str = do
+  guard $ null $ searchString com str
+  let arr_src = getArrow src |> uncurry BAC.join
+  let sym = BAC.target arr_src |> BAC.symbols |> maximum |> (+ 1)
+  node' <- Add.addLeafNode (BAC.symbol arr_src) sym str (Restructure.makeShifter node 1) node
+  return $ Compass node'
+
+interpolateTarget :: Compass -> Route -> (String, String) -> Maybe Compass
+interpolateTarget com@(Compass node) route (str1, str2) = do
+  guard $ null $ searchString com str1
+  guard $ null $ searchString com str2
+  let arr_arr = getArrow route
+  let sym = BAC.target (fst arr_arr) |> BAC.symbols |> maximum |> (+ 1)
+  let dict = BAC.target (snd arr_arr) |> BAC.symbols |> fmap (\s -> (s, s+1)) |> Map.fromList
+  node' <- Add.addParentNode (BAC.symbol2 arr_arr) sym dict (str1, str2) (Restructure.makeShifter node 1) node
   return $ Compass node'
