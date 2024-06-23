@@ -7,7 +7,7 @@
 
 {-# HLINT ignore "Redundant id" #-}
 
-module Chains (
+module Prefix (
   PrefixOrdering (..),
   toOrdering,
   comparePrefix,

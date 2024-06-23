@@ -68,7 +68,7 @@ library
         BAC.Serialize,
         BAC.Deserialize,
         BAC.Examples,
-        Routes
+        Prefix
 
     -- Modules included in this library but not exported.
     other-modules:
