@@ -38,6 +38,7 @@ module Prefix (
   (==~),
   addEdge,
   removeEdge,
+  alterEdge,
   isNondecomposable,
   removeMorphism,
   removeObject,
@@ -52,7 +53,7 @@ module Prefix (
   prefixes,
   suffixes,
   partitionPrefixesSuffixes,
-  samePartitionGroup,
+  unsplittable,
   swing,
   splitMorphism,
   paritionIncoming,
@@ -61,12 +62,13 @@ module Prefix (
   splitObjectOutgoing,
   splitCategory,
   mergeMorphsisms,
-  outgoingNDOrders,
-  incomingNDOrders,
-  outgoingZippable,
-  incomingZippable,
-  mergeObjectIncoming,
-  mergeObjectOutgoing,
+  outgoingCanonicalOrders,
+  incomingCanonicalOrders,
+  findOutgoingZippableObjects,
+  findIncomingZippableObjects,
+  mergeObjectsIncoming,
+  mergeObjectsOutgoing,
+  mergeCategories,
 ) where
 
 import Control.Monad (guard)
@@ -266,6 +268,16 @@ removeEdge chain@(Chain _ arrs) (PrefixBAC bac) = do
   bac' <- Restructure.removeEdge (BAC.symbol2 arr_arr) value bac
   return $ PrefixBAC bac'
 
+alterEdge :: Chain -> String -> PrefixBAC -> Maybe PrefixBAC
+alterEdge chain@(Chain _ arrs) str (PrefixBAC bac) = do
+  guard $ Prelude.length arrs == 1
+  let arr_arr = getArrow2 chain
+  let value = BAC.value (snd arr_arr)
+  let edges = BAC.target (fst arr_arr) |> BAC.edges |> filter (BAC.symbol .> (== BAC.symbol (snd arr_arr)))
+  guard $ edges |> any (BAC.value .> (== value))
+  bac' <- Restructure.alterEdges (BAC.symbol2 arr_arr) (fmap \val -> if val == value then str else val) bac
+  return $ PrefixBAC bac'
+
 isNondecomposable :: Chain -> Bool
 isNondecomposable (Chain arr0 arrs) =
   Prelude.length arrs == 1 && BAC.nondecomposable (BAC.target arr0) (BAC.symbol (head arrs))
@@ -353,8 +365,8 @@ partitionPrefixesSuffixes chain =
   src = id $ source chain
   tgt = id $ target chain
 
-samePartitionGroup :: Chain -> Chain -> Bool
-samePartitionGroup chain1 chain2 =
+unsplittable :: Chain -> Chain -> Bool
+unsplittable chain1 chain2 =
   chain1 ==~ chain2 && (length chain1 == 0 || sameGroup)
   where
   (pref1, suff1) = fromJust $ split 1 chain1
@@ -509,8 +521,8 @@ mergeMorphsisms chains (PrefixBAC bac) = do
   bac' <- Merge.mergeSymbols (src_sym, tgt_syms) (head tgt_syms) bac
   return $ PrefixBAC bac'
 
-outgoingNDOrders :: PrefixBAC -> Node -> [[Chain]]
-outgoingNDOrders _ (Node arr) =
+outgoingCanonicalOrders :: PrefixBAC -> Node -> [[Chain]]
+outgoingCanonicalOrders _ (Node arr) =
   Zip.canonicalizeArrow arr
   |> fmap (fmap \sym ->
     BAC.target arr
@@ -521,13 +533,13 @@ outgoingNDOrders _ (Node arr) =
     |> Chain arr
   )
 
-incomingNDOrders :: PrefixBAC -> Node -> [[Chain]]
-incomingNDOrders (PrefixBAC bac) (Node arr) =
+incomingCanonicalOrders :: PrefixBAC -> Node -> [[Chain]]
+incomingCanonicalOrders (PrefixBAC bac) (Node arr) =
   Zip.canonicalizeSuffixND bac (BAC.symbol arr)
   |> fmap (fmap (fromSymbol2 bac .> fromJust))
 
-outgoingZippable :: PrefixBAC -> Node -> [(Node, [[Chain]])]
-outgoingZippable (PrefixBAC bac) (Node arr) =
+findOutgoingZippableObjects :: PrefixBAC -> Node -> [(Node, [[Chain]])]
+findOutgoingZippableObjects (PrefixBAC bac) (Node arr) =
   Zip.unifiable bac (BAC.symbol arr)
   |> fromJust
   |> Map.toList
@@ -544,16 +556,16 @@ outgoingZippable (PrefixBAC bac) (Node arr) =
     )
     |> (Node arr,)
 
-incomingZippable :: PrefixBAC -> Node -> [(Node, [[Chain]])]
-incomingZippable (PrefixBAC bac) (Node arr) =
+findIncomingZippableObjects :: PrefixBAC -> Node -> [(Node, [[Chain]])]
+findIncomingZippableObjects (PrefixBAC bac) (Node arr) =
   Zip.zippable bac (BAC.symbol arr)
   |> fromJust
   |> Map.toList
   |> fmap (first (BAC.arrow bac .> fromJust .> Node))
   |> fmap (fmap (fmap (fmap (fromSymbol2 bac .> fromJust))))
 
-mergeObjectIncoming :: [(Node, [Chain])] -> PrefixBAC -> Maybe PrefixBAC
-mergeObjectIncoming pnode_outgoings (PrefixBAC bac) = do
+mergeObjectsIncoming :: [(Node, [Chain])] -> PrefixBAC -> Maybe PrefixBAC
+mergeObjectsIncoming pnode_outgoings (PrefixBAC bac) = do
   guard $ pnode_outgoings |> all \(Node arr, order) ->
     order |> all (getArrow2 .> fst .> BAC.symbol .> (== BAC.symbol arr))
   let pnode_orders =
@@ -571,11 +583,57 @@ mergeObjectIncoming pnode_outgoings (PrefixBAC bac) = do
   bac''' <- Merge.mergeSymbolsOnRoot syms (head syms) bac''
   return $ PrefixBAC bac'''
 
-mergeObjectOutgoing :: [(Node, [Chain])] -> PrefixBAC -> Maybe PrefixBAC
-mergeObjectOutgoing pnode_incomings (PrefixBAC bac) = do
+mergeObjectsOutgoing :: [(Node, [Chain])] -> PrefixBAC -> Maybe PrefixBAC
+mergeObjectsOutgoing pnode_incomings (PrefixBAC bac) = do
   let sym_orderings =
         pnode_incomings
         |> fmap (fmap (fmap (getArrow2 .> BAC.symbol2)))
         |> fmap (first \(Node arr) -> BAC.symbol arr)
-  bac' <- Merge.mergeNodes sym_orderings (snd .> head) bac
+  let offsets =
+        pnode_incomings
+        |> fmap fst
+        |> fmap (\(Node arr) -> BAC.target arr |> BAC.symbols |> maximum)
+        |> scanl (+) 0
+        |> (0 :)
+        |> take (List.length pnode_incomings)
+  let sym_mappings =
+        zip pnode_incomings offsets
+        |> fmap \((Node arr, _), offset) ->
+          BAC.target arr
+          |> BAC.symbols
+          |> fmap (\sym -> (sym, if sym /= BAC.base then sym + offset else sym))
+          |> Map.fromList
+          |> (BAC.symbol arr,)
+
+  bac' <- foldrM (uncurry Restructure.relabel) bac sym_mappings
+  bac'' <- Merge.mergeNodes sym_orderings (snd .> head) bac'
+  return $ PrefixBAC bac''
+
+mergeCategories :: [PrefixBAC] -> Maybe PrefixBAC
+mergeCategories pbacs = do
+  let bacs = pbacs |> fmap (\(PrefixBAC bac) -> bac)
+  let syms = bacs |> fmap (
+        BAC.arrows
+        .> concatMap (BAC.target .> BAC.edges)
+        .> fmap BAC.value)
+  guard $ syms |> allComb \a b ->
+    a |> all \s ->
+      b |> all \t ->
+        comparePrefix s t |> isNothing
+  
+  let offsets =
+        bacs
+        |> fmap (BAC.symbols .> maximum)
+        |> scanl (+) 0
+        |> (0 :)
+        |> take (List.length bacs)
+  let mappings =
+        zip bacs offsets
+        |> fmap \(bac, offset) ->
+          BAC.symbols bac
+          |> fmap (\sym -> (sym, if sym /= BAC.base then sym + offset else sym))
+          |> Map.fromList
+
+  bacs' <- mappings `zip` bacs |> traverse (uncurry (Restructure.relabel BAC.base))
+  bac' <- Merge.mergeRootNodes bacs'
   return $ PrefixBAC bac'
