@@ -350,7 +350,7 @@ suffixes (Chain arr0 arrs) =
 
 partitionPrefixesSuffixes :: Chain -> [([(Chain, Chain)], [(Chain, Chain)])]
 partitionPrefixesSuffixes chain =
-  Split.partitionPrefixSuffix src_node tgt_sym
+  Split.partitionPrefixesSuffixes src_node tgt_sym
   |> fmap (fmap toPrefix `bimap` fmap toSuffix)
   |> (++ (BAC.edges src_node
     |> filter (BAC.symbol .> (== tgt_sym))

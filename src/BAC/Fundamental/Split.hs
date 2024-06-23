@@ -3,8 +3,10 @@
 {-# LANGUAGE TupleSections #-}
 
 module BAC.Fundamental.Split (
-  partitionPrefix,
-  partitionPrefixSuffix,
+  partitionPrefixesSuffixes,
+  partitionPrefixes,
+  partitionSuffixes,
+  unsplittable,
   partitionSymbols,
   splitSymbol,
   splitSymbolOnRoot,
@@ -14,7 +16,7 @@ module BAC.Fundamental.Split (
 
 import Control.Monad (guard)
 import Data.Foldable.Extra (notNull)
-import Data.List (sort, sortOn)
+import Data.List (sort, sortOn, find)
 import Data.List.Extra (anySame, disjoint, nubSortOn, replace)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
@@ -25,6 +27,7 @@ import Data.Tuple.Extra (both)
 import BAC.Base
 import Utils.DisjointSet (bipartiteEqclass, bipartiteEqclassOn)
 import Utils.Utils (zipIf, (.>), (|>))
+import Control.Arrow (first)
 
 -- $setup
 -- >>> import BAC.Serialize
@@ -32,8 +35,8 @@ import Utils.Utils (zipIf, (.>), (|>))
 -- >>> import BAC.Examples (cone, torus, crescent)
 -- >>> import Data.Maybe (fromJust)
 
-partitionPrefixSuffix :: Monoid e => BAC e -> Symbol -> [([(Arrow e, Arrow e)], [(Arrow e, Arrow e)])]
-partitionPrefixSuffix node tgt =
+partitionPrefixesSuffixes :: Monoid e => BAC e -> Symbol -> [([(Arrow e, Arrow e)], [(Arrow e, Arrow e)])]
+partitionPrefixesSuffixes node tgt =
   prefix node tgt
   |> nubSortOn symbol2
   -- suffix decomposition: `arr23` => `(arr2, arr3)`
@@ -52,14 +55,38 @@ the section category of the arrow specified by `tgt`.
 
 Examples:
 
->>> partitionPrefix cone 2
+>>> partitionPrefixes cone 2
 [[(1,1)],[(3,2)]]
 
->>> partitionPrefix (target $ fromJust $ arrow cone 3) 2
+>>> partitionPrefixes (target $ fromJust $ arrow cone 3) 2
 [[(1,1)],[(4,1)]]
 -}
-partitionPrefix :: Monoid e => BAC e -> Symbol -> [[(Symbol, Symbol)]]
-partitionPrefix node tgt = partitionPrefixSuffix node tgt |> fmap (fst .> fmap symbol2)
+partitionPrefixes :: Monoid e => BAC e -> Symbol -> [[(Symbol, Symbol)]]
+partitionPrefixes node tgt = partitionPrefixesSuffixes node tgt |> fmap (fst .> fmap symbol2)
+
+partitionSuffixes :: Monoid e => BAC e -> Symbol -> [[(Symbol, Symbol)]]
+partitionSuffixes node tgt = partitionPrefixesSuffixes node tgt |> fmap (snd .> fmap symbol2)
+
+prefix2 :: Monoid e => BAC e -> (Arrow e, Arrow e) -> (Arrow e, Arrow e)
+prefix2 node =
+    first (symbol .> prefix node .> head)
+    .> \((arr1, arr2), arr3) -> (arr1, arr2 `join` arr3)
+
+unsplittable :: Monoid e => BAC e -> (Arrow e, Arrow e) -> (Arrow e, Arrow e) -> Bool
+unsplittable node arr_arr1 arr_arr2 =
+  (symbol2 arr_arr1 |> \(s1, s2) -> s1 /= base && s2 /= base)
+  && (symbol2 arr_arr2 |> \(s1, s2) -> s1 /= base && s2 /= base)
+  && sym1 == sym2 && sameGroup
+  where
+  sym1 = symbol (uncurry join arr_arr1)
+  sym2 = symbol (uncurry join arr_arr2)
+  sym_sym1 = prefix2 node arr_arr1 |> symbol2
+  sym_sym2 = prefix2 node arr_arr2 |> symbol2
+  sameGroup =
+    partitionPrefixes node sym1
+    |> find (elem sym_sym1)
+    |> fromJust
+    |> elem sym_sym2
 
 isPartition :: Eq a => [[a]] -> Bool
 isPartition partition = concat partition |> anySame |> not
@@ -83,7 +110,7 @@ Split a symbol on a node, with two parameters @(src, tgt) :: (Symbol, Symbol)@ a
 @partition :: [(Symbol, [(Symbol, Symbol)])]@ and @direct_splitted_symbols :: [Symbol]@.
 `src` indicates the node to operate, `tgt` indicates the symbol to split, and `partition`
 is a list of splitted symbols and the corresponding group of splitted prefixes, which
-should be an union of some groups given by `partitionPrefix`.  `direct_splitted_symbols`
+should be an union of some groups given by `partitionPrefixes`.  `direct_splitted_symbols`
 is the splitted symbols for each direct edge of @(src, tgt)@.  If there is a
 splitted symbol which has an empty group, it should be an direct edge being classified to
 this symbol.
@@ -142,7 +169,7 @@ splitSymbol (src, tgt) partition direct_splitted_symbols node = do
   let src_node = target src_arr
 
   -- ensure that every splittable groups have been classified to splitted symbols
-  let splittable_groups = partitionPrefix src_node tgt
+  let splittable_groups = partitionPrefixes src_node tgt
   guard $ isPartition (fmap snd partition)
   guard $ splittable_groups `finer` fmap snd partition
 
