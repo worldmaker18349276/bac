@@ -6,6 +6,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 {-# HLINT ignore "Redundant id" #-}
+{-# LANGUAGE TupleSections #-}
 
 module Prefix (
   PrefixOrdering (..),
@@ -55,18 +56,26 @@ module Prefix (
   swing,
   splitMorphism,
   paritionIncoming,
-  splitObjecttIncoming,
+  splitObjectIncoming,
   partitionOutgoing,
   splitObjectOutgoing,
   splitCategory,
+  mergeMorphsisms,
+  outgoingNDOrders,
+  incomingNDOrders,
+  outgoingZippable,
+  incomingZippable,
+  mergeObjectIncoming,
+  mergeObjectOutgoing,
 ) where
 
 import Control.Monad (guard)
-import Data.Bifunctor (bimap)
+import Data.Bifunctor (bimap, first)
 import Data.Foldable (find)
-import Data.List (findIndices, uncons)
+import Data.Foldable.Extra (foldrM)
+import Data.List (findIndices, sort, uncons)
 import qualified Data.List as List
-import Data.List.Extra (firstJust, notNull, nubSort, snoc, unsnoc)
+import Data.List.Extra (allSame, firstJust, notNull, nubSort, snoc, unsnoc)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust, isJust, isNothing, mapMaybe)
 import Data.Tuple.Extra (both)
@@ -76,9 +85,11 @@ import qualified Prelude
 import BAC.Base (Arrow, BAC, Symbol)
 import qualified BAC.Base as BAC
 import qualified BAC.Fundamental.Add as Add
+import qualified BAC.Fundamental.Merge as Merge
 import qualified BAC.Fundamental.Remove as Remove
 import qualified BAC.Fundamental.Restructure as Restructure
 import qualified BAC.Fundamental.Split as Split
+import qualified BAC.Fundamental.Zip as Zip
 import Utils.Utils ((.>), (|>))
 
 
@@ -408,8 +419,8 @@ modifyOutgoingValues sym f bac =
 paritionIncoming :: PrefixBAC -> Node -> [[Chain]]
 paritionIncoming pbac tgt = partitionPrefixesSuffixes (init pbac tgt) |> fmap (snd .> fmap snd)
 
-splitObjecttIncoming :: Node -> [(String, [Chain])] -> PrefixBAC -> Maybe PrefixBAC
-splitObjecttIncoming pnode@(Node src_arr) partition pbac@(PrefixBAC bac) = do
+splitObjectIncoming :: Node -> [(String, [Chain])] -> PrefixBAC -> Maybe PrefixBAC
+splitObjectIncoming pnode@(Node src_arr) partition pbac@(PrefixBAC bac) = do
   guard $ partition |> fmap fst |> allComb (\a b -> isNothing $ comparePrefix a b)
   guard $ partition |> any (snd .> notNull)
   let src_sym = BAC.symbol src_arr
@@ -486,3 +497,85 @@ splitCategory partition pbac@(PrefixBAC bac) = do
   let partition' = partition |> fmap (concatMap (getArrow2 .> snd .> BAC.dict .> Map.elems))
   bacs' <- Split.splitRootNode partition' bac
   return $ fmap PrefixBAC bacs'
+
+mergeMorphsisms :: [Chain] -> PrefixBAC -> Maybe PrefixBAC
+mergeMorphsisms chains (PrefixBAC bac) = do
+  let arr_arrs = chains |> fmap getArrow2
+  guard $ notNull arr_arrs
+  guard $ arr_arrs |> fmap (fst .> BAC.symbol) |> allSame
+  let src_sym = arr_arrs |> head |> fst |> BAC.symbol
+  guard $ src_sym /= BAC.base
+  let tgt_syms = arr_arrs |> fmap (snd .> BAC.symbol)
+  bac' <- Merge.mergeSymbols (src_sym, tgt_syms) (head tgt_syms) bac
+  return $ PrefixBAC bac'
+
+outgoingNDOrders :: PrefixBAC -> Node -> [[Chain]]
+outgoingNDOrders _ (Node arr) =
+  Zip.canonicalizeArrow arr
+  |> fmap (fmap \sym ->
+    BAC.target arr
+    |> BAC.edges
+    |> find (BAC.symbol .> (== sym))
+    |> fromJust
+    |> (: [])
+    |> Chain arr
+  )
+
+incomingNDOrders :: PrefixBAC -> Node -> [[Chain]]
+incomingNDOrders (PrefixBAC bac) (Node arr) =
+  Zip.canonicalizeSuffixND bac (BAC.symbol arr)
+  |> fmap (fmap (fromSymbol2 bac .> fromJust))
+
+outgoingZippable :: PrefixBAC -> Node -> [(Node, [[Chain]])]
+outgoingZippable (PrefixBAC bac) (Node arr) =
+  Zip.unifiable bac (BAC.symbol arr)
+  |> fromJust
+  |> Map.toList
+  |> fmap (first (BAC.arrow bac .> fromJust))
+  |> fmap \(arr, orders) ->
+    orders
+    |> fmap (fmap \sym ->
+      BAC.target arr
+      |> BAC.edges
+      |> find (BAC.symbol .> (== sym))
+      |> fromJust
+      |> (: [])
+      |> Chain arr
+    )
+    |> (Node arr,)
+
+incomingZippable :: PrefixBAC -> Node -> [(Node, [[Chain]])]
+incomingZippable (PrefixBAC bac) (Node arr) =
+  Zip.zippable bac (BAC.symbol arr)
+  |> fromJust
+  |> Map.toList
+  |> fmap (first (BAC.arrow bac .> fromJust .> Node))
+  |> fmap (fmap (fmap (fmap (fromSymbol2 bac .> fromJust))))
+
+mergeObjectIncoming :: [(Node, [Chain])] -> PrefixBAC -> Maybe PrefixBAC
+mergeObjectIncoming pnode_outgoings (PrefixBAC bac) = do
+  guard $ pnode_outgoings |> all \(Node arr, order) ->
+    order |> all (getArrow2 .> fst .> BAC.symbol .> (== BAC.symbol arr))
+  let pnode_orders =
+        pnode_outgoings
+        |> fmap (fmap (fmap (getArrow2 .> snd .> BAC.symbol)))
+  guard $ pnode_orders |> all \(Node arr, order) ->
+    BAC.target arr |> BAC.edgesND |> fmap BAC.symbol |> nubSort |> (== sort order)
+  let sym_mappings =
+        pnode_orders
+        |> fmap \(Node arr, order) -> (BAC.symbol arr, Zip.canonicalMapping arr order)
+  let syms = fmap fst sym_mappings
+
+  bac' <- foldrM (uncurry Restructure.relabel) bac sym_mappings
+  bac'' <- Zip.unifyNodes syms bac'
+  bac''' <- Merge.mergeSymbolsOnRoot syms (head syms) bac''
+  return $ PrefixBAC bac'''
+
+mergeObjectOutgoing :: [(Node, [Chain])] -> PrefixBAC -> Maybe PrefixBAC
+mergeObjectOutgoing pnode_incomings (PrefixBAC bac) = do
+  let sym_orderings =
+        pnode_incomings
+        |> fmap (fmap (fmap (getArrow2 .> BAC.symbol2)))
+        |> fmap (first \(Node arr) -> BAC.symbol arr)
+  bac' <- Merge.mergeNodes sym_orderings (snd .> head) bac
+  return $ PrefixBAC bac'
