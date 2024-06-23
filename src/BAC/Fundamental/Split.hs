@@ -4,6 +4,7 @@
 
 module BAC.Fundamental.Split (
   partitionPrefix,
+  partitionPrefixSuffix,
   partitionSymbols,
   splitSymbol,
   splitSymbolOnRoot,
@@ -13,7 +14,7 @@ module BAC.Fundamental.Split (
 
 import Control.Monad (guard)
 import Data.Foldable.Extra (notNull)
-import Data.List (sort)
+import Data.List (sort, sortOn)
 import Data.List.Extra (anySame, disjoint, nubSortOn, replace)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
@@ -22,7 +23,7 @@ import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
 
 import BAC.Base
-import Utils.DisjointSet (bipartiteEqclass)
+import Utils.DisjointSet (bipartiteEqclass, bipartiteEqclassOn)
 import Utils.Utils (zipIf, (.>), (|>))
 
 -- $setup
@@ -30,6 +31,19 @@ import Utils.Utils (zipIf, (.>), (|>))
 -- >>> import BAC.Fundamental
 -- >>> import BAC.Examples (cone, torus, crescent)
 -- >>> import Data.Maybe (fromJust)
+
+partitionPrefixSuffix :: Monoid e => BAC e -> Symbol -> [([(Arrow e, Arrow e)], [(Arrow e, Arrow e)])]
+partitionPrefixSuffix node tgt =
+  prefix node tgt
+  |> nubSortOn symbol2
+  -- suffix decomposition: `arr23` => `(arr2, arr3)`
+  |> concatMap (\(arr1, arr23) -> suffix (target arr1) (symbol arr23) |> nubSortOn symbol2 |> fmap (arr1,))
+  -- connect prefix and suffix
+  |> fmap (\(arr1, (arr2, arr3)) -> ((arr1, arr2 `join` arr3), (arr1 `join` arr2, arr3)))
+  -- classify prefixes and suffixes by connectivity
+  |> bipartiteEqclassOn symbol2 symbol2
+  |> fmap (both (sortOn symbol2))
+  |> sortOn (both (fmap symbol2))
 
 {- |
 Partition the prefixes of an arrow.  It returns a partition of @prefix node tgt@ excluding
@@ -45,19 +59,7 @@ Examples:
 [[(1,1)],[(4,1)]]
 -}
 partitionPrefix :: Monoid e => BAC e -> Symbol -> [[(Symbol, Symbol)]]
-partitionPrefix node tgt =
-  prefix node tgt
-  |> nubSortOn symbol2
-  -- suffix decomposition: `arr23` => `(arr2, arr3)`
-  |> concatMap (\(arr1, arr23) -> suffixND (target arr1) (symbol arr23) |> nubSortOn symbol2 |> fmap (arr1,))
-  -- connect prefix and suffix
-  |> fmap (\(arr1, (arr2, arr3)) -> ((arr1, arr2 `join` arr3), (arr1 `join` arr2, arr3)))
-  |> fmap (both symbol2)
-  -- classify prefixes by connectivity
-  |> bipartiteEqclass
-  |> fmap fst
-  |> fmap sort
-  |> sort
+partitionPrefix node tgt = partitionPrefixSuffix node tgt |> fmap (fst .> fmap symbol2)
 
 isPartition :: Eq a => [[a]] -> Bool
 isPartition partition = concat partition |> anySame |> not

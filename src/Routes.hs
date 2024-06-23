@@ -1,47 +1,77 @@
 {-# LANGUAGE BlockArguments #-}
+{-# HLINT ignore "Use uncurry" #-}
+{-# HLINT ignore "Use null" #-}
+{-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Use uncurry" #-}
-module Routes (
-  Compass,
-  Route,
+
+{-# HLINT ignore "Redundant id" #-}
+
+module Chains (
   PrefixOrdering (..),
   toOrdering,
   comparePrefix,
+  PrefixBAC,
+  Chain,
+  Node,
   fromBAC,
-  fromString,
-  getString,
   searchString,
-  equal,
+  fromString,
+  getStrings,
+  root,
   trimr,
   triml,
-  root,
   source,
   target,
-  extendr,
-  extendl,
+  id,
+  init,
+  outgoing,
+  incoming,
+  concat,
+  length,
+  split,
   dividel,
   divider,
-  swing,
+  (==-),
+  (===),
+  (==~),
   addEdge,
   removeEdge,
   isNondecomposable,
-  removeRoute,
-  removeTarget,
-  getRouteRuleSelection,
-  compatibleRouteRule,
-  addRoute,
-  addTarget,
-  interpolateTarget,
+  removeMorphism,
+  removeObject,
+  Cofraction,
+  Fraction,
+  ChainRule,
+  getPossibleChainRules,
+  compatibleChainRule,
+  addMorphism,
+  addObject,
+  interpolateObject,
+  prefixes,
+  suffixes,
+  partitionPrefixesSuffixes,
+  samePartitionGroup,
+  swing,
+  splitMorphism,
+  paritionIncoming,
+  splitObjecttIncoming,
+  partitionOutgoing,
+  splitObjectOutgoing,
+  splitCategory,
 ) where
 
 import Control.Monad (guard)
+import Data.Bifunctor (bimap)
 import Data.Foldable (find)
-import Data.List (uncons)
-import Data.List.Extra (firstJust, snoc, unsnoc)
+import Data.List (findIndices, uncons)
+import qualified Data.List as List
+import Data.List.Extra (firstJust, notNull, nubSort, snoc, unsnoc)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust, isJust, isNothing, mapMaybe)
 import Data.Tuple.Extra (both)
+import Prelude hiding (concat, id, init, length)
+import qualified Prelude
 
 import BAC.Base (Arrow, BAC, Symbol)
 import qualified BAC.Base as BAC
@@ -61,8 +91,8 @@ toOrdering Equal = EQ
 
 comparePrefix :: String -> String -> Maybe PrefixOrdering
 comparePrefix [] [] = Just Equal
-comparePrefix surf@(_:_) [] = Just (GreaterBy surf)
-comparePrefix [] surf@(_:_) = Just (LessBy surf)
+comparePrefix suff@(_:_) [] = Just (GreaterBy suff)
+comparePrefix [] suff@(_:_) = Just (LessBy suff)
 comparePrefix (h:t) (h':t') = if h == h' then comparePrefix t t' else Nothing
 
 strip :: String -> String -> Maybe String
@@ -70,207 +100,389 @@ strip str [] = Just str
 strip [] _ = Nothing
 strip (h:t) (h':t') = if h == h' then strip t t' else Nothing
 
-newtype Compass = Compass (BAC String)
+newtype PrefixBAC = PrefixBAC (BAC String)
 
-data Route = Route (Arrow String) [Arrow String]
+data Chain = Chain (Arrow String) [Arrow String]
+
+newtype Node = Node (Arrow String)
+
 allComb :: (a -> a -> Bool) -> [a] -> Bool
 allComb _ [] = True
 allComb f (h:t) = all (f h) t && allComb f t
 
-fromBAC :: BAC String -> Maybe Compass
-fromBAC node = do
+fromBAC :: BAC String -> Maybe PrefixBAC
+fromBAC bac = do
   guard $
-    BAC.arrows node
+    BAC.arrows bac
     |> concatMap (BAC.target .> BAC.edges)
     |> fmap BAC.value
     |> allComb (\a b -> isNothing (a `comparePrefix` b))
-  return $ Compass node
+  return $ PrefixBAC bac
 
-findSource :: BAC String -> String -> Maybe (Arrow String)
-findSource node str =
-  BAC.arrows node
-  |> find (
-    BAC.target
-    .> BAC.edges
-    .> fmap BAC.value
-    .> fmap (strip str)
-    .> any isJust
-  )
-
-searchString :: Compass -> String -> [PrefixOrdering]
-searchString (Compass node) str =
-  BAC.arrows node
-  |> concatMap (
-    BAC.target
-    .> BAC.edges
-  )
+searchString :: PrefixBAC -> String -> [PrefixOrdering]
+searchString (PrefixBAC bac) str =
+  BAC.arrows bac
+  |> concatMap (BAC.target .> BAC.edges)
   |> mapMaybe (BAC.value .> comparePrefix str)
 
-follow :: BAC String -> String -> Maybe [Arrow String]
-follow = go []
+fromString :: PrefixBAC -> String -> Maybe Chain
+fromString (PrefixBAC bac) str = do
+  arr0 <- findSource bac str
+  chain <- followString (BAC.target arr0) str
+  return $ Chain arr0 chain
   where
-  go res _node [] = Just res
-  go res node str = node |> BAC.edges |> firstJust \edge -> do
-    surf <- strip str (BAC.value edge)
-    go (res `snoc` edge) (BAC.target edge) surf
+  findSource :: BAC String -> String -> Maybe (Arrow String)
+  findSource bac str =
+    BAC.arrows bac
+    |> find (
+      BAC.target
+      .> BAC.edges
+      .> fmap BAC.value
+      .> fmap (strip str)
+      .> any isJust
+    )
 
-fromString :: Compass -> String -> Maybe Route
-fromString (Compass node) str = do
-  arr <- findSource node str
-  chain <- follow (BAC.target arr) str
-  return $ Route arr chain
+  followString :: BAC String -> String -> Maybe [Arrow String]
+  followString = go []
+    where
+    go res _node [] = Just res
+    go res node str = node |> BAC.edges |> firstJust \edge -> do
+      suff <- strip str (BAC.value edge)
+      go (res `snoc` edge) (BAC.target edge) suff
 
-fromSymbol2 :: BAC String -> (Symbol, Symbol) -> Maybe Route
-fromSymbol2 node (sym1, sym2) = do
-  arr <- BAC.arrow node sym1
+fromArrow2 :: (Arrow String, Arrow String) -> Chain
+fromArrow2 (arr1, arr2) = Chain arr1 (fromJust $ BAC.chain (BAC.target arr1) (BAC.symbol arr2))
+
+fromSymbol2 :: BAC String -> (Symbol, Symbol) -> Maybe Chain
+fromSymbol2 bac (sym1, sym2) = do
+  arr <- BAC.arrow bac sym1
   chain <- BAC.chain (BAC.target arr) sym2
-  return $ Route arr chain
+  return $ Chain arr chain
 
-getString :: Route -> String
-getString (Route _ chain) = concatMap BAC.value chain
+getStrings :: Chain -> [String]
+getStrings (Chain _ arrs) = fmap BAC.value arrs
 
-getArrow :: Route -> (Arrow String, Arrow String)
-getArrow (Route arr chain) = case chain of
-  [] -> (arr, BAC.root (BAC.target arr))
-  h : t -> (arr, foldl BAC.join h t)
+getArrow2 :: Chain -> (Arrow String, Arrow String)
+getArrow2 (Chain arr0 arrs) = case arrs of
+  [] -> (arr0, BAC.root (BAC.target arr0))
+  h : t -> (arr0, foldl BAC.join h t)
 
-root :: Compass -> Route
-root (Compass node) = Route (BAC.root node) []
+root :: PrefixBAC -> Node
+root (PrefixBAC bac) = Node (BAC.root bac)
 
-equal :: Route -> Route -> Bool
-equal route1 route2 = BAC.symbol2 (getArrow route1) == BAC.symbol2 (getArrow route2)
+trimr :: Chain -> Maybe Chain
+trimr (Chain arr0 arrs) = unsnoc arrs |> fmap fst |> fmap (Chain arr0)
 
-trimr :: Route -> Maybe Route
-trimr (Route arr chain) = unsnoc chain |> fmap fst |> fmap (Route arr)
+triml :: Chain -> Maybe Chain
+triml (Chain arr0 arrs) = uncons arrs |> fmap (\(h, t) -> Chain (arr0 `BAC.join` h) t)
 
-triml :: Route -> Maybe Route
-triml (Route arr chain) = uncons chain |> fmap (\(h, t) -> Route (arr `BAC.join` h) t)
+source :: Chain -> Node
+source (Chain arr0 _) = Node arr0
 
-source :: Route -> Route
-source (Route arr _) = Route arr []
+target :: Chain -> Node
+target (Chain arr0 arrs) = Node (foldl BAC.join arr0 arrs)
 
-target :: Route -> Route
-target (Route arr chain) = Route (foldl BAC.join arr chain) []
+id :: Node -> Chain
+id (Node arr0) = Chain arr0 []
 
-extendr :: Compass -> Route -> [Route]
-extendr _ (Route arr chain) =
-  (arr : chain) |> last |> BAC.target |> BAC.edges |> fmap \edge -> Route arr (chain `snoc` edge)
+init :: PrefixBAC -> Node -> Chain
+init (PrefixBAC bac) (Node arr0) = fromArrow2 (BAC.root bac, arr0)
 
-extendl :: Compass -> Route -> [Route]
-extendl (Compass node) (Route arr chain) =
-  BAC.suffix node (BAC.symbol arr) |> fmap \(arr', edge) -> Route arr' (edge : chain)
+outgoing :: PrefixBAC -> Node -> [Chain]
+outgoing _ (Node arr0) =
+  arr0 |> BAC.target |> BAC.edges |> fmap \edge -> Chain arr0 [edge]
 
-dividel :: Route -> Route -> Maybe [Route]
-dividel route1 route2 = do
-  let arr_arr1 = getArrow route1
-  let arr_arr2 = getArrow route2
+incoming :: PrefixBAC -> Node -> [Chain]
+incoming (PrefixBAC bac) (Node arr0) =
+  BAC.suffix bac (BAC.symbol arr0) |> fmap \(arr, edge) -> Chain arr [edge]
+
+concat :: Chain -> Chain -> Maybe Chain
+concat chain1@(Chain arr0 arrs1) chain2@(Chain _ arrs2) = do
+  guard $ target chain1 ==- source chain2
+  return $ Chain arr0 (arrs1 ++ arrs2)
+
+length :: Chain -> Int
+length (Chain _ arrs) = Prelude.length arrs
+
+split :: Int -> Chain -> Maybe (Chain, Chain)
+split index (Chain arr0 arrs) = do
+  guard $ 0 <= index && index <= Prelude.length arrs
+  let chain1 = Chain arr0 (take index arrs)
+  let arr0' = getArrow2 chain1 |> uncurry BAC.join
+  let chain2 = Chain arr0' (drop index arrs)
+  return (chain1, chain2)
+
+dividel :: Chain -> Chain -> Maybe [Chain]
+dividel chain1 chain2 = do
+  let arr_arr1 = getArrow2 chain1
+  let arr_arr2 = getArrow2 chain2
   guard $ BAC.symbol (fst arr_arr1) == BAC.symbol (fst arr_arr2)
   let arrs = snd arr_arr1 `BAC.divide` snd arr_arr2
   let arr3 = uncurry BAC.join arr_arr1
-  return $ arrs |> fmap (BAC.symbol .> BAC.chain (BAC.target arr3) .> fromJust .> Route arr3)
+  return $ arrs |> fmap (BAC.symbol .> BAC.chain (BAC.target arr3) .> fromJust .> Chain arr3)
 
-divider :: Route -> Route -> Maybe [Route]
-divider route1 route2 = do
-  let arr_arr1 = getArrow route1
-  let arr_arr2 = getArrow route2
+divider :: Chain -> Chain -> Maybe [Chain]
+divider chain1 chain2 = do
+  let arr_arr1 = getArrow2 chain1
+  let arr_arr2 = getArrow2 chain2
   guard $ BAC.symbol (uncurry BAC.join arr_arr1) == BAC.symbol (uncurry BAC.join arr_arr2)
   let syms = BAC.inv (BAC.dict (fst arr_arr2)) (BAC.symbol (fst arr_arr1))
-  return $ syms |> fmap (BAC.chain (BAC.target (fst arr_arr1)) .> fromJust .> Route (fst arr_arr2))
+  return $ syms |> fmap (BAC.chain (BAC.target (fst arr_arr1)) .> fromJust .> Chain (fst arr_arr2))
 
-swing :: Route -> (Int, Int) -> Maybe [Route]
-swing (Route arr chain) (start, end) = do
-  guard $ 0 < start && start < length chain
-  guard $ 1 < end && end <= length chain
-  guard $ start < end
-  let subchain = chain |> drop start |> take (end - start)
-  let subarr0 = BAC.root (BAC.target ((arr : chain) !! start))
-  let subarr = foldl BAC.join subarr0 subchain
-  let subchains =
-        Split.partitionPrefix (BAC.target subarr0) (BAC.symbol subarr)
-        |> fmap head
-        |> fmap (\(sym1, sym2) -> (fromJust $ BAC.arrow (BAC.target subarr0) sym1, sym2))
-        |> fmap (\(arr1, sym2) -> arr1 : fromJust (BAC.chain (BAC.target arr1) sym2))
-        |> (++ (BAC.edges (BAC.target subarr0) |> filter (BAC.symbol .> (== BAC.symbol subarr)) |> fmap (: [])))
-  return $ subchains |> fmap \subchain -> Route arr (take start chain ++ subchain ++ drop end chain)
+(==-) :: Node -> Node -> Bool
+(Node arr1) ==- (Node arr2) = BAC.symbol arr1 == BAC.symbol arr2
 
-addEdge :: Compass -> Route -> String -> Maybe Compass
-addEdge com@(Compass node) route str = do
-  guard $ null $ searchString com (getString route)
-  node' <- Restructure.addEdge (BAC.symbol2 (getArrow route)) str node
-  return $ Compass node'
+(===) :: Chain -> Chain -> Bool
+chain1@(Chain arr1 _) === chain2@(Chain arr2 _) =
+  BAC.symbol arr1 == BAC.symbol arr2 && getStrings chain1 == getStrings chain2
 
-removeEdge :: Compass -> Route -> Maybe Compass
-removeEdge (Compass node) route@(Route _ chain) = do
-  guard $ length chain == 1
-  let arr_arr = getArrow route
+(==~) :: Chain -> Chain -> Bool
+chain1 ==~ chain2 = BAC.symbol2 (getArrow2 chain1) == BAC.symbol2 (getArrow2 chain2)
+
+addEdge :: Chain -> String -> PrefixBAC -> Maybe PrefixBAC
+addEdge chain str pbac@(PrefixBAC bac) = do
+  guard $ null $ searchString pbac (Prelude.concat (getStrings chain))
+  bac' <- Restructure.addEdge (BAC.symbol2 (getArrow2 chain)) str bac
+  return $ PrefixBAC bac'
+
+removeEdge :: Chain -> PrefixBAC -> Maybe PrefixBAC
+removeEdge chain@(Chain _ arrs) (PrefixBAC bac) = do
+  guard $ Prelude.length arrs == 1
+  let arr_arr = getArrow2 chain
   let value = BAC.value (snd arr_arr)
   let edges = BAC.target (fst arr_arr) |> BAC.edges |> filter (BAC.symbol .> (== BAC.symbol (snd arr_arr)))
   guard $ edges |> any (BAC.value .> (== value))
-  node' <- Restructure.removeEdge (BAC.symbol2 arr_arr) value node
-  return $ Compass node'
+  bac' <- Restructure.removeEdge (BAC.symbol2 arr_arr) value bac
+  return $ PrefixBAC bac'
 
-isNondecomposable :: Route -> Bool
-isNondecomposable (Route arr chain) =
-  length chain == 1 && BAC.nondecomposable (BAC.target arr) (BAC.symbol (head chain))
+isNondecomposable :: Chain -> Bool
+isNondecomposable (Chain arr0 arrs) =
+  Prelude.length arrs == 1 && BAC.nondecomposable (BAC.target arr0) (BAC.symbol (head arrs))
 
-removeRoute :: Compass -> Route -> Maybe Compass
-removeRoute (Compass node) route = do
-  let arr_arr = getArrow route
+removeMorphism :: Chain -> PrefixBAC -> Maybe PrefixBAC
+removeMorphism chain (PrefixBAC bac) = do
+  let arr_arr = getArrow2 chain
   guard $ fst arr_arr |> BAC.symbol |> (/= BAC.base)
-  node' <- Remove.removeNDSymbol (BAC.symbol2 arr_arr) node
-  return $ Compass node'
+  bac' <- Remove.removeNDSymbol (BAC.symbol2 arr_arr) bac
+  return $ PrefixBAC bac'
 
-removeTarget :: Compass -> Route -> Maybe Compass
-removeTarget (Compass node) route = do
-  let arr = getArrow route |> uncurry BAC.join
-  node' <- Remove.removeNode (BAC.symbol arr) node
-  return $ Compass node'
+removeObject :: Node -> PrefixBAC -> Maybe PrefixBAC
+removeObject (Node arr) (PrefixBAC bac) = do
+  bac' <- Remove.removeNode (BAC.symbol arr) bac
+  return $ PrefixBAC bac'
 
 
-type Cofraction = (Route, Route)
-type Fraction = (Route, Route)
-type RouteRule = ([Cofraction], [Fraction])
+type Cofraction = (Chain, Chain)
+type Fraction = (Chain, Chain)
+type ChainRule = ([Cofraction], [Fraction])
 
-getRouteRuleSelection :: Compass -> Route -> Route -> Maybe ([[Cofraction]], [[Fraction]])
-getRouteRuleSelection (Compass node) src tgt = do
-  let arr_src = getArrow src |> uncurry BAC.join
-  let arr_tgt = getArrow tgt |> uncurry BAC.join
-  selections <- Add.findValidCofractionsFractions (BAC.symbol arr_src) (BAC.symbol arr_tgt) node
-  return $ selections |> both (fmap (fmap (both (fromSymbol2 node .> fromJust))))
+getPossibleChainRules :: PrefixBAC -> Node -> Node -> Maybe ([[Cofraction]], [[Fraction]])
+getPossibleChainRules (PrefixBAC bac) (Node src_arr) (Node tgt_arr) = do
+  selections <- Add.findValidCofractionsFractions (BAC.symbol src_arr) (BAC.symbol tgt_arr) bac
+  return $ selections |> both (fmap (fmap (both (fromSymbol2 bac .> fromJust))))
 
-compatibleRouteRule :: Compass -> RouteRule -> Bool
-compatibleRouteRule (Compass node) rule =
-  Add.compatibleFractions node (snd rule')
-  && Add.compatibleCofractions node (fst rule')
-  && uncurry (Add.compatibleCofractionsFractions node) rule'
+compatibleChainRule :: PrefixBAC -> ChainRule -> Bool
+compatibleChainRule (PrefixBAC bac) rule =
+  Add.compatibleFractions bac (snd rule')
+  && Add.compatibleCofractions bac (fst rule')
+  && uncurry (Add.compatibleCofractionsFractions bac) rule'
   where
-  rule' = rule |> both (fmap (both (getArrow .> BAC.symbol2)))
+  rule' = rule |> both (fmap (both (getArrow2 .> BAC.symbol2)))
 
-addRoute :: Compass -> Route -> Route -> RouteRule -> String -> Maybe Compass
-addRoute com@(Compass node) src tgt rule str = do
-  guard $ null $ searchString com str
-  let arr_src = getArrow src |> uncurry BAC.join
-  let arr_tgt = getArrow tgt |> uncurry BAC.join
-  guard $ BAC.symbol arr_src /= BAC.base
-  let rule' = rule |> both (fmap (both (getArrow .> BAC.symbol2)))
-  let sym = BAC.target arr_src |> BAC.symbols |> maximum |> (+ 1)
-  node' <- Add.addNDSymbol (BAC.symbol arr_src) (BAC.symbol arr_tgt) sym str (fst rule') (snd rule') node
-  return $ Compass node'
+addMorphism :: Node -> Node -> ChainRule -> String -> PrefixBAC -> Maybe PrefixBAC
+addMorphism (Node src_arr) (Node tgt_arr) rule str pbac@(PrefixBAC bac) = do
+  guard $ null $ searchString pbac str
+  guard $ BAC.symbol src_arr /= BAC.base
+  let rule' = rule |> both (fmap (both (getArrow2 .> BAC.symbol2)))
+  let sym = BAC.target src_arr |> BAC.symbols |> maximum |> (+ 1)
+  bac' <- Add.addNDSymbol (BAC.symbol src_arr) (BAC.symbol tgt_arr) sym str (fst rule') (snd rule') bac
+  return $ PrefixBAC bac'
 
-addTarget :: Compass -> Route -> String -> Maybe Compass
-addTarget com@(Compass node) src str = do
-  guard $ null $ searchString com str
-  let arr_src = getArrow src |> uncurry BAC.join
-  let sym = BAC.target arr_src |> BAC.symbols |> maximum |> (+ 1)
-  node' <- Add.addLeafNode (BAC.symbol arr_src) sym str (Restructure.makeShifter node 1) node
-  return $ Compass node'
+addObject :: Node -> String -> PrefixBAC -> Maybe PrefixBAC
+addObject (Node src_arr) str pbac@(PrefixBAC bac) = do
+  guard $ null $ searchString pbac str
+  let sym = BAC.target src_arr |> BAC.symbols |> maximum |> (+ 1)
+  bac' <- Add.addLeafNode (BAC.symbol src_arr) sym str (Restructure.makeShifter bac 1) bac
+  return $ PrefixBAC bac'
 
-interpolateTarget :: Compass -> Route -> (String, String) -> Maybe Compass
-interpolateTarget com@(Compass node) route (str1, str2) = do
-  guard $ null $ searchString com str1
-  guard $ null $ searchString com str2
-  let arr_arr = getArrow route
+interpolateObject :: Chain -> (String, String) -> PrefixBAC -> Maybe PrefixBAC
+interpolateObject chain (str1, str2) pbac@(PrefixBAC bac) = do
+  guard $ null $ searchString pbac str1
+  guard $ null $ searchString pbac str2
+  let arr_arr = getArrow2 chain
   let sym = BAC.target (fst arr_arr) |> BAC.symbols |> maximum |> (+ 1)
   let dict = BAC.target (snd arr_arr) |> BAC.symbols |> fmap (\s -> (s, s+1)) |> Map.fromList
-  node' <- Add.addParentNode (BAC.symbol2 arr_arr) sym dict (str1, str2) (Restructure.makeShifter node 1) node
-  return $ Compass node'
+  bac' <- Add.addParentNode (BAC.symbol2 arr_arr) sym dict (str1, str2) (Restructure.makeShifter bac 1) bac
+  return $ PrefixBAC bac'
+
+prefixes :: Chain -> [(Chain, Chain)]
+prefixes (Chain arr0 arrs) =
+  BAC.prefix (BAC.target arr0) (BAC.symbol (last (arr0 : arrs)))
+  |> fmap \(edge, arr) -> (Chain arr0 [edge], fromArrow2 (arr0 `BAC.join` edge, arr))
+
+suffixes :: Chain -> [(Chain, Chain)]
+suffixes (Chain arr0 arrs) =
+  BAC.suffix (BAC.target arr0) (BAC.symbol (last (arr0 : arrs)))
+  |> fmap \(arr, edge) -> (fromArrow2 (arr0, arr), Chain (arr0 `BAC.join` edge) [edge])
+
+partitionPrefixesSuffixes :: Chain -> [([(Chain, Chain)], [(Chain, Chain)])]
+partitionPrefixesSuffixes chain =
+  Split.partitionPrefixSuffix src_node tgt_sym
+  |> fmap (fmap toPrefix `bimap` fmap toSuffix)
+  |> (++ (BAC.edges src_node
+    |> filter (BAC.symbol .> (== tgt_sym))
+    |> fmap (\edge -> Chain src_arr [edge])
+    |> fmap \dchain -> ([(dchain, tgt)], [(src, dchain)])))
+  where
+  (src_arr, tgt_arr) = getArrow2 chain
+  src_node = BAC.target src_arr
+  tgt_sym = BAC.symbol tgt_arr
+  toPrefix (edge, arr) = (Chain src_arr [edge], fromArrow2 (src_arr `BAC.join` edge, arr))
+  toSuffix (arr, edge) = (fromArrow2 (src_arr, arr), Chain (src_arr `BAC.join` arr) [edge])
+  src = id $ source chain
+  tgt = id $ target chain
+
+samePartitionGroup :: Chain -> Chain -> Bool
+samePartitionGroup chain1 chain2 =
+  chain1 ==~ chain2 && (length chain1 == 0 || sameGroup)
+  where
+  (pref1, suff1) = fromJust $ split 1 chain1
+  (pref2, suff2) = fromJust $ split 1 chain2
+  sameGroup =
+    partitionPrefixesSuffixes chain1
+    |> fmap fst
+    |> find (any \(pref, suff) -> pref === pref1 && suff ==~ suff1)
+    |> fromJust
+    |> any \(pref, suff) -> pref === pref2 && suff ==~ suff2
+
+swing :: Chain -> [Chain]
+swing = partitionPrefixesSuffixes .> fmap (fst .> head .> uncurry concat .> fromJust)
+
+splitMorphism :: PrefixBAC -> [[Chain]] -> Maybe PrefixBAC
+splitMorphism (PrefixBAC bac) partition = do
+  guard $ partition |> any notNull
+  let chain = partition |> List.concat |> head
+  let arr_arr = getArrow2 chain
+  let (src_sym, tgt_sym) = BAC.symbol2 arr_arr
+  guard $ src_sym /= BAC.base
+  let src_node = BAC.target (fst arr_arr)
+  let sym = src_node |> BAC.symbols |> maximum |> (+1)
+
+  let groups = partitionPrefixesSuffixes chain |> fmap fst
+  partition_groups <-
+    partition
+    |> traverse (traverse (split 1))
+    >>= traverse (traverse \(pref, suff) ->
+      groups |> find (any \(pref', suff') -> pref' === pref && suff' ==~ suff))
+  let partition' =
+        partition_groups
+        |> fmap List.concat
+        |> fmap (fmap (both (getArrow2 .> snd .> BAC.symbol)))
+        |> fmap (filter (snd .> (/= BAC.base)))
+        |> fmap nubSort
+        |> zip [sym..]
+
+  let direct_syms =
+        src_node
+        |> BAC.edges
+        |> filter (BAC.symbol .> (== tgt_sym))
+        |> fmap ((: []) .> Chain (fst arr_arr))
+        |> fmap (\chain -> partition |> findIndices (any (=== chain)))
+        |> fmap (fmap (fromIntegral .> (sym +)))
+  guard $ direct_syms |> all (List.length .> (== 1))
+  let direct' = direct_syms |> fmap head
+
+  bac' <- Split.splitSymbol (src_sym, tgt_sym) partition' direct' bac
+  return $ PrefixBAC bac'
+
+modifyOutgoingValues :: Monoid e => Symbol -> (e -> e) -> BAC e -> BAC e
+modifyOutgoingValues sym f bac =
+  fromJust $ BAC.fromInner $ BAC.root bac |> BAC.modifyUnder sym \(_curr, edge) -> \case
+    BAC.AtOuter -> return edge
+    BAC.AtBoundary -> return edge {BAC.target = tgt_node'}
+    BAC.AtInner res -> return edge {BAC.target = res}
+  where
+  tgt_node = BAC.target $ fromJust $ BAC.arrow bac sym
+  tgt_node' = tgt_node |> BAC.edges |> fmap (\edge -> edge {BAC.value = f (BAC.value edge)}) |> BAC.BAC
+
+paritionIncoming :: PrefixBAC -> Node -> [[Chain]]
+paritionIncoming pbac tgt = partitionPrefixesSuffixes (init pbac tgt) |> fmap (snd .> fmap snd)
+
+splitObjecttIncoming :: Node -> [(String, [Chain])] -> PrefixBAC -> Maybe PrefixBAC
+splitObjecttIncoming pnode@(Node src_arr) partition pbac@(PrefixBAC bac) = do
+  guard $ partition |> fmap fst |> allComb (\a b -> isNothing $ comparePrefix a b)
+  guard $ partition |> any (snd .> notNull)
+  let src_sym = BAC.symbol src_arr
+  let sym = bac |> BAC.symbols |> maximum |> (+1)
+
+  let groups = partitionPrefixesSuffixes (init pbac pnode) |> fmap fst
+  partition_groups <-
+    partition
+    |> fmap (fmap (fmap \chain -> fromJust $ init pbac (source chain) `concat` chain))
+    |> traverse (snd .> traverse (split 1))
+    >>= traverse (traverse \(pref, suff) ->
+      groups |> find (any \(pref', suff') -> pref' === pref && suff' ==~ suff))
+  let partition' =
+        partition_groups
+        |> fmap List.concat
+        |> fmap (fmap (both (getArrow2 .> snd .> BAC.symbol)))
+        |> fmap (filter (snd .> (/= BAC.base)))
+        |> fmap nubSort
+        |> zip [sym..]
+
+  let direct_syms =
+        bac
+        |> BAC.edges
+        |> filter (BAC.symbol .> (== src_sym))
+        |> fmap ((: []) .> Chain (BAC.root bac))
+        |> fmap (\chain -> partition |> findIndices (snd .> any (=== chain)))
+        |> fmap (fmap (fromIntegral .> (sym +)))
+  guard $ direct_syms |> all (List.length .> (== 1))
+  let direct' = direct_syms |> fmap head
+
+  bac' <- Split.splitSymbol (BAC.base, src_sym) partition' direct' bac
+  let bac'' =
+        partition
+        |> fmap fst
+        |> zip [sym..]
+        |> foldl (\node (sym, suff) -> modifyOutgoingValues sym (++ suff) node) bac'
+  return $ PrefixBAC bac''
+
+partitionOutgoing :: Node -> [[Chain]]
+partitionOutgoing (Node arr) =
+  Split.partitionSymbols src_node
+  |> fmap (concatMap \sym -> BAC.edges src_node |> filter (BAC.symbol .> (== sym)))
+  |> fmap (fmap ((: []) .> Chain arr))
+  where
+  src_node = BAC.target arr
+
+modifyIncomingValues :: Monoid e => Symbol -> (e -> e) -> BAC e -> BAC e
+modifyIncomingValues sym f bac =
+  fromJust $ BAC.fromInner $ BAC.root bac |> BAC.modifyUnder sym \(_curr, edge) -> \case
+    BAC.AtOuter -> return edge
+    BAC.AtBoundary -> return edge {BAC.value = f (BAC.value edge)}
+    BAC.AtInner res -> return edge {BAC.target = res}
+
+splitObjectOutgoing :: Node -> [(String, [Chain])] -> PrefixBAC -> Maybe PrefixBAC
+splitObjectOutgoing pnode@(Node tgt_arr) partition (PrefixBAC bac) = do
+  let tgt_sym = BAC.symbol tgt_arr
+  guard $ tgt_sym /= BAC.base
+
+  guard $ partition |> all (snd .> all (source .> (==- pnode)))
+  let partition' = partition |> fmap (snd .> concatMap (getArrow2 .> snd .> BAC.dict .> Map.elems))
+  let splitters = [0..] |> take (List.length partition) |> fmap (Restructure.makeShifter bac)
+  bac' <- Split.splitNode tgt_sym (splitters `zip` partition') bac
+  let syms = splitters |> fmap \splitter -> splitter (BAC.base, tgt_sym)
+  let bac'' =
+        partition
+        |> fmap fst
+        |> zip syms
+        |> foldl (\node (sym, suff) -> modifyIncomingValues sym (++ suff) node) bac'
+  return $ PrefixBAC bac''
+
+splitCategory :: [[Chain]] -> PrefixBAC -> Maybe [PrefixBAC]
+splitCategory partition pbac@(PrefixBAC bac) = do
+  guard $ partition |> all (all (source .> (==- root pbac)))
+  let partition' = partition |> fmap (concatMap (getArrow2 .> snd .> BAC.dict .> Map.elems))
+  bacs' <- Split.splitRootNode partition' bac
+  return $ fmap PrefixBAC bacs'
