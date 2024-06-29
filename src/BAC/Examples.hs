@@ -1,4 +1,4 @@
-module BAC.Examples (cone, torus, crescent) where
+module BAC.Examples (cone, torus, crescent, cone', torus', crescent') where
 
 import BAC.Base
 import BAC.Braider
@@ -38,6 +38,19 @@ cone = fromJust $ braid $ do
     // [Path [1,0], Path [1,1]]
     // [Path [0,0], Path [1,0,0]]
 
+cone' :: BAC String
+cone' = fromJust $ braid $ do
+  y <- knot []
+  b <- knot []
+  p <- knot [Edge "py" y]
+  c <- knot [Edge "cy" y, Edge "cb" b]
+  v <- knot [Edge "vc1" c, Edge "vc2" c]
+    // [Path [0,0], Path [1,0]]
+    // [Path [0,1], Path [1,1]]
+  knot [Edge "0p" p, Edge "0v" v]
+    // [Path [1,0], Path [1,1]]
+    // [Path [0,0], Path [1,0,0]]
+
 {- |
 ![torus](./img/torus-serialize.png)
 
@@ -74,6 +87,20 @@ torus = fromJust $ braid $ do
     // [Path [0,0], Path [0,2]]
     // [Path [0,1], Path [0,3]]
 
+torus' :: BAC String
+torus' = fromJust $ braid $ do
+  t <- knot []
+  c <- knot [Edge "ct1" t, Edge "ct2" t]
+  c' <- knot [Edge "c't1" t, Edge "c't2" t]
+  p <- knot [Edge "pc1" c, Edge "pc'1" c', Edge "pc2" c, Edge "pc'2" c']
+    // [Path [0,1], Path [1,0]]
+    // [Path [1,1], Path [2,1]]
+    // [Path [2,0], Path [3,1]]
+    // [Path [3,0], Path [0,0]]
+  knot [Edge "0p" p]
+    // [Path [0,0], Path [0,2]]
+    // [Path [0,1], Path [0,3]]
+
 {- |
 
 ![crescent](./img/crescent-serialize.png)
@@ -102,6 +129,19 @@ crescent = fromJust $ braid $ do
     // [Path [0,0], Path [1,0]]
     // [Path [2,0], Path [3,0]]
   knot [Edge () p]
+    // [Path [0,0,0], Path [0,1,0]]
+    // [Path [0,0], Path [0,2]]
+    // [Path [0,1], Path [0,3]]
+
+crescent' :: BAC String
+crescent' = fromJust $ braid $ do
+  s <- knot []
+  c <- knot [Edge "cs" s]
+  c' <- knot [Edge "c's" s]
+  p <- knot [Edge "pc1" c, Edge "pc'1" c', Edge "pc2" c, Edge "pc'2" c']
+    // [Path [0,0], Path [1,0]]
+    // [Path [2,0], Path [3,0]]
+  knot [Edge "0p" p]
     // [Path [0,0,0], Path [0,1,0]]
     // [Path [0,0], Path [0,2]]
     // [Path [0,1], Path [0,3]]
