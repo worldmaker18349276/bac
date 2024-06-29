@@ -73,6 +73,7 @@ module Prefix (
 
 import Control.Monad (guard)
 import Data.Bifunctor (bimap, first)
+import Data.Char (isPrint)
 import Data.Foldable (find)
 import Data.Foldable.Extra (foldrM)
 import Data.List (elemIndex, findIndices, sort, uncons)
@@ -127,11 +128,12 @@ allComb f (h:t) = all (f h) t && allComb f t
 
 fromBAC :: BAC String -> Maybe PrefixBAC
 fromBAC bac = do
-  guard $
-    BAC.arrows bac
-    |> concatMap (BAC.target .> BAC.edges)
-    |> fmap BAC.value
-    |> allComb (\a b -> isNothing (a `comparePrefix` b))
+  let values = BAC.arrows bac
+        |> concatMap (BAC.target .> BAC.edges)
+        |> fmap BAC.value
+  guard $ values |> all (all isPrint)
+  guard $ values |> any (elem ' ') |> not
+  guard $ values |> allComb \a b -> isNothing (a `comparePrefix` b)
   return $ PrefixBAC bac
 
 searchString :: PrefixBAC -> String -> [PrefixOrdering]
