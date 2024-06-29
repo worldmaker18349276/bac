@@ -59,12 +59,11 @@ For example:
 
 >>> import BAC.Examples
 >>> import BAC.Serialize
->>> let parse_value str = if str == "()" then Just () else Nothing
->>> deserializeWithValue parse_value (serializeWithValue cone) == Right cone
+>>> deserializeWithValue Just (serializeWithValue id cone') == Right cone'
 True
->>> deserializeWithValue parse_value (serializeWithValue torus) == Right torus
+>>> deserializeWithValue Just (serializeWithValue id torus') == Right torus'
 True
->>> deserializeWithValue parse_value (serializeWithValue crescent) == Right crescent
+>>> deserializeWithValue Just (serializeWithValue id crescent') == Right crescent'
 True
 -}
 deserializeWithValue :: Monoid e => (String -> Maybe e) -> String -> Either ParseError (BAC e)

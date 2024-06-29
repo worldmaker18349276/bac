@@ -83,30 +83,30 @@ Serialize a BAC into a YAML-like string with edge value.
 For example:
 
 >>> import BAC.Examples
->>> putStr $ serializeWithValue cone
+>>> putStr $ serializeWithValue id cone'
 - 0->1; 1->2
-  ()
+  0p
   - 0->1
-    ()
+    py
     &0
 - 0->3; 1->4; 2->2; 3->6; 4->4
-  ()
+  0v
   - 0->1; 1->2; 2->3
-    ()
+    vc1
     &1
     - 0->1
-      ()
+      cy
       *0
     - 0->2
-      ()
+      cb
   - 0->4; 1->2; 2->3
-    ()
+    vc2
     *1
 -}
-serializeWithValue :: (Monoid e, Show e) => BAC e -> String
-serializeWithValue node =
+serializeWithValue :: Monoid e => (e -> String) -> BAC e -> String
+serializeWithValue printer node =
   root node
-  |> format (\indent val -> indent ++ show val ++ "\n") 0
+  |> format (\indent val -> indent ++ printer val ++ "\n") 0
   |> (`execState` FormatterState (makePointers 0 node) [] "")
   |> output
 
@@ -114,8 +114,8 @@ serializeWithValue node =
 printBAC :: Monoid e => BAC e -> IO ()
 printBAC = serialize .> putStr
 
-printBACWithValue :: (Monoid e, Show e) => BAC e -> IO ()
-printBACWithValue = serializeWithValue .> putStr
+printBACWithValue :: Monoid e => (e -> String) -> BAC e -> IO ()
+printBACWithValue printer = serializeWithValue printer .> putStr
 
 {- |
 Serialize a BAC into a YAML string.
@@ -123,33 +123,33 @@ Serialize a BAC into a YAML string.
 For example:
 
 >>> import BAC.Examples
->>> putStr $ serializeAsYAML cone
+>>> putStr $ serializeAsYAML show cone'
 - dict: '0->1; 1->2'
-  value: ()
+  value: "0p"
   target:
     - dict: '0->1'
-      value: ()
+      value: "py"
       target: &0 []
 - dict: '0->3; 1->4; 2->2; 3->6; 4->4'
-  value: ()
+  value: "0v"
   target:
     - dict: '0->1; 1->2; 2->3'
-      value: ()
+      value: "vc1"
       target: &1
         - dict: '0->1'
-          value: ()
+          value: "cy"
           target: *0
         - dict: '0->2'
-          value: ()
+          value: "cb"
           target: []
     - dict: '0->4; 1->2; 2->3'
-      value: ()
+      value: "vc2"
       target: *1
 -}
-serializeAsYAML :: (Monoid e, Show e) => BAC e -> String
-serializeAsYAML node =
+serializeAsYAML :: Monoid e => (e -> String) -> BAC e -> String
+serializeAsYAML printer node =
   root node
-  |> formatYAML show 0
+  |> formatYAML printer 0
   |> (`execState` FormatterState (makePointers 0 node) [] "")
   |> output
 

@@ -15,7 +15,7 @@
         {
             "label": "test",
             "type": "shell",
-            "command": "cabal repl --with-ghc=doctest --repl-options=--verbose",
+            "command": "cabal repl --with-ghc=doctest",
             "presentation": {
                 "reveal": "silent"
             },
