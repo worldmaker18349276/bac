@@ -8,7 +8,7 @@ module Main (main) where
 import qualified BAC.Base as BAC
 import BAC.Deserialize (deserializeWithValue)
 import BAC.Examples (cone')
-import Console (ConsoleState (..), Cursor (..), Action (..), runMotion, getBuffer)
+import Console (ConsoleState (..), Cursor (..), Action (..), runAction, getBuffer, slotLength)
 import Control.Exception (IOException, catch)
 import Control.Monad (when)
 import qualified Data.Either as Either
@@ -29,11 +29,12 @@ toAction (ModifiedKey False False False Left)  = Just MoveLeft
 toAction (ModifiedKey False False False Right) = Just MoveRight
 toAction (ModifiedKey False True  False Up)    = Just DragUp      -- Alt-Up
 toAction (ModifiedKey False True  False Down)  = Just DragDown    -- Alt-Down
+toAction (ModifiedKey True  False False Up)    = Just SelectUp    -- Shift-Up
+toAction (ModifiedKey True  False False Down)  = Just SelectDown  -- Shift-Down
 toAction (ModifiedKey True  False False Left)  = Just SelectLeft  -- Shift-Left
 toAction (ModifiedKey True  False False Right) = Just SelectRight -- Shift-Right
 toAction (ModifiedKey False True  False (Char 'd')) = Just Dup    -- Alt-'d'
 toAction (ModifiedKey False True  False Backspace) = Just Drop    -- Alt-Backspace
-toAction (ModifiedKey False True  True  Backspace) = Just DropTop -- Alt-Ctrl-Backspace
 toAction _ = Nothing
 
 renderSlot :: Maybe (Int, Int) -> Either String Chain -> IO ()
@@ -50,15 +51,15 @@ renderSlot caret (Either.Left str) = do
 
   putStrLn " "
 
-renderSlot caret (Either.Right chain) = do
+renderSlot range (Either.Right chain) = do
   let tokens = getStrings chain
-  let (l, h) = case caret of
+  let (from, to) = case range of
         Nothing -> (length tokens + 1, length tokens + 1)
-        Just (from, to) -> (min from to, max from to)
+        Just (from, to) -> (from, to)
 
   putStr "\ESC[1m"
   forM_ (tokens `zip` [0..]) \(token, i) ->
-    if l <= i && i < h then
+    if from <= i && i < to then
       putStr ("\ESC[7m" ++ token ++ "\ESC[27m")
     else
       putStr token
@@ -66,19 +67,24 @@ renderSlot caret (Either.Right chain) = do
 
   putStrLn " "
 
+getSubSelection :: ConsoleState -> Int -> Maybe (Int, Int)
+getSubSelection (ConsoleState { buffer, cursor }) index
+  | line cursor == lineFrom cursor && line cursor == index
+  = Just (min (column cursor) (columnFrom cursor), max (column cursor) (columnFrom cursor))
+  | lineFrom cursor <= index && index <= line cursor
+  = Just (0, slotLength (buffer !! index))
+  | line cursor <= index && index <= lineFrom cursor
+  = Just (0, slotLength (buffer !! index))
+  | otherwise
+  = Nothing
+
 renderConsoleState :: ConsoleState -> IO (Int, Int)
-renderConsoleState state@(ConsoleState { memory, buffer, cursor }) = do
-  let n0 = 0 :: Int
-  forM_ (buffer `zip` [n0..]) \(slot, i) ->
-    renderSlot (if line cursor == i then Just (column cursor, columnFrom cursor) else Nothing) slot
-  putStrLn "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄"
-  let n1 = length buffer + 1
-  forM_ (memory `zip` [n1..]) \(slot, i) ->
-    renderSlot (if line cursor == i then Just (column cursor, columnFrom cursor) else Nothing) slot
+renderConsoleState state@(ConsoleState { buffer, cursor }) = do
+  forM_ (buffer `zip` [0..]) \(slot, i) -> renderSlot (getSubSelection state i) slot
   putStrLn "───────────────────────────────────"
   return (
       line cursor,
-      getBuffer state & maybe 0 \case
+      buffer !! line cursor & \case
         Either.Left str -> column cursor
         Either.Right chain -> getStrings chain & take (column cursor) & concat & length
     )
@@ -117,12 +123,12 @@ initialize bac_path strs_path = do
       return (fromJust $ fromBAC BAC.empty, messages ++ ["not a prefix bac"])
     Just prefix_bac ->
       return (prefix_bac, messages)
-  let memory =
+  let buffer =
         strs_contents
         & split (== '\n')
         & filter notNull
         & fmap \str -> str & fromString prefix_bac & maybeToEither str
-  let state = ConsoleState { bac = prefix_bac, buffer = [], memory, cursor = Cursor 0 0 0 }
+  let state = ConsoleState { bac = prefix_bac, buffer, cursor = Cursor 0 0 0 0 }
 
   clear
   pos <- renderConsoleState state
@@ -144,7 +150,7 @@ run key state = do
   next_state = case action of
     Either.Left _ -> state
     Either.Right Nothing -> state
-    Either.Right (Just action) -> runMotion action state
+    Either.Right (Just action) -> runAction action state
 
 main :: IO ()
 main = do
