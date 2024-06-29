@@ -15,7 +15,7 @@ data ConsoleState = ConsoleState {
   cursor :: Cursor
 }
 
-data Motion =
+data Action =
   MoveUp
   | MoveDown
   | MoveLeft
@@ -27,6 +27,7 @@ data Motion =
   | Dup
   | Drop
   | DropTop
+  deriving Show
 
 getBuffer :: ConsoleState -> Maybe (Either String Chain)
 getBuffer (ConsoleState { cursor, buffer, memory })
@@ -56,9 +57,9 @@ swapNext 0 (a:b:t) = b:a:t
 swapNext i (a:t) = a:swapNext (i - 1) t
 swapNext _ t = t
 
-runMotion :: Motion -> ConsoleState -> ConsoleState
+runMotion :: Action -> ConsoleState -> ConsoleState
 runMotion MoveDown state@(ConsoleState { cursor, buffer, memory })
-  | line cursor < length buffer + 1 + length memory
+  | line cursor < length buffer + 1 + length memory - 1
   = state { cursor = cursor { line = line cursor + 1, column = 0, columnFrom = 0 } }
   | otherwise
   = state

@@ -131,6 +131,7 @@ interact :: (Either String ModifiedKey -> a -> IO (Maybe a)) -> a -> IO ()
 interact act init_state = do
   hSetBuffering stdin NoBuffering
   hSetEcho stdin False
+  hFlush stdout
   go init_state
   where
   go state = do
