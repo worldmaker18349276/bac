@@ -19,6 +19,7 @@ module Prefix (
   searchString,
   fromString,
   getStrings,
+  getPreString,
   root,
   trimr,
   triml,
@@ -178,6 +179,9 @@ fromSymbol2 bac (sym1, sym2) = do
 
 getStrings :: Chain -> [String]
 getStrings (Chain _ arrs) = fmap BAC.value arrs
+
+getPreString :: Chain -> String
+getPreString (Chain arr0 _) = BAC.value arr0
 
 getArrow2 :: Chain -> (Arrow String, Arrow String)
 getArrow2 (Chain arr0 arrs) = case arrs of

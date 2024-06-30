@@ -297,6 +297,7 @@ arrow node sym = go (root node)
 
 
 chain :: BAC e -> Symbol -> Maybe [Arrow e]
+chain _ 0 = Just []
 chain node sym =
   node
   |> edges
