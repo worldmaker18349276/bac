@@ -54,7 +54,7 @@ module Prefix (
   prefixes,
   suffixes,
   partitionPrefixesSuffixes,
-  unsplittable,
+  isUnsplittable,
   swing,
   splitMorphism,
   paritionIncoming,
@@ -453,8 +453,8 @@ partitionPrefixesSuffixes chain =
   src = id $ source chain
   tgt = id $ target chain
 
-unsplittable :: Chain -> Chain -> Bool
-unsplittable chain1 chain2 =
+isUnsplittable :: Chain -> Chain -> Bool
+isUnsplittable chain1 chain2 =
   chain1 ==~ chain2 && (length chain1 == 0 || sameGroup)
   where
   (pref1, suff1) = fromJust $ split 1 chain1
