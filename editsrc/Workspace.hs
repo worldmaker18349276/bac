@@ -234,7 +234,7 @@ runAction Join state@(Workspace { cursor, buffer })
     & foldl1 \a b -> do
       a <- a
       b <- b
-      Prefix.concat a b
+      Prefix.join a b
 runAction (Input str) state@(Workspace { cursor, buffer })
   | line cursor /= lineFrom cursor
   = Left ["should on a single line"]
@@ -414,7 +414,7 @@ runAction SwingLeft state@(Workspace { bac, cursor, buffer })
   where
   chain = buffer !! line cursor & \(Right chain) -> chain
   replace_buffer slot = take (line cursor) buffer ++ [slot] ++ drop (line cursor + 1) buffer
-  concat a b = fromJust $ Prefix.concat a b
+  concat a b = fromJust $ Prefix.join a b
   split i chain = fromJust $ Prefix.split i chain
 runAction SwingRight state@(Workspace { bac, cursor, buffer })
   | line cursor /= lineFrom cursor
@@ -456,7 +456,7 @@ runAction SwingRight state@(Workspace { bac, cursor, buffer })
   chain = buffer !! line cursor & \(Right chain) -> chain
   len = Prefix.length chain
   replace_buffer slot = take (line cursor) buffer ++ [slot] ++ drop (line cursor + 1) buffer
-  concat a b = fromJust $ Prefix.concat a b
+  concat a b = fromJust $ Prefix.join a b
   split i chain = fromJust $ Prefix.split i chain
 
 allSameBy :: (a -> a -> Bool) -> [a] -> Bool

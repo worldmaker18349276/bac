@@ -21,15 +21,13 @@ module BAC.Prefix (
   getStrings,
   getPreString,
   root,
-  trimr,
-  triml,
   source,
   target,
   id,
   init,
   outgoing,
   incoming,
-  concat,
+  join,
   length,
   split,
   dividel,
@@ -55,7 +53,6 @@ module BAC.Prefix (
   suffixes,
   partitionPrefixesSuffixes,
   isUnsplittable,
-  swing,
   splitMorphism,
   paritionIncoming,
   splitObjectIncoming,
@@ -77,16 +74,15 @@ import Data.Bifunctor (bimap, first)
 import Data.Char (isPrint)
 import Data.Foldable (find)
 import Data.Foldable.Extra (foldrM)
-import Data.List (elemIndex, findIndices, sort, uncons)
+import Data.List (elemIndex, findIndices, sort)
 import qualified Data.List as List
-import Data.List.Extra (allSame, firstJust, notNull, nubSort, snoc, unsnoc)
+import Data.List.Extra (allSame, firstJust, notNull, nubSort, snoc)
 import Data.Map ((!))
 import qualified Data.Map as Map
 import Data.Maybe (fromJust, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
-import Prelude hiding (concat, id, init, length)
-import qualified Prelude
+import Prelude hiding (id, init, length)
 
 import BAC.Base (Arrow, BAC, Symbol)
 import qualified BAC.Base as BAC
@@ -191,12 +187,6 @@ getArrow2 (Chain arr0 arrs) = case arrs of
 root :: PrefixBAC -> Node
 root (PrefixBAC bac) = Node (BAC.root bac)
 
-trimr :: Chain -> Maybe Chain
-trimr (Chain arr0 arrs) = unsnoc arrs |> fmap fst |> fmap (Chain arr0)
-
-triml :: Chain -> Maybe Chain
-triml (Chain arr0 arrs) = uncons arrs |> fmap (\(h, t) -> Chain (arr0 `BAC.join` h) t)
-
 source :: Chain -> Node
 source (Chain arr0 _) = Node arr0
 
@@ -217,17 +207,17 @@ incoming :: PrefixBAC -> Node -> [Chain]
 incoming (PrefixBAC bac) (Node arr0) =
   BAC.suffix bac (BAC.symbol arr0) |> fmap \(arr, edge) -> Chain arr [edge]
 
-concat :: Chain -> Chain -> Maybe Chain
-concat chain1@(Chain arr0 arrs1) chain2@(Chain _ arrs2) = do
+join :: Chain -> Chain -> Maybe Chain
+join chain1@(Chain arr0 arrs1) chain2@(Chain _ arrs2) = do
   guard $ target chain1 ==- source chain2
   return $ Chain arr0 (arrs1 ++ arrs2)
 
 length :: Chain -> Int
-length (Chain _ arrs) = Prelude.length arrs
+length (Chain _ arrs) = List.length arrs
 
 split :: Int -> Chain -> Maybe (Chain, Chain)
 split index (Chain arr0 arrs) = do
-  guard $ 0 <= index && index <= Prelude.length arrs
+  guard $ 0 <= index && index <= List.length arrs
   let chain1 = Chain arr0 (take index arrs)
   let arr0' = getArrow2 chain1 |> uncurry BAC.join
   let chain2 = Chain arr0' (drop index arrs)
@@ -262,13 +252,13 @@ chain1 ==~ chain2 = BAC.symbol2 (getArrow2 chain1) == BAC.symbol2 (getArrow2 cha
 
 addEdge :: Chain -> String -> PrefixBAC -> Maybe PrefixBAC
 addEdge chain str pbac@(PrefixBAC bac) = do
-  guard $ null $ searchString pbac (Prelude.concat (getStrings chain))
+  guard $ null $ searchString pbac (concat (getStrings chain))
   bac' <- Restructure.addEdge (BAC.symbol2 (getArrow2 chain)) str bac
   return $ PrefixBAC bac'
 
 removeEdge :: Chain -> PrefixBAC -> Maybe PrefixBAC
 removeEdge chain@(Chain _ arrs) (PrefixBAC bac) = do
-  guard $ Prelude.length arrs == 1
+  guard $ List.length arrs == 1
   let arr_arr = getArrow2 chain
   let value = BAC.value (snd arr_arr)
   let edges = BAC.target (fst arr_arr) |> BAC.edges |> filter (BAC.symbol .> (== BAC.symbol (snd arr_arr)))
@@ -278,7 +268,7 @@ removeEdge chain@(Chain _ arrs) (PrefixBAC bac) = do
 
 alterEdge :: Chain -> String -> PrefixBAC -> Maybe PrefixBAC
 alterEdge chain@(Chain _ arrs) str (PrefixBAC bac) = do
-  guard $ Prelude.length arrs == 1
+  guard $ List.length arrs == 1
   let arr_arr = getArrow2 chain
   let value = BAC.value (snd arr_arr)
   let edges = BAC.target (fst arr_arr) |> BAC.edges |> filter (BAC.symbol .> (== BAC.symbol (snd arr_arr)))
@@ -288,7 +278,7 @@ alterEdge chain@(Chain _ arrs) str (PrefixBAC bac) = do
 
 isNondecomposable :: Chain -> Bool
 isNondecomposable (Chain arr0 arrs) =
-  Prelude.length arrs == 1 && BAC.nondecomposable (BAC.target arr0) (BAC.symbol (head arrs))
+  List.length arrs == 1 && BAC.nondecomposable (BAC.target arr0) (BAC.symbol (head arrs))
 
 modifyOutgoingValues :: Monoid e => Symbol -> (e -> e) -> BAC e -> BAC e
 modifyOutgoingValues sym f bac =
@@ -472,13 +462,10 @@ isUnsplittable chain1 chain2 =
     |> fromJust
     |> any \(pref, suff) -> pref === pref2 && suff ==~ suff2
 
-swing :: Chain -> [Chain]
-swing = partitionPrefixesSuffixes .> fmap (fst .> head .> uncurry concat .> fromJust)
-
 splitMorphism :: PrefixBAC -> [[Chain]] -> Maybe PrefixBAC
 splitMorphism (PrefixBAC bac) partition = do
   guard $ partition |> any notNull
-  let chain = partition |> List.concat |> head
+  let chain = partition |> concat |> head
   let arr_arr = getArrow2 chain
   let (src_sym, tgt_sym) = BAC.symbol2 arr_arr
   guard $ src_sym /= BAC.base
@@ -493,7 +480,7 @@ splitMorphism (PrefixBAC bac) partition = do
       groups |> find (any \(pref', suff') -> pref' === pref && suff' ==~ suff))
   let partition' =
         partition_groups
-        |> fmap List.concat
+        |> fmap concat
         |> fmap (fmap (both (getArrow2 .> snd .> BAC.symbol)))
         |> fmap (filter (snd .> (/= BAC.base)))
         |> fmap nubSort
@@ -526,13 +513,13 @@ splitObjectIncoming pnode@(Node src_arr) partition pbac@(PrefixBAC bac) = do
   let groups = partitionPrefixesSuffixes (init pbac pnode)
   partition_groups <-
     partition
-    |> fmap (fmap (fmap \chain -> fromJust $ init pbac (source chain) `concat` chain))
+    |> fmap (fmap (fmap \chain -> fromJust $ init pbac (source chain) `join` chain))
     |> traverse (snd .> traverse (split 1))
     >>= traverse (traverse \(pref, suff) ->
       groups |> find (fst .> any \(pref', suff') -> pref' === pref && suff' ==~ suff))
   let partition' =
         partition_groups
-        |> fmap (fmap fst .> List.concat)
+        |> fmap (fmap fst .> concat)
         |> fmap (fmap (both (getArrow2 .> snd .> BAC.symbol)))
         |> fmap (filter (snd .> (/= BAC.base)))
         |> fmap nubSort
@@ -558,7 +545,7 @@ splitObjectIncoming pnode@(Node src_arr) partition pbac@(PrefixBAC bac) = do
   let incoming =
         partition_groups
         |> fmap (fmap (snd .> fmap snd))
-        |> fmap List.concat
+        |> fmap concat
         |> zip (fmap fst partition)
         |> concatMap sequence
         |> fmap (fmap \(Chain _ arrs) -> head arrs |> BAC.value)

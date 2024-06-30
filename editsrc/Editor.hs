@@ -5,10 +5,6 @@
 {-# LANGUAGE LambdaCase #-}
 module Editor where
 
-import qualified BAC.Base as BAC
-import BAC.Deserialize (deserializeWithValue)
-import BAC.Examples (cone')
-import Workspace (Action (..), Workspace (..), Cursor (..), getBuffer, runAction, slotLength)
 import Control.Exception (IOException, catch)
 import Control.Monad (when)
 import qualified Data.Either as Either
@@ -17,11 +13,15 @@ import Data.Foldable (forM_)
 import Data.Function ((&))
 import Data.List.Extra (notNull, split)
 import Data.Maybe (fromJust, fromMaybe, isNothing, listToMaybe)
-import Interactive (Key (..), ModifiedKey (..), interact)
-import BAC.Prefix (Chain)
-import qualified BAC.Prefix as Prefix
 import System.Environment (getArgs)
 import Prelude hiding (Left, Right, interact)
+
+import qualified BAC.Base as BAC
+import BAC.Deserialize (deserializeWithValue)
+import BAC.Prefix (Chain)
+import qualified BAC.Prefix as Prefix
+import Interactive (Key (..), ModifiedKey (..), interact)
+import Workspace (Action (..), Cursor (..), Workspace (..), getBuffer, runAction, slotLength)
 
 toAction :: ModifiedKey -> Maybe Action
 toAction (ModifiedKey False False False Up)    = Just MoveUp
