@@ -125,31 +125,31 @@ Examples:
 
 >>> let partition_cone02 = [(2,[(1,1)]),(7,[(3,2)])]
 >>> printBAC $ fromJust $ splitSymbol (0,2) partition_cone02 [] cone
-- 0->1; 1->2
-  - 0->1
-- 0->3; 1->4; 2->7; 3->6; 4->4
-  - 0->1; 1->2; 2->3
+[1;2;]
+  [1;]
+[3;4;7;6;4;]
+  [1;2;3;]
     &0
-    - 0->1
-    - 0->2
-  - 0->4; 1->2; 2->3
+    [1;]
+    [2;]
+  [4;2;3;]
     *0
 
 >>> let partition_cone32 = [(5,[(1,1)]),(6,[(4,1)]),(7,[])]
 >>> let cone' = fromJust $ addEdge (3,2) () cone
 >>> printBAC $ fromJust $ splitSymbol (3,2) partition_cone32 [7] cone'
-- 0->1; 1->2
-  - 0->1
+[1;2;]
+  [1;]
     &0
-- 0->3; 1->4; 3->6; 4->4; 5->2; 6->2; 7->2
-  - 0->7
+[3;4;6;4;2;2;2;]
+  [7;]
     *0
-  - 0->1; 1->5; 2->3
+  [1;5;3;]
     &1
-    - 0->1
+    [1;]
       *0
-    - 0->2
-  - 0->4; 1->6; 2->3
+    [2;]
+  [4;6;3;]
     *1
 -}
 splitSymbol ::
@@ -260,37 +260,37 @@ Examples:
 
 >>> partition = [(makeShifter crescent 0, [1,2,3]), (makeShifter crescent 1, [5,6,7])]
 >>> printBAC $ fromJust $ splitNode 1 partition crescent
-- 0->1; 1->2; 2->3; 3->4
-  - 0->1; 1->2
+[1;2;3;4;]
+  [1;2;]
     &0
-    - 0->1
+    [1;]
       &1
-  - 0->3; 1->2
+  [3;2;]
     &2
-    - 0->1
+    [1;]
       *1
-- 0->5; 5->2; 6->3; 7->4
-  - 0->5; 1->6
+[5;2;3;4;]
+  [5;6;]
     *0
-  - 0->7; 1->6
+  [7;6;]
     *2
 
 >>> partition' = [(makeShifter cone 0, [1,2]), (makeShifter cone 1, [])]
 >>> printBAC $ fromJust $ splitNode 4 partition' cone
-- 0->1; 1->2
-  - 0->1
+[1;2;]
+  [1;]
     &0
-- 0->3; 1->4; 2->2; 3->6; 4->4; 5->10; 8->10
-  - 0->1; 1->2; 2->3
+[3;4;2;6;4;10;10;]
+  [1;2;3;]
     &1
-    - 0->1
+    [1;]
       *0
-    - 0->2
-  - 0->5
+    [2;]
+  [5;]
     &2
-  - 0->4; 1->2; 2->3
+  [4;2;3;]
     *1
-  - 0->8
+  [8;]
     *2
 -}
 splitNode ::
@@ -351,17 +351,17 @@ Examples:
 >>> import Data.Foldable (traverse_)
 >>> crescent_1 = target $ fromJust $ arrow crescent 1
 >>> traverse_ printBAC $ fromJust $ splitRootNode [[1,2,3],[5,6,7]] crescent_1
-- 0->1; 1->2
-  - 0->1
+[1;2;]
+  [1;]
     &0
-- 0->3; 1->2
-  - 0->1
+[3;2;]
+  [1;]
     *0
-- 0->5; 1->6
-  - 0->1
+[5;6;]
+  [1;]
     &0
-- 0->7; 1->6
-  - 0->1
+[7;6;]
+  [1;]
     *0
 -}
 splitRootNode ::

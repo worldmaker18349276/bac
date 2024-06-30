@@ -182,10 +182,10 @@ a node with only one descendant (a BAC with only one proper object).
 Examples:
 
 >>> printBAC $ fromJust $ singleton 1 ()
-- 0->1
+[1;]
 
 >>> printBAC $ fromJust $ singleton 2 ()
-- 0->2
+[2;]
 -}
 singleton :: Symbol -> e -> Maybe (BAC e)
 singleton sym e = if sym == base then Nothing else Just $ BAC [new_edge]

@@ -50,40 +50,40 @@ morphism.
 Examples:
 
 >>> printBAC $ fromJust $ mergeSymbols (1,[2,3,6,8]) 2 torus
-- 0->1; 1->2; 2->3; 4->5; 7->2; 10->5
-  - 0->1; 1->2; 2->2
+[1;2;3;5;2;5;]
+  [1;2;2;]
     &0
-    - 0->1
+    [1;]
       &1
-    - 0->2
+    [2;]
       *1
-  - 0->4; 1->2; 2->2
+  [4;2;2;]
     &2
-    - 0->1
+    [1;]
       *1
-    - 0->2
+    [2;]
       *1
-  - 0->7; 1->2; 2->2
+  [7;2;2;]
     *0
-  - 0->10; 1->2; 2->2
+  [10;2;2;]
     *2
 
 >>> crescent_1 = arrow crescent 1 |> fromJust |> target
 >>> crescent_1' = fromJust $ unifyNodes [1,3] crescent_1
 >>> printBAC $ fromJust $ mergeSymbols (0,[1,3]) 1 crescent_1'
-- 0->1; 1->2
+[1;2;]
   &0
-  - 0->1
+  [1;]
     &1
-  - 0->1
+  [1;]
     *1
-- 0->1; 1->2
+[1;2;]
   *0
-- 0->5; 1->6
-  - 0->1
+[5;6;]
+  [1;]
     &2
-- 0->7; 1->6
-  - 0->1
+[7;6;]
+  [1;]
     *2
 
 >>> mergeSymbols (0,[1,5]) 1 crescent_1
@@ -155,38 +155,38 @@ Examples:
 
 >>> crescent' = crescent |> alterSymbol (4,1) 2 |> fromJust
 >>> printBAC $ fromJust $ mergeNodes [(2,[(1,1),(1,5)]),(4,[(1,3),(1,7)])] (snd .> head) crescent'
-- 0->1; 1->2; 2->3; 5->2; 6->3
-  - 0->1; 1->2; 2->2
+[1;2;3;2;3;]
+  [1;2;2;]
     &0
-    - 0->1
+    [1;]
       &1
-    - 0->2
+    [2;]
       *1
-  - 0->1; 1->2; 2->2
+  [1;2;2;]
     *0
-  - 0->5; 1->6; 2->6
+  [5;6;6;]
     *0
-  - 0->5; 1->6; 2->6
+  [5;6;6;]
     *0
 
 >>> torus' = torus |> alterSymbol (5,1) 3 |> fromJust |> alterSymbol (5,2) 4 |> fromJust
 >>> printBAC $ fromJust $ mergeNodes [(2,[(1,1),(1,7)]), (5,[(1,4),(1,10)])] (snd .> head) torus'
-- 0->1; 1->2; 2->3; 3->3; 6->3; 7->2; 8->3
-  - 0->1; 1->2; 2->3; 3->3; 4->6
+[1;2;3;3;3;2;3;]
+  [1;2;3;3;6;]
     &0
-    - 0->1
+    [1;]
       &1
-    - 0->2
+    [2;]
       *1
-    - 0->3
+    [3;]
       *1
-    - 0->4
+    [4;]
       *1
-  - 0->1; 1->2; 2->3; 3->3; 4->6
+  [1;2;3;3;6;]
     *0
-  - 0->7; 1->8; 2->6; 3->2; 4->8
+  [7;8;6;2;8;]
     *0
-  - 0->7; 1->8; 2->6; 3->2; 4->8
+  [7;8;6;2;8;]
     *0
 -}
 mergeNodes ::
@@ -277,23 +277,23 @@ merge, which should have disjoint symbol lists except the base symbol.
 Examples:
 
 >>> printBAC $ fromJust $ mergeRootNodes [fromJust $ singleton 1 (), empty, fromJust $ singleton 2 ()]
-- 0->1
-- 0->2
+[1;]
+[2;]
 
 >>> printBAC $ fromJust $ mergeRootNodes [fromJust $ singleton 6 (), crescent]
-- 0->6
-- 0->1; 1->2; 2->3; 3->4; 5->2; 6->3; 7->4
-  - 0->1; 1->2
+[6;]
+[1;2;3;4;2;3;4;]
+  [1;2;]
     &0
-    - 0->1
+    [1;]
       &1
-  - 0->3; 1->2
+  [3;2;]
     &2
-    - 0->1
+    [1;]
       *1
-  - 0->5; 1->6
+  [5;6;]
     *0
-  - 0->7; 1->6
+  [7;6;]
     *2
 -}
 mergeRootNodes :: [BAC e] -> Maybe (BAC e)

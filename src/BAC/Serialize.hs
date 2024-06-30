@@ -5,7 +5,7 @@ module BAC.Serialize (serializeDict, serializeAsYAML, serialize, printBAC, seria
 import Control.Monad (when)
 import Control.Monad.State (MonadState (get), State, execState, modify)
 import Data.Foldable (traverse_)
-import Data.List (intercalate)
+import Data.List (sortOn, intercalate)
 import Data.Map (Map, fromList, lookup, toList)
 import Data.Tuple.Extra (both)
 import Prelude hiding (lookup)
@@ -20,6 +20,9 @@ serializeDict =
   .> fmap (both show)
   .> fmap (\(k, v) -> k ++ "->" ++ v)
   .> intercalate "; "
+
+serializeDictElem :: [Symbol] -> String
+serializeDictElem = concatMap (\v -> show v ++ ";") .> \s -> "[" ++ s ++ "]"
 
 -- | Count the number of shown references.
 countRef :: Monoid e => Arrow e -> [(Symbol, Int)]
@@ -52,16 +55,16 @@ For example:
 
 >>> import BAC.Examples
 >>> putStr $ serialize cone
-- 0->1; 1->2
-  - 0->1
+[1;2;]
+  [1;]
     &0
-- 0->3; 1->4; 2->2; 3->6; 4->4
-  - 0->1; 1->2; 2->3
+[3;4;2;6;4;]
+  [1;2;3;]
     &1
-    - 0->1
+    [1;]
       *0
-    - 0->2
-  - 0->4; 1->2; 2->3
+    [2;]
+  [4;2;3;]
     *1
 
 Indentation define block, which represents a node.  A block is consist of a list, whose
@@ -73,7 +76,7 @@ blocks, indicating implicitly shared nodes.
 serialize :: Monoid e => BAC e -> String
 serialize node =
   root node
-  |> format (\_ _ -> "") 0
+  |> format (const "") 0
   |> (`execState` FormatterState (makePointers 0 node) [] "")
   |> output
 
@@ -84,29 +87,22 @@ For example:
 
 >>> import BAC.Examples
 >>> putStr $ serializeWithValue id cone'
-- 0->1; 1->2
-  0p
-  - 0->1
-    py
+[1;2;] 0p
+  [1;] py
     &0
-- 0->3; 1->4; 2->2; 3->6; 4->4
-  0v
-  - 0->1; 1->2; 2->3
-    vc1
+[3;4;2;6;4;] 0v
+  [1;2;3;] vc1
     &1
-    - 0->1
-      cy
+    [1;] cy
       *0
-    - 0->2
-      cb
-  - 0->4; 1->2; 2->3
-    vc2
+    [2;] cb
+  [4;2;3;] vc2
     *1
 -}
 serializeWithValue :: Monoid e => (e -> String) -> BAC e -> String
 serializeWithValue printer node =
   root node
-  |> format (\indent val -> indent ++ printer val ++ "\n") 0
+  |> format (\val -> " " ++ printer val) 0
   |> (`execState` FormatterState (makePointers 0 node) [] "")
   |> output
 
@@ -163,7 +159,7 @@ data FormatterState = FormatterState
 write :: String -> State FormatterState ()
 write str = modify \state -> state {output = output state ++ str}
 
-format :: Monoid e => (String -> e -> String) -> Int -> Arrow e -> State FormatterState ()
+format :: Monoid e => (e -> String) -> Int -> Arrow e -> State FormatterState ()
 format format_value level curr = do
   let indent = replicate (level * 2) ' '
 
@@ -182,8 +178,8 @@ format format_value level curr = do
         Nothing -> do
           write ""
       edges (target curr) |> traverse_ \edge -> do
-        write $ indent ++ "- " ++ serializeDict (dict edge) ++ "\n"
-        write $ format_value (indent ++ "  ") (value edge)
+        let elems = fmap snd $ sortOn fst $ toList $ dict edge
+        write $ indent ++ serializeDictElem elems ++ format_value (value edge) ++ "\n"
         format format_value (level + 1) (curr `join` edge)
 
 formatYAML :: Monoid e => (e -> String) -> Int -> Arrow e -> State FormatterState ()
