@@ -41,7 +41,9 @@ toAction (ModifiedKey False True  False Backspace) = Just DeleteSlot -- Alt-Back
 toAction (ModifiedKey False True  False (Char 'd')) = Just Dup -- Alt-'d'
 toAction (ModifiedKey False True  False (Char 'j')) = Just Join -- Alt-'j'
 toAction (ModifiedKey False True  False (Char 'k')) = Just ChangeType -- Alt-'k'
-toAction (ModifiedKey False True  False (Char 'i')) = Just InitialChain -- Alt-'l'
+toAction (ModifiedKey False True  False (Char 'i')) = Just InitialChain -- Alt-'i'
+toAction (ModifiedKey False True  False Left)  = Just SwingLeft  -- Alt-Left
+toAction (ModifiedKey False True  False Right) = Just SwingRight -- Alt-Right
 toAction _ = Nothing
 
 parseAction :: String -> Maybe Action
@@ -65,6 +67,8 @@ parseAction "InitialChain" = Just InitialChain
 parseAction "IsNondecomposable" = Just IsNondecomposable
 parseAction "AreSameMorphism" = Just AreSameMorphism
 parseAction "AreUnsplittable" = Just AreUnsplittable
+parseAction "SwingLeft" = Just SwingLeft
+parseAction "SwingRight" = Just SwingRight
 parseAction _ = Nothing
 
 renderSlot :: Maybe (Int, Int) -> Either String Chain -> IO ()

@@ -427,14 +427,20 @@ interpolateObject chain (str1, str2) pbac@(PrefixBAC bac) = do
   return $ PrefixBAC bac'
 
 prefixes :: Chain -> [(Chain, Chain)]
-prefixes (Chain arr0 arrs) =
-  BAC.prefix (BAC.target arr0) (BAC.symbol (last (arr0 : arrs)))
+prefixes (Chain _ []) = []
+prefixes chain =
+  BAC.prefix (BAC.target arr0) (BAC.symbol arr1)
   |> fmap \(edge, arr) -> (Chain arr0 [edge], fromArrow2 (arr0 `BAC.join` edge, arr))
+  where
+  (arr0, arr1) = getArrow2 chain
 
 suffixes :: Chain -> [(Chain, Chain)]
-suffixes (Chain arr0 arrs) =
-  BAC.suffix (BAC.target arr0) (BAC.symbol (last (arr0 : arrs)))
-  |> fmap \(arr, edge) -> (fromArrow2 (arr0, arr), Chain (arr0 `BAC.join` edge) [edge])
+suffixes (Chain _ []) = []
+suffixes chain =
+  BAC.suffix (BAC.target arr0) (BAC.symbol arr1)
+  |> fmap \(arr, edge) -> (fromArrow2 (arr0, arr), Chain (arr0 `BAC.join` arr) [edge])
+  where
+  (arr0, arr1) = getArrow2 chain
 
 partitionPrefixesSuffixes :: Chain -> [([(Chain, Chain)], [(Chain, Chain)])]
 partitionPrefixesSuffixes chain =

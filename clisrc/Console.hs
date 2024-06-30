@@ -4,13 +4,16 @@
 {-# HLINT ignore "Use <$>" #-}
 module Console where
 
-import Prefix (PrefixBAC, Node, Chain)
-import qualified Prefix
+import Data.Bifunctor (first)
+import Data.Char (isPrint)
+import Data.Either (isLeft, isRight)
+import Data.Function ((&))
+import Data.List (findIndex)
 import Data.List.Extra (snoc)
 import Data.Maybe (fromJust)
-import Data.Function ((&))
-import Data.Either (isLeft, isRight)
-import Data.Char (isPrint)
+
+import Prefix (Chain, Node, PrefixBAC, (===), (==~))
+import qualified Prefix
 
 data Cursor = Cursor { line :: Int, column :: Int, lineFrom :: Int, columnFrom :: Int }
 
@@ -56,10 +59,10 @@ data Action =
   | IsNondecomposable
   | AreSameMorphism
   | AreUnsplittable
+  | SwingLeft
+  | SwingRight
   -- | DivideLeft
   -- | DivideRight
-  -- | SwingLeft
-  -- | SwingRight
   deriving Show
 
 -- data ComplexAction =
@@ -358,7 +361,7 @@ runAction AreSameMorphism state@(ConsoleState { bac, cursor, buffer })
   | not (all isRight $ drop from (take to buffer))
   = Left ["should be chains"]
   | otherwise
-  = Left [show $ allSameBy (Prefix.==~) $ fmap (\(Right chain) -> chain) $ drop from (take to buffer)]
+  = Left [show $ allSameBy (==~) $ fmap (\(Right chain) -> chain) $ drop from (take to buffer)]
   where
   from = min (line cursor) (lineFrom cursor)
   to = max (line cursor) (lineFrom cursor) + 1
@@ -370,6 +373,91 @@ runAction AreUnsplittable state@(ConsoleState { bac, cursor, buffer })
   where
   from = min (line cursor) (lineFrom cursor)
   to = max (line cursor) (lineFrom cursor) + 1
+runAction SwingLeft state@(ConsoleState { bac, cursor, buffer })
+  | line cursor /= lineFrom cursor
+  = Left ["should on a single line"]
+  | isLeft (buffer !! line cursor)
+  = Left ["should be a chain"]
+  | column cursor == columnFrom cursor && column cursor == 0
+  = case chain & Prefix.source & Prefix.incoming bac of
+    edge : _ -> return state {
+      buffer = replace_buffer (Right $ edge `concat` chain),
+      cursor = cursorAt (line cursor) 1
+    }
+    _ -> Left ["no edge to extend"]
+  | column cursor == columnFrom cursor && column cursor == 1
+  = let
+      (edge, chain') = split 1 chain
+      edges = chain' & Prefix.source & Prefix.incoming bac
+      edge' = edges & findIndex (=== edge) & fromJust & (+ 1) & (`mod` length edges) & (edges !!)
+    in
+      return state { buffer = replace_buffer (Right $ edge' `concat` chain') }
+  | column cursor == columnFrom cursor
+  = Left ["should at the start position or with selection"]
+  | otherwise
+  = let
+      from = min (column cursor) (columnFrom cursor)
+      to = max (column cursor) (columnFrom cursor)
+      ((chain1, chain2), chain3) = first (split from) $ split to chain
+      (prefix, suffix) = split 1 chain2
+      prefixes = Prefix.prefixes chain2
+      (prefix', suffix') = prefixes & findIndex (\(pref, suff) -> pref === prefix && suff ==~ suffix) & fromJust
+        & (+ 1) & (`mod` length prefixes) & (prefixes !!)
+      chain' = chain1 `concat` prefix' `concat` suffix' `concat` chain3
+      to' = Prefix.length chain' - Prefix.length chain3
+      (col, colFrom) = if column cursor < columnFrom cursor then (from, to') else (to', from)
+    in
+      return state {
+        buffer = replace_buffer (Right chain'),
+        cursor = Cursor (line cursor) col (line cursor) colFrom
+      }
+  where
+  chain = buffer !! line cursor & \(Right chain) -> chain
+  replace_buffer slot = take (line cursor) buffer ++ [slot] ++ drop (line cursor + 1) buffer
+  concat a b = fromJust $ Prefix.concat a b
+  split i chain = fromJust $ Prefix.split i chain
+runAction SwingRight state@(ConsoleState { bac, cursor, buffer })
+  | line cursor /= lineFrom cursor
+  = Left ["should on a single line"]
+  | isLeft (buffer !! line cursor)
+  = Left ["should be a chain"]
+  | column cursor == columnFrom cursor && column cursor == len
+  = case chain & Prefix.target & Prefix.outgoing bac of
+    edge : _ -> return state { buffer = replace_buffer (Right $ chain `concat` edge) }
+    _ -> Left ["no edge to extend"]
+  | column cursor == columnFrom cursor && column cursor == len - 1
+  = let
+      (chain', edge) = split (len - 1) chain
+      edges = chain' & Prefix.target & Prefix.outgoing bac
+      edge' = edges & findIndex (=== edge) & fromJust & (+ 1) & (`mod` length edges) & (edges !!)
+    in
+      return state { buffer = replace_buffer (Right $ chain' `concat` edge') }
+  | column cursor == columnFrom cursor
+  = Left ["should at the end position or with selection"]
+  | otherwise
+  = let
+      from = min (column cursor) (columnFrom cursor)
+      to = max (column cursor) (columnFrom cursor)
+      ((chain1, chain2), chain3) = first (split from) $ split to chain
+      (prefix, suffix) = split (Prefix.length chain2 - 1) chain2
+      suffixes = Prefix.suffixes chain2
+      (prefix', suffix') =
+        suffixes & findIndex (\(pref, suff) -> pref ==~ prefix && suff === suffix) & fromJust
+        & (+ 1) & (`mod` length suffixes) & (suffixes !!)
+      chain' = chain1 `concat` prefix' `concat` suffix' `concat` chain3
+      to' = Prefix.length chain' - Prefix.length chain3
+      (col, colFrom) = if column cursor < columnFrom cursor then (from, to') else (to', from)
+    in
+      return state {
+        buffer = replace_buffer (Right chain'),
+        cursor = Cursor (line cursor) col (line cursor) colFrom
+      }
+  where
+  chain = buffer !! line cursor & \(Right chain) -> chain
+  len = Prefix.length chain
+  replace_buffer slot = take (line cursor) buffer ++ [slot] ++ drop (line cursor + 1) buffer
+  concat a b = fromJust $ Prefix.concat a b
+  split i chain = fromJust $ Prefix.split i chain
 
 allSameBy :: (a -> a -> Bool) -> [a] -> Bool
 allSameBy _ [] = True
