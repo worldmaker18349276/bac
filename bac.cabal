@@ -68,7 +68,7 @@ library
         BAC.Serialize,
         BAC.Deserialize,
         BAC.Examples,
-        Prefix
+        BAC.Prefix
 
     -- Modules included in this library but not exported.
     other-modules:
@@ -102,12 +102,13 @@ library
     -- Base language which the package is written in.
     default-language: Haskell2010
 
-executable cli
+executable edit
     main-is: Main.hs
 
     other-modules:
         Interactive,
-        Console
+        Workspace,
+        Editor
     
     build-depends:
         base ^>=4.16.4.0,
@@ -118,6 +119,6 @@ executable cli
         parsec,
         bac
 
-    hs-source-dirs:   clisrc
+    hs-source-dirs:   editsrc
 
     default-language: Haskell2010

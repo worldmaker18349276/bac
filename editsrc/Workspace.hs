@@ -2,7 +2,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use <$>" #-}
-module Console where
+module Workspace where
 
 import Data.Bifunctor (first)
 import Data.Char (isPrint)
@@ -12,12 +12,12 @@ import Data.List (findIndex)
 import Data.List.Extra (snoc)
 import Data.Maybe (fromJust)
 
-import Prefix (Chain, Node, PrefixBAC, (===), (==~))
-import qualified Prefix
+import BAC.Prefix (Chain, Node, PrefixBAC, (===), (==~))
+import qualified BAC.Prefix as Prefix
 
 data Cursor = Cursor { line :: Int, column :: Int, lineFrom :: Int, columnFrom :: Int }
 
-data ConsoleState = ConsoleState {
+data Workspace = Workspace {
   bac :: PrefixBAC,
   buffer :: [Either String Chain],
   cursor :: Cursor
@@ -26,7 +26,7 @@ data ConsoleState = ConsoleState {
 cursorAt :: Int -> Int -> Cursor
 cursorAt line column = Cursor line column line column
 
-selectLines :: ConsoleState -> Int -> Int -> Cursor
+selectLines :: Workspace -> Int -> Int -> Cursor
 selectLines state line_from line_to =
   if line_from <= line_to then
     Cursor line_to (slotLength (buffer state !! line_to)) line_from 0
@@ -95,17 +95,17 @@ data Action =
 --   | OutputChains [Chain]
 --   | OutputNodes [Node]
 
-getBuffers :: ConsoleState -> [Either String Chain]
-getBuffers (ConsoleState { cursor, buffer }) =
+getBuffers :: Workspace -> [Either String Chain]
+getBuffers (Workspace { cursor, buffer }) =
   buffer
   & take (max (line cursor) (lineFrom cursor) + 1)
   & drop (min (line cursor) (lineFrom cursor))
 
-getBuffer :: ConsoleState -> Either String Chain
-getBuffer (ConsoleState { cursor, buffer }) = buffer !! line cursor
+getBuffer :: Workspace -> Either String Chain
+getBuffer (Workspace { cursor, buffer }) = buffer !! line cursor
 
-getPart :: ConsoleState -> Maybe (Either String Chain)
-getPart state@(ConsoleState { cursor })
+getPart :: Workspace -> Maybe (Either String Chain)
+getPart state@(Workspace { cursor })
   | line cursor /= lineFrom cursor = Nothing
   | otherwise = case getBuffer state of
     Left str -> str & take (max from to) & drop (min from to) & Left & Just
@@ -119,28 +119,28 @@ getPart state@(ConsoleState { cursor })
   from = columnFrom cursor
   to = column cursor
 
-runAction :: Action -> ConsoleState -> Either [String] ConsoleState
-runAction MoveDown state@(ConsoleState { cursor, buffer })
+runAction :: Action -> Workspace -> Either [String] Workspace
+runAction MoveDown state@(Workspace { cursor, buffer })
   | line cursor < length buffer - 1
   = return state { cursor = cursorAt (line cursor + 1) 0 }
   | otherwise
   = return state { cursor = cursorAt (line cursor) 0 }
-runAction MoveUp state@(ConsoleState { cursor, buffer })
+runAction MoveUp state@(Workspace { cursor, buffer })
   | line cursor > 0
   = return state { cursor = cursorAt (line cursor - 1) 0 }
   | otherwise
   = return state { cursor = cursorAt (line cursor) 0 }
-runAction MoveRight state@(ConsoleState { cursor, buffer })
+runAction MoveRight state@(Workspace { cursor, buffer })
   | column cursor < slotLength (buffer !! line cursor)
   = return state { cursor = cursorAt (line cursor) (column cursor + 1) }
   | otherwise
   = return state { cursor = cursorAt (line cursor) (column cursor) }
-runAction MoveLeft state@(ConsoleState { cursor })
+runAction MoveLeft state@(Workspace { cursor })
   | column cursor > 0
   = return state { cursor = cursorAt (line cursor) (column cursor - 1) }
   | otherwise
   = return state { cursor = cursorAt (line cursor) (column cursor) }
-runAction DragDown state@(ConsoleState { cursor, buffer })
+runAction DragDown state@(Workspace { cursor, buffer })
   | to < length buffer
   = return state {
       cursor = cursor { line = line cursor + 1, lineFrom = lineFrom cursor + 1 },
@@ -151,7 +151,7 @@ runAction DragDown state@(ConsoleState { cursor, buffer })
   where
   from = min (line cursor) (lineFrom cursor)
   to = max (line cursor) (lineFrom cursor) + 1
-runAction DragUp state@(ConsoleState { cursor, buffer })
+runAction DragUp state@(Workspace { cursor, buffer })
   | from > 0
   = return state {
       cursor = cursor { line = line cursor - 1, lineFrom = lineFrom cursor - 1 },
@@ -162,31 +162,31 @@ runAction DragUp state@(ConsoleState { cursor, buffer })
   where
   from = min (line cursor) (lineFrom cursor)
   to = max (line cursor) (lineFrom cursor) + 1
-runAction SelectDown state@(ConsoleState { cursor, buffer })
+runAction SelectDown state@(Workspace { cursor, buffer })
   | line cursor < length buffer - 1
   = return state { cursor = selectLines state (lineFrom cursor) (line cursor + 1) }
   | otherwise
   = return state { cursor = selectLines state (lineFrom cursor) (line cursor) }
-runAction SelectUp state@(ConsoleState { cursor, buffer })
+runAction SelectUp state@(Workspace { cursor, buffer })
   | line cursor > 0
   = return state { cursor = selectLines state (lineFrom cursor) (line cursor - 1) }
   | otherwise
   = return state { cursor = selectLines state (lineFrom cursor) (line cursor) }
-runAction SelectRight state@(ConsoleState { cursor, buffer })
+runAction SelectRight state@(Workspace { cursor, buffer })
   | line cursor /= lineFrom cursor
   = return state
   | column cursor < slotLength (buffer !! line cursor)
   = return state { cursor = cursor { column = column cursor + 1 } }
   | otherwise
   = return state
-runAction SelectLeft state@(ConsoleState { cursor, buffer })
+runAction SelectLeft state@(Workspace { cursor, buffer })
   | line cursor /= lineFrom cursor
   = return state
   | column cursor > 0
   = return state { cursor = cursor { column = column cursor - 1 } }
   | otherwise
   = return state
-runAction Dup state@(ConsoleState { cursor, buffer }) =
+runAction Dup state@(Workspace { cursor, buffer }) =
   let
     dup_slots =
       if line cursor == lineFrom cursor && column cursor == columnFrom cursor then
@@ -204,11 +204,11 @@ runAction Dup state@(ConsoleState { cursor, buffer }) =
       = cursor { line = line cursor + shift_line, lineFrom = lineFrom cursor + shift_line }
   in
     Right state { buffer = take dup_line buffer ++ dup_slots ++ drop dup_line buffer, cursor = dup_cursor }
-runAction NewSlot state@(ConsoleState { cursor, buffer })
+runAction NewSlot state@(Workspace { cursor, buffer })
   = return state { buffer = take line' buffer ++ [Left ""] ++ drop line' buffer, cursor = cursorAt line' 0 }
   where
   line' = max (line cursor) (lineFrom cursor) + 1
-runAction Join state@(ConsoleState { cursor, buffer })
+runAction Join state@(Workspace { cursor, buffer })
   | all isLeft buffer'
   = return state {
     buffer = take from buffer ++ [Left $ concatMap (\(Left a) -> a) buffer'] ++ drop to buffer,
@@ -235,7 +235,7 @@ runAction Join state@(ConsoleState { cursor, buffer })
       a <- a
       b <- b
       Prefix.concat a b
-runAction (Input str) state@(ConsoleState { cursor, buffer })
+runAction (Input str) state@(Workspace { cursor, buffer })
   | line cursor /= lineFrom cursor
   = Left ["should on a single line"]
   | isRight (buffer !! line cursor)
@@ -253,7 +253,7 @@ runAction (Input str) state@(ConsoleState { cursor, buffer })
   to = max (column cursor) (columnFrom cursor)
   res = take from str' ++ str ++ drop to str'
   col = from + length str
-runAction DeleteBackward state@(ConsoleState { cursor, buffer })
+runAction DeleteBackward state@(Workspace { cursor, buffer })
   | line cursor /= lineFrom cursor || slotLength (buffer !! line cursor) == 0
   = let
       line' = min (line cursor) (lineFrom cursor) - 1
@@ -303,14 +303,14 @@ runAction DeleteBackward state@(ConsoleState { cursor, buffer })
     else
       min (column cursor) (columnFrom cursor)
   to = max (column cursor) (columnFrom cursor)
-runAction DeleteSlot state@(ConsoleState { cursor, buffer })
+runAction DeleteSlot state@(Workspace { cursor, buffer })
   = return state { buffer = if null buffer' then [Left ""] else buffer', cursor = cursorAt line' 0 }
   where
   from = min (line cursor) (lineFrom cursor)
   to = max (line cursor) (lineFrom cursor) + 1
   line' = max (from - 1) 0
   buffer' = take from buffer ++ drop to buffer
-runAction ChangeType state@(ConsoleState { bac, cursor, buffer })
+runAction ChangeType state@(Workspace { bac, cursor, buffer })
   | line cursor /= lineFrom cursor
   = Left ["should on a single line"]
   | otherwise
@@ -334,7 +334,7 @@ runAction ChangeType state@(ConsoleState { bac, cursor, buffer })
           }
   where
   replace_buffer slot = take (line cursor) buffer ++ [slot] ++ drop (line cursor + 1) buffer
-runAction InitialChain state@(ConsoleState { bac, cursor, buffer })
+runAction InitialChain state@(Workspace { bac, cursor, buffer })
   | line cursor /= lineFrom cursor
   = Left ["should on a single line"]
   | isLeft $ buffer !! line cursor
@@ -350,14 +350,14 @@ runAction InitialChain state@(ConsoleState { bac, cursor, buffer })
   replace_buffer slot = take (line cursor) buffer ++ [slot] ++ drop (line cursor + 1) buffer
   pretoken = Prefix.getPreString $ (\(Right chain) -> chain) $ buffer !! line cursor
   init_chain = if null pretoken then Prefix.id (Prefix.root bac) else fromJust (Prefix.fromString bac pretoken)
-runAction IsNondecomposable state@(ConsoleState { bac, cursor, buffer })
+runAction IsNondecomposable state@(Workspace { bac, cursor, buffer })
   | line cursor /= lineFrom cursor
   = Left ["not a single line"]
   | otherwise
   = case buffer !! line cursor of
     Left _ -> Left ["not a chain"]
     Right chain -> Left [show $ Prefix.isNondecomposable chain]
-runAction AreSameMorphism state@(ConsoleState { bac, cursor, buffer })
+runAction AreSameMorphism state@(Workspace { bac, cursor, buffer })
   | not (all isRight $ drop from (take to buffer))
   = Left ["should be chains"]
   | otherwise
@@ -365,7 +365,7 @@ runAction AreSameMorphism state@(ConsoleState { bac, cursor, buffer })
   where
   from = min (line cursor) (lineFrom cursor)
   to = max (line cursor) (lineFrom cursor) + 1
-runAction AreUnsplittable state@(ConsoleState { bac, cursor, buffer })
+runAction AreUnsplittable state@(Workspace { bac, cursor, buffer })
   | not (all isRight $ drop from (take to buffer))
   = Left ["should be chains"]
   | otherwise
@@ -373,7 +373,7 @@ runAction AreUnsplittable state@(ConsoleState { bac, cursor, buffer })
   where
   from = min (line cursor) (lineFrom cursor)
   to = max (line cursor) (lineFrom cursor) + 1
-runAction SwingLeft state@(ConsoleState { bac, cursor, buffer })
+runAction SwingLeft state@(Workspace { bac, cursor, buffer })
   | line cursor /= lineFrom cursor
   = Left ["should on a single line"]
   | isLeft (buffer !! line cursor)
@@ -416,7 +416,7 @@ runAction SwingLeft state@(ConsoleState { bac, cursor, buffer })
   replace_buffer slot = take (line cursor) buffer ++ [slot] ++ drop (line cursor + 1) buffer
   concat a b = fromJust $ Prefix.concat a b
   split i chain = fromJust $ Prefix.split i chain
-runAction SwingRight state@(ConsoleState { bac, cursor, buffer })
+runAction SwingRight state@(Workspace { bac, cursor, buffer })
   | line cursor /= lineFrom cursor
   = Left ["should on a single line"]
   | isLeft (buffer !! line cursor)

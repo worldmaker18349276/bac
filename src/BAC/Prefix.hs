@@ -8,7 +8,7 @@
 {-# HLINT ignore "Redundant id" #-}
 {-# LANGUAGE TupleSections #-}
 
-module Prefix (
+module BAC.Prefix (
   PrefixOrdering (..),
   toOrdering,
   comparePrefix,

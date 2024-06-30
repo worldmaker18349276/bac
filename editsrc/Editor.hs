@@ -3,12 +3,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE LambdaCase #-}
-module Main (main) where
+module Editor where
 
 import qualified BAC.Base as BAC
 import BAC.Deserialize (deserializeWithValue)
 import BAC.Examples (cone')
-import Console (Action (..), ConsoleState (..), Cursor (..), getBuffer, runAction, slotLength)
+import Workspace (Action (..), Workspace (..), Cursor (..), getBuffer, runAction, slotLength)
 import Control.Exception (IOException, catch)
 import Control.Monad (when)
 import qualified Data.Either as Either
@@ -18,8 +18,8 @@ import Data.Function ((&))
 import Data.List.Extra (notNull, split)
 import Data.Maybe (fromJust, fromMaybe, isNothing, listToMaybe)
 import Interactive (Key (..), ModifiedKey (..), interact)
-import Prefix (Chain)
-import qualified Prefix
+import BAC.Prefix (Chain)
+import qualified BAC.Prefix as Prefix
 import System.Environment (getArgs)
 import Prelude hiding (Left, Right, interact)
 
@@ -108,8 +108,8 @@ renderSlot range (Either.Right chain) = do
 
   putStrLn " "
 
-getSubSelection :: ConsoleState -> Int -> Maybe (Int, Int)
-getSubSelection (ConsoleState { buffer, cursor }) index
+getSubSelection :: Workspace -> Int -> Maybe (Int, Int)
+getSubSelection (Workspace { buffer, cursor }) index
   | line cursor == lineFrom cursor && line cursor == index && column cursor /= columnFrom cursor
   = Just (min (column cursor) (columnFrom cursor), max (column cursor) (columnFrom cursor))
   | line cursor /= lineFrom cursor && lineFrom cursor <= index && index <= line cursor
@@ -119,8 +119,8 @@ getSubSelection (ConsoleState { buffer, cursor }) index
   | otherwise
   = Nothing
 
-getCursorColumn :: ConsoleState -> Int
-getCursorColumn (ConsoleState { buffer, cursor }) =
+getCursorColumn :: Workspace -> Int
+getCursorColumn (Workspace { buffer, cursor }) =
   buffer !! line cursor & \case
     Either.Left str -> column cursor
     Either.Right chain ->
@@ -134,21 +134,21 @@ getCursorColumn (ConsoleState { buffer, cursor }) =
       in
         tokens & take (column cursor) & concat & length & (+ prelength)
 
-renderConsoleState :: ConsoleState -> IO (Int, Int)
-renderConsoleState state@(ConsoleState { buffer, cursor }) = do
+renderWorkspace :: Workspace -> IO (Int, Int)
+renderWorkspace state@(Workspace { buffer, cursor }) = do
   forM_ (buffer `zip` [0..]) \(slot, i) -> renderSlot (getSubSelection state i) slot
   putStrLn "───────────────────────────────────"
   return (line cursor, getCursorColumn state)
 
 data Editor =
   ExploreMode {
-    getConsole :: ConsoleState,
+    getConsole :: Workspace,
     getKey :: Maybe (Either String ModifiedKey),
     getAction :: Maybe Action,
     getMessages :: [String]
   }
   | CommandMode {
-    getConsole :: ConsoleState,
+    getConsole :: Workspace,
     getInput :: (String, Int),
     getMessages :: [String]
   }
@@ -162,7 +162,7 @@ moveCursor (ln, col) = putStr $ "\ESC[" ++ show (ln + 1) ++ ";" ++ show (col + 1
 renderEditor :: Editor -> IO ()
 renderEditor (ExploreMode state key action messages) = do
   clear
-  pos <- renderConsoleState state
+  pos <- renderWorkspace state
   case (key, action) of
     (Just key, Just action) ->
       putStrLn $ ": [" ++ either show show key ++ "] " ++ show action
@@ -176,7 +176,7 @@ renderEditor (ExploreMode state key action messages) = do
   moveCursor pos
 renderEditor (CommandMode state (input, pos) messages) = do
   clear
-  _ <- renderConsoleState state
+  _ <- renderWorkspace state
   putStrLn $ ": " ++ input ++ " "
   forM_ (fmap ("! " ++) messages) putStrLn
   moveCursor (length (buffer state) + 1, pos + 2)
@@ -213,7 +213,7 @@ initialize bac_path strs_path = do
         strs_contents
         & split (== '\n')
         & fmap \str -> str & Prefix.fromString prefix_bac & maybeToEither str
-  let state = ConsoleState { bac = prefix_bac, buffer, cursor = Cursor 0 0 0 0 }
+  let state = Workspace { bac = prefix_bac, buffer, cursor = Cursor 0 0 0 0 }
 
   let editor = ExploreMode state Nothing Nothing messages
   renderEditor editor
@@ -278,10 +278,7 @@ run key editor = case update key editor of
     renderEditor next_editor
     return $ Just next_editor
 
-main :: IO ()
-main = do
-  args <- getArgs
-  let bac_path = args & listToMaybe & fromMaybe ""
-  let strs_path = drop 1 args & listToMaybe & fromMaybe ""
+edit :: String -> String -> IO ()
+edit bac_path strs_path = do
   state <- initialize bac_path strs_path
   interact run state
