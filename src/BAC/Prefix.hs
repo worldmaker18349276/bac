@@ -18,6 +18,8 @@ module BAC.Prefix (
   fromBAC,
   searchString,
   fromString,
+  fromStrings,
+  fromPreStringStrings,
   getStrings,
   getPreString,
   root,
@@ -54,11 +56,12 @@ module BAC.Prefix (
   partitionPrefixesSuffixes,
   isUnsplittable,
   splitMorphism,
-  paritionIncoming,
+  partitionIncoming,
   splitObjectIncoming,
   partitionOutgoing,
   splitObjectOutgoing,
   splitCategory,
+  findMergableChains,
   mergeMorphsisms,
   outgoingCanonicalOrders,
   incomingCanonicalOrders,
@@ -139,6 +142,14 @@ searchString (PrefixBAC bac) str =
   |> concatMap (BAC.target .> BAC.edges)
   |> mapMaybe (BAC.value .> comparePrefix str)
 
+followString :: BAC String -> String -> Maybe [Arrow String]
+followString = go []
+  where
+  go res _node [] = Just res
+  go res node str = node |> BAC.edges |> firstJust \edge -> do
+    suff <- strip str (BAC.value edge)
+    go (res `snoc` edge) (BAC.target edge) suff
+
 fromString :: PrefixBAC -> String -> Maybe Chain
 fromString (PrefixBAC bac) str = do
   arr0 <- findSource bac str
@@ -156,13 +167,32 @@ fromString (PrefixBAC bac) str = do
       .> any isJust
     )
 
-  followString :: BAC String -> String -> Maybe [Arrow String]
-  followString = go []
-    where
-    go res _node [] = Just res
-    go res node str = node |> BAC.edges |> firstJust \edge -> do
-      suff <- strip str (BAC.value edge)
-      go (res `snoc` edge) (BAC.target edge) suff
+followStrings :: BAC String -> [String] -> Maybe [Arrow String]
+followStrings = go []
+  where
+  go res _node [] = Just res
+  go res node (str:strs) = node |> BAC.edges |> firstJust \edge -> do
+    guard $ BAC.value edge == str
+    go (res `snoc` edge) (BAC.target edge) strs
+
+fromStrings :: PrefixBAC -> [String] -> Maybe Chain
+fromStrings _ [] = Nothing
+fromStrings (PrefixBAC bac) strs = do
+  arr0 <- findSource bac (head strs)
+  chain <- followStrings (BAC.target arr0) strs
+  return $ Chain arr0 chain
+  where
+  findSource :: BAC String -> String -> Maybe (Arrow String)
+  findSource bac str =
+    BAC.arrows bac
+    |> find (BAC.target .> BAC.edges .> any (BAC.value .> (== str)))
+
+fromPreStringStrings :: PrefixBAC -> String -> [String] -> Maybe Chain
+fromPreStringStrings (PrefixBAC bac) prestr strs = do
+  arrs0 <- followString bac prestr
+  let arr0 = foldl BAC.join (BAC.root bac) arrs0
+  chain <- followStrings (BAC.target arr0) strs
+  return $ Chain arr0 chain
 
 fromArrow2 :: (Arrow String, Arrow String) -> Chain
 fromArrow2 (arr1, arr2) = Chain arr1 (fromJust $ BAC.chain (BAC.target arr1) (BAC.symbol arr2))
@@ -237,8 +267,10 @@ divider chain1 chain2 = do
   let arr_arr1 = getArrow2 chain1
   let arr_arr2 = getArrow2 chain2
   guard $ BAC.symbol (uncurry BAC.join arr_arr1) == BAC.symbol (uncurry BAC.join arr_arr2)
-  let syms = BAC.inv (BAC.dict (fst arr_arr2)) (BAC.symbol (fst arr_arr1))
-  return $ syms |> fmap (BAC.chain (BAC.target (fst arr_arr1)) .> fromJust .> Chain (fst arr_arr2))
+  return $
+    BAC.divide2 arr_arr2 arr_arr1
+    |> fmap (fst arr_arr2,)
+    |> fmap fromArrow2
 
 (==-) :: Node -> Node -> Bool
 (Node arr1) ==- (Node arr2) = BAC.symbol arr1 == BAC.symbol arr2
@@ -252,11 +284,11 @@ chain1 ==~ chain2 = BAC.symbol2 (getArrow2 chain1) == BAC.symbol2 (getArrow2 cha
 
 addEdge :: Chain -> String -> PrefixBAC -> Maybe PrefixBAC
 addEdge chain str pbac@(PrefixBAC bac) = do
-  guard $ null $ searchString pbac (concat (getStrings chain))
+  guard $ null $ searchString pbac str
   bac' <- Restructure.addEdge (BAC.symbol2 (getArrow2 chain)) str bac
   return $ PrefixBAC bac'
 
-removeEdge :: Chain -> PrefixBAC -> Maybe PrefixBAC
+removeEdge :: Chain -> PrefixBAC -> Maybe (PrefixBAC, [String] -> Maybe [String])
 removeEdge chain@(Chain _ arrs) (PrefixBAC bac) = do
   guard $ List.length arrs == 1
   let arr_arr = getArrow2 chain
@@ -264,9 +296,10 @@ removeEdge chain@(Chain _ arrs) (PrefixBAC bac) = do
   let edges = BAC.target (fst arr_arr) |> BAC.edges |> filter (BAC.symbol .> (== BAC.symbol (snd arr_arr)))
   guard $ edges |> any (BAC.value .> (== value))
   bac' <- Restructure.removeEdge (BAC.symbol2 arr_arr) value bac
-  return $ PrefixBAC bac'
+  let updater tokens = if value `elem` tokens then Nothing else Just tokens
+  return (PrefixBAC bac', updater)
 
-alterEdge :: Chain -> String -> PrefixBAC -> Maybe PrefixBAC
+alterEdge :: Chain -> String -> PrefixBAC -> Maybe (PrefixBAC, [String] -> [String])
 alterEdge chain@(Chain _ arrs) str (PrefixBAC bac) = do
   guard $ List.length arrs == 1
   let arr_arr = getArrow2 chain
@@ -274,7 +307,8 @@ alterEdge chain@(Chain _ arrs) str (PrefixBAC bac) = do
   let edges = BAC.target (fst arr_arr) |> BAC.edges |> filter (BAC.symbol .> (== BAC.symbol (snd arr_arr)))
   guard $ edges |> any (BAC.value .> (== value))
   bac' <- Restructure.alterEdges (BAC.symbol2 arr_arr) (fmap \val -> if val == value then str else val) bac
-  return $ PrefixBAC bac'
+  let updater = fmap \s -> if s == value then str else s
+  return (PrefixBAC bac', updater)
 
 isNondecomposable :: Chain -> Bool
 isNondecomposable (Chain arr0 arrs) =
@@ -462,8 +496,8 @@ isUnsplittable chain1 chain2 =
     |> fromJust
     |> any \(pref, suff) -> pref === pref2 && suff ==~ suff2
 
-splitMorphism :: PrefixBAC -> [[Chain]] -> Maybe PrefixBAC
-splitMorphism (PrefixBAC bac) partition = do
+splitMorphism :: [[Chain]] -> PrefixBAC -> Maybe PrefixBAC
+splitMorphism partition (PrefixBAC bac) = do
   guard $ partition |> any notNull
   let chain = partition |> concat |> head
   let arr_arr = getArrow2 chain
@@ -499,8 +533,8 @@ splitMorphism (PrefixBAC bac) partition = do
   bac' <- Split.splitSymbol (src_sym, tgt_sym) partition' direct' bac
   return $ PrefixBAC bac'
 
-paritionIncoming :: PrefixBAC -> Node -> [[Chain]]
-paritionIncoming pbac tgt = partitionPrefixesSuffixes (init pbac tgt) |> fmap (snd .> fmap snd)
+partitionIncoming :: PrefixBAC -> Node -> [[Chain]]
+partitionIncoming pbac tgt = partitionPrefixesSuffixes (init pbac tgt) |> fmap (snd .> fmap snd)
 
 splitObjectIncoming :: Node -> [(String, [Chain])] -> PrefixBAC -> Maybe (PrefixBAC, [String] -> [[String]])
 splitObjectIncoming pnode@(Node src_arr) partition pbac@(PrefixBAC bac) = do
@@ -624,6 +658,20 @@ splitCategory partition pbac@(PrefixBAC bac) = do
   let partition' = partition |> fmap (concatMap (getArrow2 .> snd .> BAC.dict .> Map.elems))
   bacs' <- Split.splitRootNode partition' bac
   return $ fmap PrefixBAC bacs'
+
+findMergableChains :: PrefixBAC -> Chain -> [Chain]
+findMergableChains bac chain =
+  BAC.target arr0
+    |> BAC.arrows
+    |> filter (BAC.dict .> Map.delete BAC.base .> (== dict0))
+    |> filter (BAC.symbol .> (\sym -> fmap (! sym) incoming_dicts) .> (== mapping0))
+    |> fmap ((arr0,) .> fromArrow2)
+  where
+  (arr0, arr1) = getArrow2 chain
+  dict0 = arr1 |> BAC.dict |> Map.delete BAC.base
+  incoming_dicts = incoming bac (source chain) |> fmap (getArrow2 .> snd .> BAC.dict)
+  sym0 = arr1 |> BAC.symbol
+  mapping0 = fmap (! sym0) incoming_dicts
 
 mergeMorphsisms :: [Chain] -> PrefixBAC -> Maybe PrefixBAC
 mergeMorphsisms chains (PrefixBAC bac) = do

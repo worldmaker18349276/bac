@@ -108,7 +108,8 @@ executable edit
     other-modules:
         Interactive,
         Workspace,
-        Editor
+        Editor,
+        Utils
     
     build-depends:
         base ^>=4.16.4.0,
