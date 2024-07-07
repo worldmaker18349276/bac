@@ -116,10 +116,12 @@ instance Functor InputStore where
   fmap callback' (InputSelectionStore callback val) = InputSelectionStore (callback .> callback') val
   fmap callback' (InputPartitionStore callback val) = InputPartitionStore (callback .> callback') val
 
-extractInput :: InputState a -> InputStore a
-extractInput (InputStringState _ callback val _) = InputStringStore callback val
-extractInput (InputSelectionState _ callback options i) = InputSelectionStore callback (options !! i)
-extractInput (InputPartitionState _ callback partition _) = InputPartitionStore callback partition
+extractInput :: InputState a -> Either String (InputStore a)
+extractInput (InputStringState _ callback val _) = Either.Right $ InputStringStore callback val
+extractInput (InputSelectionState _ callback [] i) = Either.Left "no item to select"
+extractInput (InputSelectionState _ callback options i) = Either.Right $ InputSelectionStore callback (options !! i)
+extractInput (InputPartitionState _ callback [] _) = Either.Left "no item to partition"
+extractInput (InputPartitionState _ callback partition _) = Either.Right $ InputPartitionStore callback partition
 
 runCallback :: InputStore a -> a
 runCallback (InputStringStore callback val) = callback val
@@ -203,13 +205,12 @@ renderSlot range (Either.Right chain) = do
       putStr ("\ESC[7m" ++ token ++ "\ESC[27m")
     else
       putStr token
-  let pretoken = Prefix.getPreString chain
-  let pretoken' = if null pretoken then "(root)" else pretoken
+  let pretoken = "(" ++ Prefix.getPreString chain ++ ")"
   when (null tokens) $
     if isNothing range then
-      putStr $ "\ESC[2m" ++ pretoken' ++ "\ESC[22m"
+      putStr $ "\ESC[2m" ++ pretoken ++ "\ESC[22m"
     else
-      putStr $ "\ESC[2m\ESC[7m" ++ pretoken' ++ "\ESC[27m\ESC[22m"
+      putStr $ "\ESC[2m\ESC[7m" ++ pretoken ++ "\ESC[27m\ESC[22m"
   putStr "\ESC[m"
 
   -- for debug
@@ -236,10 +237,7 @@ getCursorColumn (Workspace { buffer, cursor }) =
       let
         tokens = Prefix.getStrings chain
         pretoken = Prefix.getPreString chain
-        prelength
-          | notNull tokens = 0
-          | notNull pretoken = length pretoken
-          | otherwise = length "(root)"
+        prelength = if notNull tokens then 0 else length pretoken + 2
       in
         tokens |> take (column cursor) |> concat |> length |> (+ prelength)
 
@@ -268,6 +266,10 @@ renderInputState action (InputStringState hint _ input pos) = do
   putStrLn $ "[" ++ show action ++ "] " ++ hint
   putStrLn $ input ++ " "
   return (1, pos, 2)
+renderInputState action (InputSelectionState hint _ [] index) = do
+  putStrLn $ "[" ++ show action ++ "] " ++ hint
+  putStrLn "\ESC[2m(no item to select)\ESC[22m"
+  return (1, 0, 2)
 renderInputState action (InputSelectionState hint _ options index) = do
   let strs =
         options
@@ -277,6 +279,10 @@ renderInputState action (InputSelectionState hint _ options index) = do
   putStrLn $ "[" ++ show action ++ "] " ++ hint
   forM_ strs putStrLn
   return (index + 1, 0, length options + 1)
+renderInputState action (InputPartitionState hint _ [] index) = do
+  putStrLn $ "[" ++ show action ++ "] " ++ hint
+  putStrLn "\ESC[2m(no item to partition)\ESC[22m"
+  return (1, 0, 2)
 renderInputState action (InputPartitionState hint _ partition index) = do
   let strs =
         partition
@@ -382,15 +388,17 @@ update key editor@(InputMode {}) =
     NextStep messages state ->
       Just $ InputMode (getWorkspace editor) (getCurrentAction editor) state $
         Status (Just key) Nothing messages
-    Finish store -> case runCallback store of
-      InputControl Cancel ->
+    Finish store -> case fmap runCallback store of
+      Either.Left message ->
+        Just $ ExploreMode (getWorkspace editor) $ Status (Just key) Nothing [message]
+      Either.Right (InputControl Cancel) ->
         Just $ ExploreMode (getWorkspace editor) $ Status (Just key) Nothing ["cancelled"]
-      InputControl (NextStep messages state) ->
+      Either.Right (InputControl (NextStep messages state)) ->
         Just $ InputMode (getWorkspace editor) (getCurrentAction editor) state $
           Status (Just key) Nothing messages
-      InputControl (Finish (Either.Left messages)) ->
+      Either.Right (InputControl (Finish (Either.Left messages))) ->
         Just $ ExploreMode (getWorkspace editor) $ Status (Just key) Nothing messages
-      InputControl (Finish (Either.Right workspace)) ->
+      Either.Right (InputControl (Finish (Either.Right workspace))) ->
         Just $ ExploreMode workspace $ Status (Just key) Nothing []
 
 updateInputStringSlot :: [String] -> KeyboardInput -> (String, Int) -> InputResult (String, Int) String
@@ -433,7 +441,7 @@ updateInputStringSlot suggestions key (input, pos) = case key of
     NextStep [] (input, min (pos + 1) (length input))
   _ -> NextStep ["invalid input"] (input, pos)
 
-updateInputState :: KeyboardInput -> InputState a -> InputResult (InputState a) (InputStore a)
+updateInputState :: KeyboardInput -> InputState a -> InputResult (InputState a) (Either String (InputStore a))
 updateInputState key state@(InputStringState hint f input pos) =
   case updateInputStringSlot [] key (input, pos) of
     Cancel -> Cancel
@@ -445,9 +453,9 @@ updateInputState key state@(InputSelectionState hint f options index) = case key
   ModifiedKey False False False Esc ->
     Cancel
   ModifiedKey False False False Up ->
-    NextStep [] $ InputSelectionState hint f options (max (index - 1) 0)
+    NextStep [] $ InputSelectionState hint f options (max 0 $ index - 1)
   ModifiedKey False False False Down ->
-    NextStep [] $ InputSelectionState hint f options (min (index + 1) (length options - 1))
+    NextStep [] $ InputSelectionState hint f options (max 0 $ min (length options - 1) $ index + 1)
   _ -> NextStep ["invalid input"] state
 updateInputState key state@(InputPartitionState hint f partition index) = case key of
   ModifiedKey False False False Enter ->
@@ -455,39 +463,45 @@ updateInputState key state@(InputPartitionState hint f partition index) = case k
   ModifiedKey False False False Esc ->
     Cancel
   ModifiedKey False False False Up ->
-    NextStep [] $ InputPartitionState hint f partition (max (index - 1) 0)
+    NextStep [] $ InputPartitionState hint f partition (max 0 $ index - 1)
   ModifiedKey False False False Down ->
-    NextStep [] $ InputPartitionState hint f partition (min (index + 1) (length partition - 1))
-  ModifiedKey True False False Up ->
-    let
-      separator = partition |> fmap length |> scanl (+) 0
-      group_index = separator |> findIndex (> index) |> fromJust |> (\i -> i - 1)
-      group_offset = index - separator !! group_index
-      extended_partition = [] : partition
-      group_from = extended_partition !! (group_index + 1)
-      group_to = extended_partition !! group_index
-      group_from' = splice group_offset (group_offset + 1) [] group_from
-      group_to' = group_to ++ [group_from !! group_offset]
-      extended_partition' = splice group_index (group_index + 2) [group_to', group_from'] extended_partition
-      index' = rangeTo (group_index + 1) extended_partition' |> fmap length |> sum |> (\i -> i - 1)
-      partition' = extended_partition' |> filter notNull
-    in
-      NextStep [] $ InputPartitionState hint f partition' index'
-  ModifiedKey True False False Down ->
-    let
-      separator = partition |> fmap length |> scanl (+) 0
-      group_index = separator |> findIndex (> index) |> fromJust |> (\i -> i - 1)
-      group_offset = index - separator !! group_index
-      extended_partition = partition ++ [[]]
-      group_from = extended_partition !! group_index
-      group_to = extended_partition !! (group_index + 1)
-      group_from' = splice group_offset (group_offset + 1) [] group_from
-      group_to' = (group_from !! group_offset) : group_to
-      extended_partition' = splice group_index (group_index + 2) [group_from', group_to'] extended_partition
-      index' = rangeTo (group_index + 1) extended_partition' |> fmap length |> sum
-      partition' = extended_partition' |> filter notNull
-    in
-      NextStep [] $ InputPartitionState hint f partition' index'
+    NextStep [] $ InputPartitionState hint f partition (max 0 $ min (sum (fmap length partition) - 1) $ index + 1)
+  ModifiedKey False True False Up ->
+    if null partition then
+      NextStep [] $ InputPartitionState hint f partition 0
+    else
+      let
+        separator = partition |> fmap length |> scanl (+) 0
+        group_index = separator |> findIndex (> index) |> fromJust |> (\i -> i - 1)
+        group_offset = index - separator !! group_index
+        extended_partition = [] : partition
+        group_from = extended_partition !! (group_index + 1)
+        group_to = extended_partition !! group_index
+        group_from' = splice group_offset (group_offset + 1) [] group_from
+        group_to' = group_to ++ [group_from !! group_offset]
+        extended_partition' = splice group_index (group_index + 2) [group_to', group_from'] extended_partition
+        index' = rangeTo (group_index + 1) extended_partition' |> fmap length |> sum |> (\i -> i - 1)
+        partition' = extended_partition' |> filter notNull
+      in
+        NextStep [] $ InputPartitionState hint f partition' index'
+  ModifiedKey False True False Down ->
+    if null partition then
+      NextStep [] $ InputPartitionState hint f partition 0
+    else
+      let
+        separator = partition |> fmap length |> scanl (+) 0
+        group_index = separator |> findIndex (> index) |> fromJust |> (\i -> i - 1)
+        group_offset = index - separator !! group_index
+        extended_partition = partition ++ [[]]
+        group_from = extended_partition !! group_index
+        group_to = extended_partition !! (group_index + 1)
+        group_from' = splice group_offset (group_offset + 1) [] group_from
+        group_to' = (group_from !! group_offset) : group_to
+        extended_partition' = splice group_index (group_index + 2) [group_from', group_to'] extended_partition
+        index' = rangeTo (group_index + 1) extended_partition' |> fmap length |> sum
+        partition' = extended_partition' |> filter notNull
+      in
+        NextStep [] $ InputPartitionState hint f partition' index'
   _ -> NextStep ["invalid input"] state
 
 

@@ -20,6 +20,9 @@ import qualified BAC.Prefix as Prefix
 import Utils
 
 
+showChain :: Chain -> String
+showChain chain = "(" ++ Prefix.getPreString chain ++ ")" ++ concat (Prefix.getStrings chain)
+
 data Cursor = Cursor { line :: Int, column :: Int, lineFrom :: Int, columnFrom :: Int }
 
 type Slot = Either String Chain
@@ -778,7 +781,10 @@ interpolateObject workspace@(Workspace { bac }) =
 newtype ChainOptionSlot = ChainOptionSlot Chain
 
 instance Show ChainOptionSlot where
-  show (ChainOptionSlot chain) = concat $ Prefix.getStrings chain
+  show (ChainOptionSlot chain) =
+    case Prefix.getStrings chain of
+      [] -> "(" ++ Prefix.getPreString chain ++ ")"
+      tokens -> concat tokens
 
 splitMorphism :: Control m => Workspace -> m (Either [String] Workspace)
 splitMorphism workspace@(Workspace { bac }) =
@@ -862,7 +868,7 @@ mergeMorphisms workspace@(Workspace { bac }) =
   case getBuffers workspace of
     [Right chain] | isProperMorphism chain -> do
       let groups = Prefix.findMergableChains bac chain
-      let options = groups |> filter (Prefix.isUnsplittable chain .> not)
+      let options = groups |> filter ((==~ chain) .> not)
       if null options then
         return $ Left ["nothing can merge"]
       else do
@@ -882,10 +888,11 @@ mergeMorphisms workspace@(Workspace { bac }) =
 newtype ZipOptionSlot = ZipOptionSlot [(Chain, Chain)]
 
 instance Show ZipOptionSlot where
+  show (ZipOptionSlot []) = "(no rule is needed)"
   show (ZipOptionSlot eq) =
     eq
     |> fmap (both (Prefix.getStrings .> concat))
-    |> concatMap \(s1, s2) -> s1 ++ " = " ++ s2 ++ "; "
+    |> concatMap \(s1, s2) -> s1 ++ " ~ " ++ s2 ++ "; "
 
 mergeObjectsOutgoing :: Control m => Workspace -> m (Either [String] Workspace)
 mergeObjectsOutgoing workspace@(Workspace { bac }) =
@@ -951,47 +958,54 @@ data CofractionOptionSlot = CofractionOptionSlot String (Chain, Chain)
 
 instance Show CofractionOptionSlot where
   show (CofractionOptionSlot str (chain1, chain2)) =
-    concat (Prefix.getStrings chain2) ++ " * " ++ str ++ " = " ++ concat (Prefix.getStrings chain1)
+    concat (Prefix.getStrings chain2) ++ " * " ++ str ++ " ~ " ++ concat (Prefix.getStrings chain1)
 
 data FractionOptionSlot = FractionOptionSlot String (Chain, Chain)
 
 instance Show FractionOptionSlot where
   show (FractionOptionSlot str (chain1, chain2)) =
-    str ++ " * " ++ concat (Prefix.getStrings chain2) ++ " = " ++ concat (Prefix.getStrings chain1)
+    str ++ " * " ++ concat (Prefix.getStrings chain2) ++ " ~ " ++ concat (Prefix.getStrings chain1)
 
 addMorphism :: Control m => Workspace -> m (Either [String] Workspace)
 addMorphism workspace@(Workspace { bac }) =
   case getBuffers workspace of
-    [Right chain1, Right chain2] | isProperObject chain1 && isProperObject chain2 -> do
-      let node1 = Prefix.source chain1
-      let node2 = Prefix.source chain2
-      if notNull $ fromMaybe [] $ Prefix.init bac node2 `Prefix.dividel` Prefix.init bac node1 then
-        return $ Left ["invalid node order to add morphism"]
-      else
-        case Prefix.getPossibleChainRules bac node1 node2 of
-          Nothing ->
-            return $ Left ["cannot add a morphism"]
-          Just (optionss1, optionss2) -> do
-            str <- inputToken bac
-            -- TODO: shrink options by compatibleChainRule
-            cofractions <- optionss1 |> traverse \options1 ->
-              options1
-              |> fmap (CofractionOptionSlot str)
-              |> inputSelection "select a cofraction rule:"
-              |> fmap \(CofractionOptionSlot _ opt) -> opt
-            fractions <- optionss2 |> traverse \options2 ->
-              options2
-              |> fmap (FractionOptionSlot str)
-              |> inputSelection "select a fraction rule:"
-              |> fmap \(FractionOptionSlot _ opt) -> opt
-            if not (Prefix.compatibleChainRule bac (cofractions, fractions)) then
-              return $ Left ["invalid rules"]
-            else
-              case Prefix.addMorphism node1 node2 (cofractions, fractions) str bac of
-                Nothing -> return $ Left ["fail to add a morphism"]
-                Just (bac', updater) ->
-                  return $ Right $
-                    workspace { bac = bac' }
-                    |> updateBufferBy (updater .> return)
-                    |> insertResult [Right $ fromJust $ Prefix.fromString bac' str]
-    _ -> return $ Left ["should be two nodes"]
+    [Right chain] | isProperMorphism chain -> do
+      go (Prefix.source chain) (Prefix.target chain)
+    [Right chain1, Right chain2] | isProperObject chain1 && isProperObject chain2 ->
+      let
+        node1 = Prefix.source chain1
+        node2 = Prefix.source chain2
+      in
+        if notNull $ fromJust $ Prefix.init bac node2 `Prefix.dividel` Prefix.init bac node1 then
+          return $ Left ["invalid node order to add morphism"]
+        else
+          go node1 node2
+    _ -> return $ Left ["should be two nodes or a chain"]
+  where
+  go node1 node2 =
+    case Prefix.getPossibleChainRules bac node1 node2 of
+      Nothing ->
+        return $ Left ["cannot add a morphism"]
+      Just (optionss1, optionss2) -> do
+        str <- inputToken bac
+        -- TODO: shrink options by compatibleChainRule
+        cofractions <- optionss1 |> traverse \options1 ->
+          options1
+          |> fmap (CofractionOptionSlot str)
+          |> inputSelection "select a cofraction rule:"
+          |> fmap \(CofractionOptionSlot _ opt) -> opt
+        fractions <- optionss2 |> traverse \options2 ->
+          options2
+          |> fmap (FractionOptionSlot str)
+          |> inputSelection "select a fraction rule:"
+          |> fmap \(FractionOptionSlot _ opt) -> opt
+        if not (Prefix.compatibleChainRule bac (cofractions, fractions)) then
+          return $ Left ["invalid rules"]
+        else
+          case Prefix.addMorphism node1 node2 (cofractions, fractions) str bac of
+            Nothing -> return $ Left ["fail to add a morphism"]
+            Just (bac', updater) ->
+              return $ Right $
+                workspace { bac = bac' }
+                |> updateBufferBy (updater .> return)
+                |> insertResult [Right $ fromJust $ Prefix.fromString bac' str]

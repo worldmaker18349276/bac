@@ -82,7 +82,7 @@ import Data.Foldable.Extra (foldrM)
 import Data.Functor.Identity (Identity (..))
 import Data.List (elemIndex, findIndices, sort)
 import qualified Data.List as List
-import Data.List.Extra (allSame, firstJust, notNull, nubSort, snoc)
+import Data.List.Extra (allSame, firstJust, notNull, nubSort, snoc, nubSortOn)
 import Data.Map ((!))
 import qualified Data.Map as Map
 import Data.Maybe (fromJust, isJust, isNothing, listToMaybe, mapMaybe)
@@ -729,6 +729,7 @@ findMergableChains bac chain =
     |> BAC.arrows
     |> filter (BAC.dict .> Map.delete BAC.base .> (== dict0))
     |> filter (BAC.symbol .> (\sym -> fmap (! sym) incoming_dicts) .> (== mapping0))
+    |> nubSortOn BAC.symbol
     |> fmap ((arr0,) .> fromArrow2)
   where
   (arr0, arr1) = getArrow2 chain
