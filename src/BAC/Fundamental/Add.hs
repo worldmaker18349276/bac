@@ -192,12 +192,12 @@ compatibleCofractions node cofractions = isJust do
 compatibleCofractionsFractions :: Monoid e => BAC e -> [Cofraction] -> [Fraction] -> Bool
 compatibleCofractionsFractions node cofractions fractions =
   isJust $
-    cofractions |> traverse \(n_sym_sym, d_sym_sym) -> do
-      fractions |> traverse \(n_sym_sym', d_sym_sym') -> do
-        n_arr_arr <- arrow2 node n_sym_sym
-        d_arr_arr <- arrow2 node d_sym_sym
-        n_arr_arr' <- arrow2 node n_sym_sym'
-        d_arr_arr' <- arrow2 node d_sym_sym'
+    cofractions |> traverse \(n, d) -> do
+      fractions |> traverse \(n', d') -> do
+        n_arr_arr <- arrow2 node n
+        d_arr_arr <- arrow2 node d
+        n_arr_arr' <- arrow2 node n'
+        d_arr_arr' <- arrow2 node d'
 
         -- ensure ending node of the denominator of cofraction is the starting node of the
         -- numerator of fraction
@@ -216,7 +216,8 @@ compatibleCofractionsFractions node cofractions fractions =
 {- |
 Find all valid nondecomposable cofractions and fractions, which is used for adding a
 morphism.  The results are the fractions and cofractions need to be selected, or Nothing
-if it is invalid.
+if it is invalid.  There may have zero option to select, which indicates it is impossible
+to add a morphism.
 
 Examples:
 

@@ -1,19 +1,18 @@
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE BlockArguments #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Use <$>" #-}
 {-# LANGUAGE LambdaCase #-}
-{-# HLINT ignore "Use head" #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
 module Workspace where
 
-import Control.Monad (guard)
+import Control.Monad (guard, when)
 import Data.Bifunctor (first)
 import Data.Char (isPrint)
 import Data.Either (isLeft, isRight)
 import Data.Either.Extra (maybeToEither)
 import Data.List (find, findIndex)
 import Data.List.Extra (notNull, split)
-import Data.Maybe (fromJust, isJust, maybeToList)
+import Data.Maybe (fromJust, fromMaybe, isJust, listToMaybe, maybeToList)
 import Data.Tuple.Extra (both)
 
 import BAC.Prefix (Chain, Node, PrefixBAC, PrefixOrdering (..), (==-), (===), (==~))
@@ -23,9 +22,11 @@ import Utils
 
 data Cursor = Cursor { line :: Int, column :: Int, lineFrom :: Int, columnFrom :: Int }
 
+type Slot = Either String Chain
+
 data Workspace = Workspace {
   bac :: PrefixBAC,
-  buffer :: [Either String Chain],
+  buffer :: [Slot],
   cursor :: Cursor
 }
 
@@ -35,17 +36,20 @@ class Monad m => Control m where
   inputPartition :: Show a => String -> [a] -> m [[a]]
 
 data Action =
-  Input String
-  | MoveUp
+    MoveUp
   | MoveDown
   | MoveLeft
   | MoveRight
+  | MoveHome
+  | MoveEnd
   | DragUp
   | DragDown
   | SelectUp
   | SelectDown
   | SelectLeft
   | SelectRight
+  | SelectHome
+  | SelectEnd
   | Dup
   | NewSlot
   | Join
@@ -56,6 +60,7 @@ data Action =
   | IsNondecomposable
   | AreSameMorphism
   | AreUnsplittable
+  | IsValidBAC
   | SwingLeft
   | SwingRight
   | DivideLeft
@@ -75,51 +80,7 @@ data Action =
   | MergeMorphisms
   | MergeObjectsOutgoing
   | MergeObjectsIncoming
-  deriving Show
-
-actions :: [Action]
-actions =
-  [
-    MoveUp,
-    MoveDown,
-    MoveLeft,
-    MoveRight,
-    DragUp,
-    DragDown,
-    SelectUp,
-    SelectDown,
-    SelectLeft,
-    SelectRight,
-    Dup,
-    NewSlot,
-    Join,
-    DeleteBackward,
-    DeleteSlot,
-    ChangeType,
-    InitialChain,
-    IsNondecomposable,
-    AreSameMorphism,
-    AreUnsplittable,
-    SwingLeft,
-    SwingRight,
-    DivideLeft,
-    DivideRight,
-    Search,
-    AddEdge,
-    RemoveEdge,
-    AlterEdge,
-    RemoveMorphism,
-    RemoveObject,
-    AddMorphism,
-    AddObject,
-    InterpolateObject,
-    SplitMorphism,
-    SplitObjectOutgoing,
-    SplitObjectIncoming,
-    MergeMorphisms,
-    MergeObjectsOutgoing,
-    MergeObjectsIncoming
-  ]
+  deriving (Show, Enum, Bounded)
 
 
 runAction :: Control m => Action -> Workspace -> m (Either [String] Workspace)
@@ -127,16 +88,19 @@ runAction MoveUp = moveUp .> return .> return
 runAction MoveDown = moveDown .> return .> return
 runAction MoveLeft = moveLeft .> return .> return
 runAction MoveRight = moveRight .> return .> return
+runAction MoveHome = moveHome .> return .> return
+runAction MoveEnd = moveEnd .> return .> return
 runAction DragUp = dragUp .> return .> return
 runAction DragDown = dragDown .> return .> return
 runAction SelectUp = selectUp .> return .> return
 runAction SelectDown = selectDown .> return .> return
 runAction SelectLeft = selectLeft .> return .> return
 runAction SelectRight = selectRight .> return .> return
+runAction SelectHome = selectHome .> return .> return
+runAction SelectEnd = selectEnd .> return .> return
 runAction Dup = dup .> return .> return
 runAction NewSlot = newSlot .> return .> return
 runAction Join = join .> return
-runAction (Input str) = input str .> return
 runAction DeleteBackward = deleteBackward .> return
 runAction DeleteSlot = deleteSlot .> return
 runAction ChangeType = changeType .> return
@@ -144,6 +108,7 @@ runAction InitialChain = initialChain .> return
 runAction IsNondecomposable = isNondecomposable .> return
 runAction AreSameMorphism = areSameMorphism .> return
 runAction AreUnsplittable = areUnsplittable .> return
+runAction IsValidBAC = isValidBAC .> return
 runAction SwingLeft = swingLeft .> return
 runAction SwingRight = swingRight .> return
 runAction DivideLeft = divideLeft
@@ -175,21 +140,21 @@ selectLines workspace line_from line_to =
   else
     Cursor line_to 0 line_from (slotLength (buffer workspace !! line_from))
 
-slotLength :: Either String Chain -> Int
+slotLength :: Slot -> Int
 slotLength (Left str) = length str
 slotLength (Right chain) = Prefix.length chain
 
-getBuffers :: Workspace -> [Either String Chain]
+getBuffers :: Workspace -> [Slot]
 getBuffers (Workspace { cursor, buffer }) =
   buffer
   |> range
     (min (line cursor) (lineFrom cursor))
     (max (line cursor) (lineFrom cursor) + 1)
 
-getBuffer :: Workspace -> Either String Chain
+getBuffer :: Workspace -> Slot
 getBuffer (Workspace { cursor, buffer }) = buffer !! line cursor
 
-getPart :: Workspace -> Maybe (Either String Chain)
+getPart :: Workspace -> Maybe Slot
 getPart workspace@(Workspace { cursor })
   | line cursor /= lineFrom cursor = Nothing
   | otherwise = case getBuffer workspace of
@@ -231,6 +196,14 @@ moveLeft workspace@(Workspace { cursor })
   = workspace { cursor = cursorAt (line cursor) (column cursor - 1) }
   | otherwise
   = workspace { cursor = cursorAt (line cursor) (column cursor) }
+
+moveEnd :: Workspace -> Workspace
+moveEnd workspace@(Workspace { cursor, buffer }) =
+  workspace { cursor = cursorAt (line cursor) (slotLength (buffer !! line cursor)) }
+
+moveHome :: Workspace -> Workspace
+moveHome workspace@(Workspace { cursor }) =
+  workspace { cursor = cursorAt (line cursor) 0 }
 
 dragDown :: Workspace -> Workspace
 dragDown workspace@(Workspace { cursor, buffer })
@@ -290,6 +263,20 @@ selectLeft workspace@(Workspace { cursor, buffer })
   | otherwise
   = workspace
 
+selectEnd :: Workspace -> Workspace
+selectEnd workspace@(Workspace { cursor, buffer })
+  | line cursor /= lineFrom cursor
+  = workspace
+  | otherwise
+  = workspace { cursor = cursor { column = slotLength (buffer !! line cursor) } }
+
+selectHome :: Workspace -> Workspace
+selectHome workspace@(Workspace { cursor, buffer })
+  | line cursor /= lineFrom cursor
+  = workspace
+  | otherwise
+  = workspace { cursor = cursor { column = 0 } }
+
 dup :: Workspace -> Workspace
 dup workspace@(Workspace { cursor, buffer }) =
   workspace {
@@ -329,7 +316,7 @@ join workspace@(Workspace { cursor, buffer })
       cursor = cursorAt from 0
     }
   | all isRight buffer'
-  = case foldl1M Prefix.join $ fmap (\(Right chain) -> chain) buffer' of
+  = case foldl1M Prefix.join $ fmap fromRight buffer' of
     Just join_chain ->
       return workspace {
         buffer = splice from to [Right join_chain] buffer,
@@ -481,14 +468,17 @@ areSameMorphism workspace
   | not (all isRight $ getBuffers workspace)
   = Left ["should be chains"]
   | otherwise
-  = Left [show $ allSameBy (==~) $ fmap fromRight $ getBuffers workspace]
+  = Left [getBuffers workspace |> fmap fromRight |> allSameBy (==~) |> show]
 
 areUnsplittable :: Workspace -> Either [String] Workspace
 areUnsplittable workspace
   | not (all isRight $ getBuffers workspace)
   = Left ["should be chains"]
   | otherwise
-  = Left [show $ allSameBy Prefix.isUnsplittable $ fmap fromRight $ getBuffers workspace]
+  = Left [getBuffers workspace |> fmap fromRight |> allSameBy Prefix.isUnsplittable |> show]
+
+isValidBAC :: Workspace -> Either [String] Workspace
+isValidBAC workspace@(Workspace { bac }) = Left [show (Prefix.validate bac)]
 
 swingLeft :: Workspace -> Either [String] Workspace
 swingLeft workspace@(Workspace { bac, cursor, buffer })
@@ -577,26 +567,19 @@ swingRight workspace@(Workspace { bac, cursor, buffer })
   split i chain = fromJust $ Prefix.split i chain
 
 
-updateBuffer :: Workspace -> Workspace
-updateBuffer workspace@(Workspace { bac, buffer, cursor }) =
-  workspace { buffer = buffer |> fmap (fmap updater) }
-  where
-  updater chain = fromJust $ Prefix.fromPreStringStrings bac (Prefix.getPreString chain) (Prefix.getStrings chain)
-
-updateBufferBy :: ([String] -> [[String]]) -> Workspace -> Workspace
+updateBufferBy :: (Chain -> [Chain]) -> Workspace -> Workspace
 updateBufferBy updater workspace@(Workspace { bac, buffer, cursor }) =
   workspace { buffer = concat buffer', cursor = cursorAt line' 0 }
   where
   buffer' = buffer |> fmap \case
     Left str -> [Left str]
     Right chain -> do
-      let tokens = Prefix.getStrings chain
-      case updater tokens of
-        [] -> [Left $ concat tokens]
-        tokenss -> tokenss |> fmap (Prefix.fromStrings bac .> fromJust .> Right)
+      case updater chain of
+        [] -> [Left $ concat $ Prefix.getStrings chain]
+        chains -> chains |> fmap Right
   line' = take (line cursor) buffer' |> concat |> length
 
-insertResult :: [Either String Chain] -> Workspace -> Workspace
+insertResult :: [Slot] -> Workspace -> Workspace
 insertResult slots workspace@(Workspace { cursor, buffer }) =
   workspace { buffer = buffer', cursor = cursor' }
   where
@@ -613,30 +596,54 @@ isProperMorphism chain = Prefix.length chain > 0 && notNull (Prefix.getPreString
 
 inputToken :: Control m => PrefixBAC -> m String
 inputToken bac = do
-  str <- inputString "input a token"
-  str |> untilM
-    (Prefix.searchString bac .> null)
-    (const (inputString "invalid token, try again"))
+  str <- inputString "input a token:"
+  str |> untilRightM \strs -> do
+    let tokens = split (== ' ') strs |> filter notNull
+    if length tokens /= 1 then
+      Left $ inputString "input a token: (invalid token, try again)"
+    else
+      head tokens
+      |> Prefix.searchString bac
+      |> fmap (Prefix.recover (head tokens))
+      |> listToMaybe
+      |> maybe (return $ head tokens) \token ->
+        Left $ inputString $
+          "input a token: (conflict with " ++ token ++ ", try again)"
 
 inputTokenExcept :: Control m => PrefixBAC -> String -> m String
 inputTokenExcept bac str0 = do
-  str <- inputString "input a token"
-  str |> untilM
-    (\str -> maybeToList (Prefix.comparePrefix str str0) == Prefix.searchString bac str)
-    (const (inputString "invalid token, try again"))
+  str <- inputString "input a token:"
+  str |> untilRightM \strs -> do
+    let tokens = split (== ' ') strs |> filter notNull
+    if length tokens /= 1 then
+      Left $ inputString "input a token: (invalid token, try again)"
+    else
+      head tokens
+      |> Prefix.searchString bac
+      |> fmap (Prefix.recover (head tokens))
+      |> filter (/= str0)
+      |> listToMaybe
+      |> maybe (return $ head tokens) \token ->
+        Left $ inputString $
+          "input a token: (conflict with " ++ token ++ ", try again)"
 
 inputTokens :: Control m => PrefixBAC -> Int -> m [String]
 inputTokens bac n = do
-  strs <- inputString $ "input " ++ show n ++ " tokens"
-  strs |> untilJustM
-    (\strs -> do
-      let tokens = split (== ' ') strs
-      guard $ length tokens == n
-      guard $ tokens |> all (Prefix.searchString bac .> null)
-      guard $ tokens |> allComb \a b -> null $ Prefix.comparePrefix a b
-      return tokens
-    )
-    (const (inputString "invalid tokens, try again"))
+  strs <- inputString $ "input " ++ show n ++ " tokens:"
+  strs |> untilRightM \strs -> do
+    let tokens = split (== ' ') strs |> filter notNull
+    if length tokens /= n then
+      Left $ inputString $ "input " ++ show n ++ " tokens: (invalid tokens, try again)"
+    else
+      tokens
+      |> map (Prefix.searchString bac)
+      |> zip tokens
+      |> concatMap sequence
+      |> fmap (uncurry Prefix.recover)
+      |> listToMaybe
+      |> maybe (return tokens) \token ->
+        Left $ inputString $
+          "input " ++ show n ++ " tokens: (conflict with" ++ token ++ ", try again)"
 
 
 divideLeft :: Control m => Workspace -> m (Either [String] Workspace)
@@ -681,7 +688,11 @@ addEdge workspace@(Workspace { bac }) =
       str <- inputToken bac
       case Prefix.addEdge chain str bac of
         Nothing -> return $ Left ["fail to add an edge"]
-        Just bac' -> return $ Right $ updateBuffer workspace { bac = bac' }
+        Just (bac', updater) ->
+          return $ Right $
+            workspace { bac = bac' }
+            |> updateBufferBy (updater .> return)
+            |> insertResult [Right $ fromJust $ Prefix.fromString bac' str]
     _ -> return $ Left ["should be a chain"]
 
 removeEdge :: Control m => Workspace -> m (Either [String] Workspace)
@@ -691,7 +702,9 @@ removeEdge workspace@(Workspace { bac }) =
       case Prefix.removeEdge chain bac of
         Nothing -> return $ Left ["fail to remove an edge"]
         Just (bac', updater) ->
-          return $ Right $ updateBufferBy (updater .> maybeToList) workspace { bac = bac' }
+          return $ Right $
+            workspace { bac = bac' }
+            |> updateBufferBy (updater .> maybeToList)
     _ -> return $ Left ["should be an edge"]
 
 alterEdge :: Control m => Workspace -> m (Either [String] Workspace)
@@ -702,17 +715,23 @@ alterEdge workspace@(Workspace { bac }) =
       case Prefix.alterEdge chain str bac of
         Nothing -> return $ Left ["fail to alter an edge"]
         Just (bac', updater) ->
-          return $ Right $ updateBufferBy (updater .> return) workspace { bac = bac' }
+          return $ Right $
+            workspace { bac = bac' }
+            |> updateBufferBy (updater .> return)
     _ -> return $ Left ["should be an edge"]
 
 removeMorphism :: Control m => Workspace -> m (Either [String] Workspace)
 removeMorphism workspace@(Workspace { bac }) =
   case getBuffers workspace of
-    [Right chain] | Prefix.isNondecomposable chain ->
-      case Prefix.removeMorphism chain (head $ Prefix.getStrings chain) bac of
+    [Right chain] | Prefix.isNondecomposable chain -> do
+      strs <- inputTokens bac 2
+      let [str1, str2] = strs
+      case Prefix.removeMorphism chain (str1, str2) bac of
         Nothing -> return $ Left ["fail to remove a morphism"]
         Just (bac', updater) ->
-          return $ Right $ updateBufferBy updater workspace { bac = bac' }
+          return $ Right $
+            workspace { bac = bac' }
+            |> updateBufferBy updater
     _ -> return $ Left ["should be a nondecomposable edge"]
 
 removeObject :: Control m => Workspace -> m (Either [String] Workspace)
@@ -722,7 +741,9 @@ removeObject workspace@(Workspace { bac }) =
       case Prefix.removeObject (Prefix.source chain) bac of
         Nothing -> return $ Left ["fail to remove an object"]
         Just (bac', updater) ->
-          return $ Right $ updateBufferBy updater workspace { bac = bac' }
+          return $ Right $
+            workspace { bac = bac' }
+            |> updateBufferBy updater
     _ -> return $ Left ["should be a node"]
 
 addObject :: Control m => Workspace -> m (Either [String] Workspace)
@@ -732,8 +753,11 @@ addObject workspace@(Workspace { bac }) =
       str <- inputToken bac
       case Prefix.addObject (Prefix.source chain) str bac of
         Nothing -> return $ Left ["fail to add an object"]
-        Just bac' ->
-          return $ Right $ updateBuffer workspace { bac = bac' }
+        Just (bac', updater) ->
+          return $ Right $
+            workspace { bac = bac' }
+            |> updateBufferBy (updater .> return)
+            |> insertResult [Right $ fromJust $ Prefix.fromString bac' str]
     _ -> return $ Left ["should be a node"]
 
 interpolateObject :: Control m => Workspace -> m (Either [String] Workspace)
@@ -741,10 +765,14 @@ interpolateObject workspace@(Workspace { bac }) =
   case getBuffers workspace of
     [Right chain] | Prefix.length chain > 0 -> do
       strs <- inputTokens bac 2
-      case Prefix.interpolateObject chain (strs !! 0, strs !! 1) bac of
+      let [str1, str2] = strs
+      case Prefix.interpolateObject chain (str1, str2) bac of
         Nothing -> return $ Left ["fail to interpolate an object"]
-        Just bac' ->
-          return $ Right $ updateBuffer workspace { bac = bac' }
+        Just (bac', updater) ->
+          return $ Right $
+            workspace { bac = bac' }
+            |> updateBufferBy (updater .> return)
+            |> insertResult [Right $ fromJust $ Prefix.fromString bac' (str1 ++ str2)]
     _ -> return $ Left ["should be a chain"]
 
 newtype ChainOptionSlot = ChainOptionSlot Chain
@@ -764,14 +792,17 @@ splitMorphism workspace@(Workspace { bac }) =
         partition <-
           options
           |> fmap ChainOptionSlot
-          |> inputPartition "partition chains to split"
+          |> inputPartition "partition chains to split:"
           |> fmap (fmap (fmap \(ChainOptionSlot c) -> c))
-        if length partition == length options then
+        if length partition == 1 then
           return $ Left ["nothing to split"]
         else
           case Prefix.splitMorphism partition bac of
             Nothing -> return $ Left ["fail to split the morphism"]
-            Just bac' -> return $ Right $ updateBuffer workspace { bac = bac' }
+            Just (bac', updater) ->
+              return $ Right $
+                workspace { bac = bac' }
+                |> updateBufferBy (updater .> return)
     _ -> return $ Left ["should be a non-initial chain"]
 
 splitObjectIncoming :: Control m => Workspace -> m (Either [String] Workspace)
@@ -786,15 +817,18 @@ splitObjectIncoming workspace@(Workspace { bac }) =
         partition <-
           options
           |> fmap ChainOptionSlot
-          |> inputPartition "partition chains to split"
+          |> inputPartition "partition chains to split:"
           |> fmap (fmap (fmap \(ChainOptionSlot c) -> c))
-        if length partition == length options then
+        if length partition == 1 then
           return $ Left ["nothing to split"]
         else do
           strs <- inputTokens bac (length partition)
           case Prefix.splitObjectIncoming (Prefix.source chain) (strs `zip` partition) bac of
             Nothing -> return $ Left ["fail to split the morphism"]
-            Just (bac', updater) -> return $ Right $ updateBufferBy updater workspace { bac = bac' }
+            Just (bac', updater) ->
+              return $ Right $
+                workspace { bac = bac' }
+                |> updateBufferBy updater
     _ -> return $ Left ["should be a node"]
 
 splitObjectOutgoing :: Control m => Workspace -> m (Either [String] Workspace)
@@ -809,15 +843,18 @@ splitObjectOutgoing workspace@(Workspace { bac }) =
         partition <-
           options
           |> fmap ChainOptionSlot
-          |> inputPartition "partition chains to split"
+          |> inputPartition "partition chains to split:"
           |> fmap (fmap (fmap \(ChainOptionSlot c) -> c))
-        if length partition == length options then
+        if length partition == 1 then
           return $ Left ["nothing to split"]
         else do
           strs <- inputTokens bac (length partition)
           case Prefix.splitObjectOutgoing (Prefix.source chain) (strs `zip` partition) bac of
             Nothing -> return $ Left ["fail to split the morphism"]
-            Just (bac', updater) -> return $ Right $ updateBufferBy updater workspace { bac = bac' }
+            Just (bac', updater) ->
+              return $ Right $
+                workspace { bac = bac' }
+                |> updateBufferBy updater
     _ -> return $ Left ["should be a node"]
 
 mergeMorphisms :: Control m => Workspace -> m (Either [String] Workspace)
@@ -832,11 +869,14 @@ mergeMorphisms workspace@(Workspace { bac }) =
         chain' <-
           options
           |> fmap ChainOptionSlot
-          |> inputSelection "select a chain to merge"
+          |> inputSelection "select a chain to merge:"
           |> fmap \(ChainOptionSlot c) -> c
         case Prefix.mergeMorphsisms [chain, chain'] bac of
           Nothing -> return $ Left ["fail to merge morphisms"]
-          Just bac' -> return $ Right $ updateBuffer workspace { bac = bac' }
+          Just (bac', updater) ->
+            return $ Right $
+              workspace { bac = bac' }
+              |> updateBufferBy (updater .> return)
     _ -> return $ Left ["should be a non-initial chain"]
 
 newtype ZipOptionSlot = ZipOptionSlot [(Chain, Chain)]
@@ -860,18 +900,21 @@ mergeObjectsOutgoing workspace@(Workspace { bac }) =
         node' <-
           options
           |> fmap (Prefix.id .> ChainOptionSlot)
-          |> inputSelection "select a node to merge"
+          |> inputSelection "select a node to merge:"
           |> fmap \(ChainOptionSlot c) -> Prefix.source c
         let incomings = groups |> find (fst .> (==- node)) |> fromJust |> snd |> head
         let options = groups |> find (fst .> (==- node')) |> fromJust |> snd
         incomings' <-
           options
           |> fmap (zip incomings .> ZipOptionSlot)
-          |> inputSelection "select a zip strategy"
+          |> inputSelection "select a zip strategy:"
           |> fmap \(ZipOptionSlot opt) -> fmap snd opt
         case Prefix.mergeObjectsOutgoing [(node, incomings), (node', incomings')] bac of
           Nothing -> return $ Left ["fail to merge objects"]
-          Just bac' -> return $ Right $ updateBuffer workspace { bac = bac' }
+          Just (bac', updater) ->
+            return $ Right $
+              workspace { bac = bac' }
+              |> updateBufferBy (updater .> return)
     _ -> return $ Left ["should be a node"]
 
 mergeObjectsIncoming :: Control m => Workspace -> m (Either [String] Workspace)
@@ -887,31 +930,34 @@ mergeObjectsIncoming workspace@(Workspace { bac }) =
         node' <-
           options
           |> fmap (Prefix.id .> ChainOptionSlot)
-          |> inputSelection "select a node to merge"
+          |> inputSelection "select a node to merge:"
           |> fmap \(ChainOptionSlot c) -> Prefix.source c
         let outgoings = groups |> find (fst .> (==- node)) |> fromJust |> snd |> head
         let options = groups |> find (fst .> (==- node')) |> fromJust |> snd
         outgoings' <-
           options
           |> fmap (zip outgoings .> ZipOptionSlot)
-          |> inputSelection "select a zip strategy"
+          |> inputSelection "select a zip strategy:"
           |> fmap \(ZipOptionSlot opt) -> fmap snd opt
         case Prefix.mergeObjectsIncoming [(node, outgoings), (node', outgoings')] bac of
           Nothing -> return $ Left ["fail to merge objects"]
-          Just bac' -> return $ Right $ updateBuffer workspace { bac = bac' }
+          Just (bac', updater) ->
+            return $ Right $
+              workspace { bac = bac' }
+              |> updateBufferBy (updater .> return)
     _ -> return $ Left ["should be a node"]
 
 data CofractionOptionSlot = CofractionOptionSlot String (Chain, Chain)
 
 instance Show CofractionOptionSlot where
   show (CofractionOptionSlot str (chain1, chain2)) =
-    concat (Prefix.getStrings chain1) ++ " * " ++ str ++ " = " ++ concat (Prefix.getStrings chain2)
+    concat (Prefix.getStrings chain2) ++ " * " ++ str ++ " = " ++ concat (Prefix.getStrings chain1)
 
 data FractionOptionSlot = FractionOptionSlot String (Chain, Chain)
 
 instance Show FractionOptionSlot where
   show (FractionOptionSlot str (chain1, chain2)) =
-    str ++ " * " ++ concat (Prefix.getStrings chain1) ++ " = " ++ concat (Prefix.getStrings chain2)
+    str ++ " * " ++ concat (Prefix.getStrings chain2) ++ " = " ++ concat (Prefix.getStrings chain1)
 
 addMorphism :: Control m => Workspace -> m (Either [String] Workspace)
 addMorphism workspace@(Workspace { bac }) =
@@ -919,26 +965,33 @@ addMorphism workspace@(Workspace { bac }) =
     [Right chain1, Right chain2] | isProperObject chain1 && isProperObject chain2 -> do
       let node1 = Prefix.source chain1
       let node2 = Prefix.source chain2
-      if isJust (Prefix.init bac node2 `Prefix.dividel` Prefix.init bac node1) then
+      if notNull $ fromMaybe [] $ Prefix.init bac node2 `Prefix.dividel` Prefix.init bac node1 then
         return $ Left ["invalid node order to add morphism"]
-      else do
-        str <- inputToken bac
-        let (optionss1, optionss2) = fromJust $ Prefix.getPossibleChainRules bac node1 node2
-        -- TODO: shrink options by compatibleChainRule
-        cofractions <- optionss1 |> traverse \options1 ->
-          options1
-          |> fmap (CofractionOptionSlot str)
-          |> inputSelection "select a cofraction rule"
-          |> fmap \(CofractionOptionSlot _ opt) -> opt
-        fractions <- optionss2 |> traverse \options2 ->
-          options2
-          |> fmap (FractionOptionSlot str)
-          |> inputSelection "select a fraction rule"
-          |> fmap \(FractionOptionSlot _ opt) -> opt
-        if not (Prefix.compatibleChainRule bac (cofractions, fractions)) then
-          return $ Left ["invalid rules"]
-        else
-          case Prefix.addMorphism node1 node2 (cofractions, fractions) str bac of
-            Nothing -> return $ Left ["fail to add a morphism"]
-            Just bac' -> return $ Right $ updateBuffer workspace { bac = bac' }
+      else
+        case Prefix.getPossibleChainRules bac node1 node2 of
+          Nothing ->
+            return $ Left ["cannot add a morphism"]
+          Just (optionss1, optionss2) -> do
+            str <- inputToken bac
+            -- TODO: shrink options by compatibleChainRule
+            cofractions <- optionss1 |> traverse \options1 ->
+              options1
+              |> fmap (CofractionOptionSlot str)
+              |> inputSelection "select a cofraction rule:"
+              |> fmap \(CofractionOptionSlot _ opt) -> opt
+            fractions <- optionss2 |> traverse \options2 ->
+              options2
+              |> fmap (FractionOptionSlot str)
+              |> inputSelection "select a fraction rule:"
+              |> fmap \(FractionOptionSlot _ opt) -> opt
+            if not (Prefix.compatibleChainRule bac (cofractions, fractions)) then
+              return $ Left ["invalid rules"]
+            else
+              case Prefix.addMorphism node1 node2 (cofractions, fractions) str bac of
+                Nothing -> return $ Left ["fail to add a morphism"]
+                Just (bac', updater) ->
+                  return $ Right $
+                    workspace { bac = bac' }
+                    |> updateBufferBy (updater .> return)
+                    |> insertResult [Right $ fromJust $ Prefix.fromString bac' str]
     _ -> return $ Left ["should be two nodes"]

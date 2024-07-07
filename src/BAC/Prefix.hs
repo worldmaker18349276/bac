@@ -12,14 +12,16 @@ module BAC.Prefix (
   PrefixOrdering (..),
   toOrdering,
   comparePrefix,
+  strip,
   PrefixBAC,
   Chain,
   Node,
   fromBAC,
+  validate,
   searchString,
+  recover,
   fromString,
   fromStrings,
-  fromPreStringStrings,
   getStrings,
   getPreString,
   root,
@@ -73,10 +75,11 @@ module BAC.Prefix (
 ) where
 
 import Control.Monad (guard)
-import Data.Bifunctor (bimap, first)
+import Data.Bifunctor (bimap, first, second)
 import Data.Char (isPrint)
 import Data.Foldable (find)
 import Data.Foldable.Extra (foldrM)
+import Data.Functor.Identity (Identity (..))
 import Data.List (elemIndex, findIndices, sort)
 import qualified Data.List as List
 import Data.List.Extra (allSame, firstJust, notNull, nubSort, snoc)
@@ -85,7 +88,9 @@ import qualified Data.Map as Map
 import Data.Maybe (fromJust, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
+import GHC.Base (assert)
 import Prelude hiding (id, init, length)
+import qualified Prelude
 
 import BAC.Base (Arrow, BAC, Symbol)
 import qualified BAC.Base as BAC
@@ -95,8 +100,11 @@ import qualified BAC.Fundamental.Remove as Remove
 import qualified BAC.Fundamental.Restructure as Restructure
 import qualified BAC.Fundamental.Split as Split
 import qualified BAC.Fundamental.Zip as Zip
-import Utils.Utils ((.>), (|>))
+import Utils.Utils ((.>), (|>), guarded)
 
+
+splice :: Int -> Int -> [a] -> [a] -> [a]
+splice from to elems list = take from list ++ elems ++ drop to list
 
 data PrefixOrdering = LessBy String | Equal | GreaterBy String deriving (Eq, Ord, Show)
 
@@ -136,11 +144,19 @@ fromBAC bac = do
   guard $ values |> allComb \a b -> isNothing (a `comparePrefix` b)
   return $ PrefixBAC bac
 
+validate :: PrefixBAC -> Bool
+validate (PrefixBAC bac) = BAC.validateAll bac
+
 searchString :: PrefixBAC -> String -> [PrefixOrdering]
 searchString (PrefixBAC bac) str =
   BAC.arrows bac
   |> concatMap (BAC.target .> BAC.edges)
   |> mapMaybe (BAC.value .> comparePrefix str)
+
+recover :: String -> PrefixOrdering -> String
+recover str Equal = str
+recover str (GreaterBy suff) = take (List.length str - List.length suff) str
+recover str (LessBy suff) = str ++ suff
 
 followString :: BAC String -> String -> Maybe [Arrow String]
 followString = go []
@@ -186,13 +202,6 @@ fromStrings (PrefixBAC bac) strs = do
   findSource bac str =
     BAC.arrows bac
     |> find (BAC.target .> BAC.edges .> any (BAC.value .> (== str)))
-
-fromPreStringStrings :: PrefixBAC -> String -> [String] -> Maybe Chain
-fromPreStringStrings (PrefixBAC bac) prestr strs = do
-  arrs0 <- followString bac prestr
-  let arr0 = foldl BAC.join (BAC.root bac) arrs0
-  chain <- followStrings (BAC.target arr0) strs
-  return $ Chain arr0 chain
 
 fromArrow2 :: (Arrow String, Arrow String) -> Chain
 fromArrow2 (arr1, arr2) = Chain arr1 (fromJust $ BAC.chain (BAC.target arr1) (BAC.symbol arr2))
@@ -282,13 +291,43 @@ chain1@(Chain arr1 _) === chain2@(Chain arr2 _) =
 (==~) :: Chain -> Chain -> Bool
 chain1 ==~ chain2 = BAC.symbol2 (getArrow2 chain1) == BAC.symbol2 (getArrow2 chain2)
 
-addEdge :: Chain -> String -> PrefixBAC -> Maybe PrefixBAC
+updateChainBy :: (Functor m, Foldable m) => BAC String -> ((Symbol, [String]) -> m (Symbol, [String])) -> Chain -> m Chain
+updateChainBy bac f chain =
+  f (getArrow2 chain |> fst |> BAC.symbol, getStrings chain)
+  |> fmap (fromSymbolAndStrings bac .> fromJust)
+  where
+  fromSymbolAndStrings :: BAC String -> (Symbol, [String]) -> Maybe Chain
+  fromSymbolAndStrings bac (sym, strs) = do
+    arr0 <- BAC.arrow bac sym
+    chain <- followStrings (BAC.target arr0) strs
+    return $ Chain arr0 chain
+
+updateChainBy_ :: BAC String -> ((Symbol, [String]) -> (Symbol, [String])) -> Chain -> Chain
+updateChainBy_ bac = noFoldable (updateChainBy bac)
+  where
+  noFoldable decorator f = runIdentity . decorator (Identity . f)
+
+updateChain :: BAC String -> Chain -> Chain
+updateChain bac = updateChainBy_ bac Prelude.id
+
+updateChain_ :: BAC String -> Chain -> Chain
+updateChain_ bac chain =
+  fromJust $ fromPreStringAndStrings bac (getPreString chain, getStrings chain)
+  where
+  fromPreStringAndStrings :: BAC String -> (String, [String]) -> Maybe Chain
+  fromPreStringAndStrings bac (prestr, strs) = do
+    arrs0 <- followString bac prestr
+    let arr0 = foldl BAC.join (BAC.root bac) arrs0
+    chain <- followStrings (BAC.target arr0) strs
+    return $ Chain arr0 chain
+
+addEdge :: Chain -> String -> PrefixBAC -> Maybe (PrefixBAC, Chain -> Chain)
 addEdge chain str pbac@(PrefixBAC bac) = do
   guard $ null $ searchString pbac str
   bac' <- Restructure.addEdge (BAC.symbol2 (getArrow2 chain)) str bac
-  return $ PrefixBAC bac'
+  return (PrefixBAC bac', updateChain bac')
 
-removeEdge :: Chain -> PrefixBAC -> Maybe (PrefixBAC, [String] -> Maybe [String])
+removeEdge :: Chain -> PrefixBAC -> Maybe (PrefixBAC, Chain -> Maybe Chain)
 removeEdge chain@(Chain _ arrs) (PrefixBAC bac) = do
   guard $ List.length arrs == 1
   let arr_arr = getArrow2 chain
@@ -296,10 +335,11 @@ removeEdge chain@(Chain _ arrs) (PrefixBAC bac) = do
   let edges = BAC.target (fst arr_arr) |> BAC.edges |> filter (BAC.symbol .> (== BAC.symbol (snd arr_arr)))
   guard $ edges |> any (BAC.value .> (== value))
   bac' <- Restructure.removeEdge (BAC.symbol2 arr_arr) value bac
-  let updater tokens = if value `elem` tokens then Nothing else Just tokens
+  let updater = updateChainBy bac' \(sym, tokens) ->
+        if value `elem` tokens then Nothing else Just (sym, tokens)
   return (PrefixBAC bac', updater)
 
-alterEdge :: Chain -> String -> PrefixBAC -> Maybe (PrefixBAC, [String] -> [String])
+alterEdge :: Chain -> String -> PrefixBAC -> Maybe (PrefixBAC, Chain -> Chain)
 alterEdge chain@(Chain _ arrs) str (PrefixBAC bac) = do
   guard $ List.length arrs == 1
   let arr_arr = getArrow2 chain
@@ -307,7 +347,7 @@ alterEdge chain@(Chain _ arrs) str (PrefixBAC bac) = do
   let edges = BAC.target (fst arr_arr) |> BAC.edges |> filter (BAC.symbol .> (== BAC.symbol (snd arr_arr)))
   guard $ edges |> any (BAC.value .> (== value))
   bac' <- Restructure.alterEdges (BAC.symbol2 arr_arr) (fmap \val -> if val == value then str else val) bac
-  let updater = fmap \s -> if s == value then str else s
+  let updater = updateChainBy_ bac' $ second $ fmap \s -> if s == value then str else s
   return (PrefixBAC bac', updater)
 
 isNondecomposable :: Chain -> Bool
@@ -331,19 +371,20 @@ modifyIncomingValues sym f bac =
     BAC.AtBoundary -> return edge {BAC.value = f (BAC.value edge)}
     BAC.AtInner res -> return edge {BAC.target = res}
 
-removeMorphism :: Chain -> String -> PrefixBAC -> Maybe (PrefixBAC, [String] -> [[String]])
-removeMorphism chain str pbac@(PrefixBAC bac) = do
+removeMorphism :: Chain -> (String, String) -> PrefixBAC -> Maybe (PrefixBAC, Chain -> [Chain])
+removeMorphism chain (str1, str2) pbac@(PrefixBAC bac) = do
   let arr_arr = getArrow2 chain
   let src_sym = BAC.symbol (fst arr_arr)
   let tgt_sym = BAC.symbol (uncurry BAC.join arr_arr)
   guard $ fst arr_arr |> BAC.symbol |> (/= BAC.base)
-  guard $ null $ searchString pbac str
+  guard $ null $ searchString pbac str1
+  guard $ null $ searchString pbac str2
 
   bac' <- Remove.removeNDSymbol (BAC.symbol2 arr_arr) bac
   let bac'' =
         bac'
-        |> modifyOutgoingValues tgt_sym (str ++)
-        |> modifyIncomingValues src_sym (++ str)
+        |> modifyOutgoingValues tgt_sym (str2 ++)
+        |> modifyIncomingValues src_sym (++ str1)
 
   let removed =
         BAC.target (fst arr_arr)
@@ -352,55 +393,65 @@ removeMorphism chain str pbac@(PrefixBAC bac) = do
         |> fmap BAC.value
   let outgoing = BAC.target (snd arr_arr) |> BAC.edges |> fmap BAC.value
   let incoming = BAC.suffix bac (BAC.symbol (fst arr_arr)) |> fmap (snd .> BAC.value)
-  let updater tokens =
+  let updateTokens tokens =
         case (
           incoming |> mapMaybe (`elemIndex` tokens) |> listToMaybe,
           removed |> mapMaybe (`elemIndex` tokens) |> listToMaybe,
           outgoing |> mapMaybe (`elemIndex` tokens) |> listToMaybe
         ) of
           (Nothing, Nothing, Nothing) ->
-            [tokens]
-          (Nothing, Just _, Nothing) -> -- List.length tokens == 1
-            []
-          (Just i, Just j, Nothing) -> -- i + 1 == j && j + 1 == List.length tokens
-            [take i tokens `snoc` (tokens !! i ++ tokens !! j)]
-          (Nothing, Just j, Just k) -> -- j + 1 == k && j == 0
-            [(tokens !! j ++ tokens !! k) : drop (k + 1) tokens]
-          (Just i, Just j, Just k) -> -- i + 1 == j && j + 1 == k
+            return tokens
+          (Nothing, Just _, Nothing) ->
+            assert (List.length tokens == 1)
+              []
+          (Just i, Just j, Nothing) ->
+            assert (i + 1 == j && j + 1 == List.length tokens) $
+              return $ splice i (j + 1) [tokens !! i ++ tokens !! j] tokens
+          (Nothing, Just j, Just k) ->
+            assert (j + 1 == k && j == 0) $
+              return $ splice j (k + 1) [tokens !! j ++ tokens !! k] tokens
+          (Just i, Just j, Just k) ->
+            assert (i + 1 == j && j + 1 == k)
             [
-              take i tokens ++ [tokens !! i ++ tokens !! j, str ++ tokens !! k] ++ drop (k + 1) tokens,
-              take i tokens ++ [tokens !! i ++ str, tokens !! j ++ tokens !! k] ++ drop (k + 1) tokens
+              splice i (k + 1) [tokens !! i ++ tokens !! j, str2 ++ tokens !! k] tokens,
+              splice i (k + 1) [tokens !! i ++ str1, tokens !! j ++ tokens !! k] tokens
             ]
           (Just i, Nothing, Nothing) ->
-            [take i tokens ++ [tokens !! i ++ str] ++ drop (i + 1) tokens]
+            assert (i + 1 == List.length tokens) $
+              return $ splice i (i + 1) [tokens !! i ++ str1] tokens
           (Nothing, Nothing, Just k) ->
-            [take k tokens ++ [str ++ tokens !! k] ++ drop (k + 1) tokens]
-          (Just i, Nothing, Just k) -> -- i < k
-            [
-              take i tokens
-              ++ [tokens !! i ++ str]
-              ++ drop (i + 1) (take k tokens)
-              ++ [str ++ tokens !! k]
-              ++ drop (k + 1) tokens
-            ]
+            assert (k == 0) $
+              return $ splice k (k + 1) [str2 ++ tokens !! k] tokens
+          (Just i, Nothing, Just k) ->
+            assert (i < k) $
+              return
+              $ splice i (i + 1) [tokens !! i ++ str1]
+              $ splice k (k + 1) [str2 ++ tokens !! k] tokens
+            
+  let updater = updateChainBy bac'' (second updateTokens .> sequence)
 
   return (PrefixBAC bac'', updater)
 
-removeObject :: Node -> PrefixBAC -> Maybe (PrefixBAC, [String] -> [[String]])
+removeObject :: Node -> PrefixBAC -> Maybe (PrefixBAC, Chain -> [Chain])
 removeObject (Node arr) (PrefixBAC bac) = do
   bac' <- Remove.removeNode (BAC.symbol arr) bac
 
   let outgoing = BAC.target arr |> BAC.edges |> fmap BAC.value
   let incoming = BAC.suffix bac (BAC.symbol arr) |> fmap (snd .> BAC.value)
-  let updater tokens =
+  let updater = updateChainBy bac' \(sym, tokens) ->
         case (
-          outgoing |> mapMaybe (`elemIndex` tokens) |> listToMaybe,
-          incoming |> mapMaybe (`elemIndex` tokens) |> listToMaybe
+          incoming |> mapMaybe (`elemIndex` tokens) |> listToMaybe,
+          sym == BAC.symbol arr,
+          outgoing |> mapMaybe (`elemIndex` tokens) |> listToMaybe
         ) of
-          (Nothing, Nothing) ->
-            [tokens]
-          (Just i, Just j) -> -- i + 1 == j
-            [take i tokens ++ [tokens !! i ++ tokens !! j] ++ drop (j + 1) tokens]
+          (Nothing, True, Nothing) ->
+            assert (null tokens)
+              []
+          (Nothing, False, Nothing) ->
+            return (sym, tokens)
+          (Just i, s, Just j) ->
+            assert (i + 1 == j && not s) $
+              return (sym, splice i (j + 1) [tokens !! i ++ tokens !! j] tokens)
           _ ->
             []
 
@@ -412,9 +463,10 @@ type Fraction = (Chain, Chain)
 type ChainRule = ([Cofraction], [Fraction])
 
 getPossibleChainRules :: PrefixBAC -> Node -> Node -> Maybe ([[Cofraction]], [[Fraction]])
-getPossibleChainRules (PrefixBAC bac) (Node src_arr) (Node tgt_arr) = do
-  selections <- Add.findValidCofractionsFractions (BAC.symbol src_arr) (BAC.symbol tgt_arr) bac
-  return $ selections |> both (fmap (fmap (both (fromSymbol2 bac .> fromJust))))
+getPossibleChainRules (PrefixBAC bac) (Node src_arr) (Node tgt_arr) =
+  Add.findValidCofractionsFractions (BAC.symbol src_arr) (BAC.symbol tgt_arr) bac
+  |> fmap (both (fmap (fmap (both (fromSymbol2 bac .> fromJust)))))
+  >>= guarded (uncurry (++) .> all notNull)
 
 compatibleChainRule :: PrefixBAC -> ChainRule -> Bool
 compatibleChainRule (PrefixBAC bac) rule =
@@ -424,23 +476,23 @@ compatibleChainRule (PrefixBAC bac) rule =
   where
   rule' = rule |> both (fmap (both (getArrow2 .> BAC.symbol2)))
 
-addMorphism :: Node -> Node -> ChainRule -> String -> PrefixBAC -> Maybe PrefixBAC
+addMorphism :: Node -> Node -> ChainRule -> String -> PrefixBAC -> Maybe (PrefixBAC, Chain -> Chain)
 addMorphism (Node src_arr) (Node tgt_arr) rule str pbac@(PrefixBAC bac) = do
   guard $ null $ searchString pbac str
   guard $ BAC.symbol src_arr /= BAC.base
   let rule' = rule |> both (fmap (both (getArrow2 .> BAC.symbol2)))
   let sym = BAC.target src_arr |> BAC.symbols |> maximum |> (+ 1)
   bac' <- Add.addNDSymbol (BAC.symbol src_arr) (BAC.symbol tgt_arr) sym str (fst rule') (snd rule') bac
-  return $ PrefixBAC bac'
+  return (PrefixBAC bac', updateChain bac')
 
-addObject :: Node -> String -> PrefixBAC -> Maybe PrefixBAC
+addObject :: Node -> String -> PrefixBAC -> Maybe (PrefixBAC, Chain -> Chain)
 addObject (Node src_arr) str pbac@(PrefixBAC bac) = do
   guard $ null $ searchString pbac str
   let sym = BAC.target src_arr |> BAC.symbols |> maximum |> (+ 1)
   bac' <- Add.addLeafNode (BAC.symbol src_arr) sym str (Restructure.makeShifter bac 1) bac
-  return $ PrefixBAC bac'
+  return (PrefixBAC bac', updateChain bac')
 
-interpolateObject :: Chain -> (String, String) -> PrefixBAC -> Maybe PrefixBAC
+interpolateObject :: Chain -> (String, String) -> PrefixBAC -> Maybe (PrefixBAC, Chain -> Chain)
 interpolateObject chain (str1, str2) pbac@(PrefixBAC bac) = do
   guard $ null $ searchString pbac str1
   guard $ null $ searchString pbac str2
@@ -448,7 +500,7 @@ interpolateObject chain (str1, str2) pbac@(PrefixBAC bac) = do
   let sym = BAC.target (fst arr_arr) |> BAC.symbols |> maximum |> (+ 1)
   let dict = BAC.target (snd arr_arr) |> BAC.symbols |> fmap (\s -> (s, s+1)) |> Map.fromList
   bac' <- Add.addParentNode (BAC.symbol2 arr_arr) sym dict (str1, str2) (Restructure.makeShifter bac 1) bac
-  return $ PrefixBAC bac'
+  return (PrefixBAC bac', updateChain bac')
 
 prefixes :: Chain -> [(Chain, Chain)]
 prefixes (Chain _ []) = []
@@ -496,7 +548,7 @@ isUnsplittable chain1 chain2 =
     |> fromJust
     |> any \(pref, suff) -> pref === pref2 && suff ==~ suff2
 
-splitMorphism :: [[Chain]] -> PrefixBAC -> Maybe PrefixBAC
+splitMorphism :: [[Chain]] -> PrefixBAC -> Maybe (PrefixBAC, Chain -> Chain)
 splitMorphism partition (PrefixBAC bac) = do
   guard $ partition |> any notNull
   let chain = partition |> concat |> head
@@ -531,18 +583,19 @@ splitMorphism partition (PrefixBAC bac) = do
   let direct' = direct_syms |> fmap head
 
   bac' <- Split.splitSymbol (src_sym, tgt_sym) partition' direct' bac
-  return $ PrefixBAC bac'
+  return (PrefixBAC bac', updateChain bac')
 
 partitionIncoming :: PrefixBAC -> Node -> [[Chain]]
 partitionIncoming pbac tgt = partitionPrefixesSuffixes (init pbac tgt) |> fmap (snd .> fmap snd)
 
-splitObjectIncoming :: Node -> [(String, [Chain])] -> PrefixBAC -> Maybe (PrefixBAC, [String] -> [[String]])
+splitObjectIncoming :: Node -> [(String, [Chain])] -> PrefixBAC -> Maybe (PrefixBAC, Chain -> [Chain])
 splitObjectIncoming pnode@(Node src_arr) partition pbac@(PrefixBAC bac) = do
   guard $ partition |> fmap fst |> allComb (\a b -> isNothing $ comparePrefix a b)
   guard $ partition |> fmap fst |> all (searchString pbac .> null)
   guard $ partition |> any (snd .> notNull)
+  let prefixes = fmap fst partition
   let src_sym = BAC.symbol src_arr
-  let sym = bac |> BAC.symbols |> maximum |> (+1)
+  let new_sym = bac |> BAC.symbols |> maximum |> (+1)
 
   let groups = partitionPrefixesSuffixes (init pbac pnode)
   partition_groups <-
@@ -557,7 +610,7 @@ splitObjectIncoming pnode@(Node src_arr) partition pbac@(PrefixBAC bac) = do
         |> fmap (fmap (both (getArrow2 .> snd .> BAC.symbol)))
         |> fmap (filter (snd .> (/= BAC.base)))
         |> fmap nubSort
-        |> zip [sym..]
+        |> zip [new_sym..]
 
   let direct_syms =
         bac
@@ -565,40 +618,47 @@ splitObjectIncoming pnode@(Node src_arr) partition pbac@(PrefixBAC bac) = do
         |> filter (BAC.symbol .> (== src_sym))
         |> fmap ((: []) .> Chain (BAC.root bac))
         |> fmap (\chain -> partition |> findIndices (snd .> any (=== chain)))
-        |> fmap (fmap (fromIntegral .> (sym +)))
+        |> fmap (fmap (fromIntegral .> (new_sym +)))
   guard $ direct_syms |> all (List.length .> (== 1))
   let direct' = direct_syms |> fmap head
 
   bac' <- Split.splitSymbol (BAC.base, src_sym) partition' direct' bac
   let bac'' =
-        partition
-        |> fmap fst
-        |> zip [sym..]
+        prefixes
+        |> zip [new_sym..]
         |> foldl (\node (sym, pref) -> modifyOutgoingValues sym (pref ++) node) bac'
 
   let incoming =
         partition_groups
         |> fmap (fmap (snd .> fmap snd))
         |> fmap concat
-        |> zip (fmap fst partition)
+        |> zip prefixes
         |> concatMap sequence
         |> fmap (fmap \(Chain _ arrs) -> head arrs |> BAC.value)
         |> fmap swap
         |> Map.fromList
   let outgoing = src_arr |> BAC.target |> BAC.edges |> fmap BAC.value
-  let updater tokens =
+  let updater = updateChainBy bac'' \(sym, tokens) ->
         case (
           incoming |> Map.keys |> mapMaybe (`elemIndex` tokens) |> listToMaybe,
+          sym == src_sym,
           outgoing |> mapMaybe (`elemIndex` tokens) |> listToMaybe
         ) of
-          (_, Nothing) ->
-            [tokens]
-          (Just i, Just j) -> -- i + 1 == j
-            [take j tokens ++ [incoming ! (tokens !! i) ++ tokens !! j] ++ drop (j + 1) tokens]
-          (Nothing, Just j) -> -- j + 1 == List.length tokens
-            partition
-            |> fmap fst
-            |> fmap \pref -> take j tokens ++ [pref ++ tokens !! j] ++ drop (j + 1) tokens
+          (Nothing, False, Nothing) ->
+            return (sym, tokens)
+          (Nothing, True, Nothing) ->
+            assert (null tokens) $
+              take (List.length prefixes) [new_sym..] |> fmap (,tokens)
+          (Just i, s, Nothing) ->
+            assert (i + 1 == List.length tokens && not s) $
+              return (sym, tokens)
+          (Just i, s, Just j) ->
+            assert (i + 1 == j && not s) $
+              return (sym, splice j (j + 1) [incoming ! (tokens !! i) ++ tokens !! j] tokens)
+          (Nothing, s, Just j) ->
+            assert (j == 0 && s) $
+              prefixes `zip` [new_sym..]
+              |> fmap \(pref, sym') -> (sym', splice j (j + 1) [pref ++ tokens !! j] tokens)
 
   return (PrefixBAC bac'', updater)
 
@@ -610,45 +670,49 @@ partitionOutgoing (Node arr) =
   where
   src_node = BAC.target arr
 
-splitObjectOutgoing :: Node -> [(String, [Chain])] -> PrefixBAC -> Maybe (PrefixBAC, [String] -> [[String]])
+splitObjectOutgoing :: Node -> [(String, [Chain])] -> PrefixBAC -> Maybe (PrefixBAC, Chain -> [Chain])
 splitObjectOutgoing pnode@(Node tgt_arr) partition (PrefixBAC bac) = do
   let tgt_sym = BAC.symbol tgt_arr
   guard $ tgt_sym /= BAC.base
 
   guard $ partition |> all (snd .> all (source .> (==- pnode)))
+  let suffixes = fmap fst partition
   let partition' = partition |> fmap (snd .> concatMap (getArrow2 .> snd .> BAC.dict .> Map.elems))
   let splitters = [0..] |> take (List.length partition) |> fmap (Restructure.makeShifter bac)
 
   bac' <- Split.splitNode tgt_sym (splitters `zip` partition') bac
-  let syms = splitters |> fmap \splitter -> splitter (BAC.base, tgt_sym)
+  let new_syms = splitters |> fmap \splitter -> splitter (BAC.base, tgt_sym)
   let bac'' =
-        partition
-        |> fmap fst
-        |> zip syms
+        suffixes
+        |> zip new_syms
         |> foldl (\node (sym, suff) -> modifyIncomingValues sym (++ suff) node) bac'
 
   let outgoing =
         partition'
         |> fmap (concatMap \sym -> BAC.target tgt_arr |> BAC.edges |> filter (BAC.symbol .> (== sym)))
         |> fmap (fmap BAC.value)
-        |> zip (fmap fst partition)
+        |> zip suffixes
         |> concatMap sequence
         |> fmap swap
         |> Map.fromList
   let incoming = BAC.suffix bac tgt_sym |> fmap (snd .> BAC.value)
-  let updater tokens =
+  let updater = updateChainBy bac'' \(sym, tokens) ->
         case (
           incoming |> mapMaybe (`elemIndex` tokens) |> listToMaybe,
+          sym == tgt_sym,
           outgoing |> Map.keys |> mapMaybe (`elemIndex` tokens) |> listToMaybe
         ) of
-          (Nothing, _) ->
-            [tokens]
-          (Just i, Just j) -> -- i + 1 == j
-            [take i tokens ++ [tokens !! i ++ outgoing ! (tokens !! j)] ++ drop (i + 1) tokens]
-          (Just i, Nothing) -> -- i == 0
-            partition
-            |> fmap fst
-            |> fmap \suff -> take i tokens ++ [tokens !! i ++ suff] ++ drop (i + 1) tokens
+          (Nothing, False, _) ->
+            return (sym, tokens)
+          (Nothing, True, _) ->
+            new_syms |> fmap (, tokens)
+          (Just i, s, Just j) ->
+            assert (i + 1 == j && not s) $
+              return (sym, splice i (i + 1) [tokens !! i ++ outgoing ! (tokens !! j)] tokens)
+          (Just i, s, Nothing) ->
+            assert (i + 1 == List.length tokens && not s) $
+              suffixes
+              |> fmap \suff -> (sym, splice i (i + 1) [tokens !! i ++ suff] tokens)
 
   return (PrefixBAC bac'', updater)
 
@@ -673,7 +737,7 @@ findMergableChains bac chain =
   sym0 = arr1 |> BAC.symbol
   mapping0 = fmap (! sym0) incoming_dicts
 
-mergeMorphsisms :: [Chain] -> PrefixBAC -> Maybe PrefixBAC
+mergeMorphsisms :: [Chain] -> PrefixBAC -> Maybe (PrefixBAC, Chain -> Chain)
 mergeMorphsisms chains (PrefixBAC bac) = do
   let arr_arrs = chains |> fmap getArrow2
   guard $ notNull arr_arrs
@@ -682,7 +746,7 @@ mergeMorphsisms chains (PrefixBAC bac) = do
   guard $ src_sym /= BAC.base
   let tgt_syms = arr_arrs |> fmap (snd .> BAC.symbol)
   bac' <- Merge.mergeSymbols (src_sym, tgt_syms) (head tgt_syms) bac
-  return $ PrefixBAC bac'
+  return (PrefixBAC bac', updateChain bac')
 
 outgoingCanonicalOrders :: PrefixBAC -> Node -> [[Chain]]
 outgoingCanonicalOrders _ (Node arr) =
@@ -727,7 +791,7 @@ findIncomingZippableObjects (PrefixBAC bac) (Node arr) =
   |> fmap (first (BAC.arrow bac .> fromJust .> Node))
   |> fmap (fmap (fmap (fmap (fromSymbol2 bac .> fromJust))))
 
-mergeObjectsIncoming :: [(Node, [Chain])] -> PrefixBAC -> Maybe PrefixBAC
+mergeObjectsIncoming :: [(Node, [Chain])] -> PrefixBAC -> Maybe (PrefixBAC, Chain -> Chain)
 mergeObjectsIncoming pnode_outgoings (PrefixBAC bac) = do
   guard $ pnode_outgoings |> all \(Node arr, order) ->
     order |> all (getArrow2 .> fst .> BAC.symbol .> (== BAC.symbol arr))
@@ -744,9 +808,9 @@ mergeObjectsIncoming pnode_outgoings (PrefixBAC bac) = do
   bac' <- foldrM (uncurry Restructure.relabel) bac sym_mappings
   bac'' <- Zip.unifyNodes syms bac'
   bac''' <- Merge.mergeSymbolsOnRoot syms (head syms) bac''
-  return $ PrefixBAC bac'''
+  return (PrefixBAC bac''', updateChain_ bac''')
 
-mergeObjectsOutgoing :: [(Node, [Chain])] -> PrefixBAC -> Maybe PrefixBAC
+mergeObjectsOutgoing :: [(Node, [Chain])] -> PrefixBAC -> Maybe (PrefixBAC, Chain -> Chain)
 mergeObjectsOutgoing pnode_incomings (PrefixBAC bac) = do
   let sym_orderings =
         pnode_incomings
@@ -770,7 +834,7 @@ mergeObjectsOutgoing pnode_incomings (PrefixBAC bac) = do
 
   bac' <- foldrM (uncurry Restructure.relabel) bac sym_mappings
   bac'' <- Merge.mergeNodes sym_orderings (snd .> head) bac'
-  return $ PrefixBAC bac''
+  return (PrefixBAC bac'', updateChain_ bac'')
 
 mergeCategories :: [PrefixBAC] -> Maybe PrefixBAC
 mergeCategories pbacs = do

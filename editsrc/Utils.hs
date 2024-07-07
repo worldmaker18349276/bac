@@ -39,16 +39,7 @@ allComb :: (a -> a -> Bool) -> [a] -> Bool
 allComb _ [] = True
 allComb f (h:t) = all (f h) t && allComb f t
 
-untilM :: Monad m => (a -> Bool) -> (a -> m a) -> a -> m a
-untilM cond next val
-  | cond val = return val
-  | otherwise = do
-    val' <- next val
-    untilM cond next val'
-
-untilJustM :: Monad m => (a -> Maybe b) -> (a -> m a) -> a -> m b
-untilJustM cond next val = case cond val of
-  Just val -> return val
-  Nothing -> do
-    val' <- next val
-    untilJustM cond next val'
+untilRightM :: Monad m => (a -> Either (m a) b) -> a -> m b
+untilRightM next val = case next val of
+  Right val -> return val
+  Left val' -> val' >>= untilRightM next
