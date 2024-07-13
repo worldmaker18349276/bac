@@ -43,13 +43,21 @@ module BAC.Prefix (
   removeEdge,
   alterEdge,
   isNondecomposable,
-  removeMorphism,
-  removeObject,
   Cofraction,
   Fraction,
-  ChainRule,
-  getPossibleChainRules,
-  compatibleChainRule,
+  AlternativeRule,
+  isAlternativeRule,
+  getAlternativeRules,
+  needAlternativePathsBeforeRemovingMorphism,
+  removeMorphism,
+  ObjectAlternativeRule,
+  isObjectAlternativeRule,
+  getObjectAlternativeRules,
+  needAlternativePathsBeforeRemovingObject,
+  removeObject,
+  DivisionRule,
+  getPossibleDivisionRules,
+  compatibleDivisionRule,
   addMorphism,
   addObject,
   interpolateObject,
@@ -101,6 +109,7 @@ import qualified BAC.Fundamental.Restructure as Restructure
 import qualified BAC.Fundamental.Split as Split
 import qualified BAC.Fundamental.Zip as Zip
 import Utils.Utils ((.>), (|>), guarded)
+import qualified BAC.Fundamental.Fraction as Fraction
 
 
 splice :: Int -> Int -> [a] -> [a] -> [a]
@@ -371,73 +380,161 @@ modifyIncomingValues sym f bac =
     BAC.AtBoundary -> return edge {BAC.value = f (BAC.value edge)}
     BAC.AtInner res -> return edge {BAC.target = res}
 
-removeMorphism :: Chain -> (String, String) -> PrefixBAC -> Maybe (PrefixBAC, Chain -> [Chain])
-removeMorphism chain (str1, str2) pbac@(PrefixBAC bac) = do
+type Cofraction = (Chain, Chain)
+type Fraction = (Chain, Chain)
+type AlternativeRule = ([Cofraction], [Fraction])
+
+isAlternativeRule :: PrefixBAC -> Chain -> AlternativeRule -> Bool
+isAlternativeRule pbac chain rule =
+  (fst rule |> fmap (snd .> getStrings) |> sort |> (== incoming_strs))
+  && (snd rule |> fmap (snd .> getStrings) |> sort |> (== outgoing_strs))
+  && (fst rule |> all \(n, d) -> d `join` chain |> maybe False (==~ n))
+  && (snd rule |> all \(n, d) -> chain `join` d |> maybe False (==~ n))
+  && (fst rule |> all (fst .> getStrings .> notElem str))
+  && (snd rule |> all (fst .> getStrings .> notElem str))
+  where
+  str = concat (getStrings chain)
+  incoming_strs = chain |> source |> incoming pbac |> fmap getStrings |> sort
+  outgoing_strs = chain |> target |> outgoing pbac |> fmap getStrings |> sort
+
+getAlternativeRules :: PrefixBAC -> Chain -> Maybe ([([Chain], Chain)], [([Chain], Chain)])
+getAlternativeRules pbac chain = do
+  guard $ isNondecomposable chain
+  let str = head $ getStrings chain
+  let incoming_chains = chain |> source |> incoming pbac
+  let outgoing_chains = chain |> target |> outgoing pbac
+  
+  let alt_paths :: String -> (Arrow String, Arrow String) -> [Chain]
+      alt_paths skip_value (arr1, arr2) =
+        go (BAC.target arr1) (BAC.symbol arr2) |> fmap (Chain arr1)
+        where
+        go node sym = if sym == BAC.base then return [] else do
+          edge <- BAC.edges node
+          guard $ BAC.value edge /= skip_value
+          sym' <- BAC.dict edge |> Map.toList |> filter (snd .> (== sym)) |> fmap fst
+          arrs <- go (BAC.target edge) sym'
+          return $ edge : arrs
+  let incoming_alts = incoming_chains |> fmap ((`join` chain) .> fromJust .> getArrow2 .> alt_paths str)
+  let outgoing_alts = outgoing_chains |> fmap ((chain `join`) .> fromJust .> getArrow2 .> alt_paths str)
+  return (incoming_alts `zip` incoming_chains, outgoing_alts `zip` outgoing_chains)
+
+needAlternativePathsBeforeRemovingMorphism :: PrefixBAC -> Chain -> Maybe ([Chain], [Chain])
+needAlternativePathsBeforeRemovingMorphism pbac@(PrefixBAC bac) chain = do
+  guard $ isNondecomposable chain
+  let sym = BAC.symbol2 (getArrow2 chain)
+  let incoming_syms = chain |> target |> incoming pbac |> fmap (getArrow2 .> BAC.symbol2)
+  let outgoing_syms = chain |> source |> outgoing pbac |> fmap (getArrow2 .> BAC.symbol2)
+
+  let incoming_alts =
+        Remove.relativeNondecomposablesIncoming bac sym
+        |> filter (`notElem` incoming_syms)
+        |> fmap (BAC.arrow2 bac .> fromJust .> fromArrow2)
+  let outgoing_alts =
+        Remove.relativeNondecomposablesOutgoing bac sym
+        |> filter (`notElem` outgoing_syms)
+        |> fmap (BAC.arrow2 bac .> fromJust .> fromArrow2)
+  return (incoming_alts, outgoing_alts)
+
+removeMorphism :: Chain -> AlternativeRule -> PrefixBAC -> Maybe (PrefixBAC, Chain -> [Chain])
+removeMorphism chain rule pbac@(PrefixBAC bac) = do
   let arr_arr = getArrow2 chain
-  let src_sym = BAC.symbol (fst arr_arr)
-  let tgt_sym = BAC.symbol (uncurry BAC.join arr_arr)
-  guard $ fst arr_arr |> BAC.symbol |> (/= BAC.base)
-  guard $ null $ searchString pbac str1
-  guard $ null $ searchString pbac str2
+
+  guard $ isAlternativeRule pbac chain rule
 
   bac' <- Remove.removeNDSymbol (BAC.symbol2 arr_arr) bac
-  let bac'' =
-        bac'
-        |> modifyOutgoingValues tgt_sym (str2 ++)
-        |> modifyIncomingValues src_sym (++ str1)
 
+  let incoming =
+        fst rule
+        |> fmap (swap .> both getStrings .> first concat)
+        |> Map.fromList
+  let outgoing =
+        snd rule
+        |> fmap (swap .> both getStrings .> first concat)
+        |> Map.fromList
   let removed =
         BAC.target (fst arr_arr)
         |> BAC.edges
         |> filter (BAC.symbol .> (== BAC.symbol (snd arr_arr)))
         |> fmap BAC.value
-  let outgoing = BAC.target (snd arr_arr) |> BAC.edges |> fmap BAC.value
-  let incoming = BAC.suffix bac (BAC.symbol (fst arr_arr)) |> fmap (snd .> BAC.value)
   let updateTokens tokens =
         case (
-          incoming |> mapMaybe (`elemIndex` tokens) |> listToMaybe,
+          incoming |> Map.keys |> mapMaybe (`elemIndex` tokens) |> listToMaybe,
           removed |> mapMaybe (`elemIndex` tokens) |> listToMaybe,
-          outgoing |> mapMaybe (`elemIndex` tokens) |> listToMaybe
+          outgoing |> Map.keys |> mapMaybe (`elemIndex` tokens) |> listToMaybe
         ) of
-          (Nothing, Nothing, Nothing) ->
+          (_, Nothing, _) ->
             return tokens
           (Nothing, Just _, Nothing) ->
             assert (List.length tokens == 1)
               []
           (Just i, Just j, Nothing) ->
             assert (i + 1 == j && j + 1 == List.length tokens) $
-              return $ splice i (j + 1) [tokens !! i ++ tokens !! j] tokens
+              return $ splice i (j + 1) (incoming ! (tokens !! i)) tokens
           (Nothing, Just j, Just k) ->
             assert (j + 1 == k && j == 0) $
-              return $ splice j (k + 1) [tokens !! j ++ tokens !! k] tokens
+              return $ splice j (k + 1) (outgoing ! (tokens !! k)) tokens
           (Just i, Just j, Just k) ->
-            assert (i + 1 == j && j + 1 == k)
-            [
-              splice i (k + 1) [tokens !! i ++ tokens !! j, str2 ++ tokens !! k] tokens,
-              splice i (k + 1) [tokens !! i ++ str1, tokens !! j ++ tokens !! k] tokens
-            ]
-          (Just i, Nothing, Nothing) ->
-            assert (i + 1 == List.length tokens) $
-              return $ splice i (i + 1) [tokens !! i ++ str1] tokens
-          (Nothing, Nothing, Just k) ->
-            assert (k == 0) $
-              return $ splice k (k + 1) [str2 ++ tokens !! k] tokens
-          (Just i, Nothing, Just k) ->
-            assert (i < k) $
-              return
-              $ splice i (i + 1) [tokens !! i ++ str1]
-              $ splice k (k + 1) [str2 ++ tokens !! k] tokens
-            
-  let updater = updateChainBy bac'' (second updateTokens .> sequence)
+            assert (i + 1 == j && j + 1 == k) $
+              [
+                (incoming ! (tokens !! i)) `snoc` (tokens !! k),
+                (tokens !! i) : (outgoing ! (tokens !! k))
+              ]
+              |> nubSort
+              |> fmap \sub -> splice i (k + 1) sub tokens
 
-  return (PrefixBAC bac'', updater)
+  let updater = updateChainBy bac' (second updateTokens .> sequence)
 
-removeObject :: Node -> PrefixBAC -> Maybe (PrefixBAC, Chain -> [Chain])
-removeObject (Node arr) (PrefixBAC bac) = do
+  return (PrefixBAC bac', updater)
+
+type ObjectAlternativeRule = [(Chain, (Chain, Chain))]
+
+isObjectAlternativeRule :: PrefixBAC -> Node -> ObjectAlternativeRule -> Bool
+isObjectAlternativeRule pbac node rule =
+  (rule |> fmap (snd .> both getStrings) |> sort |> (== incoming_outgoing_strs))
+  && (rule |> all \(n, (d1, d2)) -> d1 `join` d2 |> maybe False (==~ n))
+  && (rule |> all (fst .> getStrings .> all \str -> str `notElem` concat outgoing_strs))
+  where
+  incoming_strs = node |> incoming pbac |> fmap getStrings |> sort
+  outgoing_strs = node |> outgoing pbac |> fmap getStrings |> sort
+  incoming_outgoing_strs = incoming_strs |> concatMap (\strs -> fmap (strs,) outgoing_strs) |> sort
+
+getObjectAlternativeRules :: PrefixBAC -> Node -> [([Chain], (Chain, Chain))]
+getObjectAlternativeRules pbac node = do
+  let incoming_chains = incoming pbac node
+  let outgoing_chains = outgoing pbac node
+  chain1 <- incoming_chains
+  chain2 <- outgoing_chains
+
+  let incoming_strs = incoming_chains |> fmap (getStrings .> head)
+  let alt_paths :: [String] -> (Arrow String, Arrow String) -> [Chain]
+      alt_paths skip_values (arr1, arr2) =
+        go (BAC.target arr1) (BAC.symbol arr2) |> fmap (Chain arr1)
+        where
+        go node sym = if sym == BAC.base then return [] else do
+          edge <- BAC.edges node
+          guard $ BAC.value edge `notElem` skip_values
+          sym' <- BAC.dict edge |> Map.toList |> filter (snd .> (== sym)) |> fmap fst
+          arrs <- go (BAC.target edge) sym'
+          return $ edge : arrs
+
+  let alt_chains = chain1 `join` chain2 |> fromJust |> getArrow2 |> alt_paths incoming_strs
+  return (alt_chains, (chain1, chain2))
+
+needAlternativePathsBeforeRemovingObject :: PrefixBAC -> Node -> [Chain]
+needAlternativePathsBeforeRemovingObject (PrefixBAC bac) (Node arr) = do
+  (sym1, sym2) <- Remove.relativeNondecomposables' bac (BAC.symbol arr)
+  guard $ BAC.arrow bac sym1 |> fromJust |> BAC.target |> BAC.edges |> fmap BAC.symbol |> notElem sym2
+  return $ BAC.arrow2 bac (sym1, sym2) |> fromJust |> fromArrow2
+
+removeObject :: Node -> ObjectAlternativeRule -> PrefixBAC -> Maybe (PrefixBAC, Chain -> [Chain])
+removeObject node@(Node arr) rule pbac@(PrefixBAC bac) = do
   bac' <- Remove.removeNode (BAC.symbol arr) bac
+
+  guard $ isObjectAlternativeRule pbac node rule
 
   let outgoing = BAC.target arr |> BAC.edges |> fmap BAC.value
   let incoming = BAC.suffix bac (BAC.symbol arr) |> fmap (snd .> BAC.value)
+  let alt = rule |> fmap (fmap (both (getStrings .> head)) .> swap .> fmap getStrings) |> Map.fromList
   let updater = updateChainBy bac' \(sym, tokens) ->
         case (
           incoming |> mapMaybe (`elemIndex` tokens) |> listToMaybe,
@@ -450,33 +547,31 @@ removeObject (Node arr) (PrefixBAC bac) = do
           (Nothing, False, Nothing) ->
             return (sym, tokens)
           (Just i, s, Just j) ->
-            assert (i + 1 == j && not s) $
-              return (sym, splice i (j + 1) [tokens !! i ++ tokens !! j] tokens)
+            assert (i + 1 == j && s) $
+              return (sym, splice i (j + 1) (alt ! (tokens !! i, tokens !! j)) tokens)
           _ ->
             []
 
   return (PrefixBAC bac', updater)
 
 
-type Cofraction = (Chain, Chain)
-type Fraction = (Chain, Chain)
-type ChainRule = ([Cofraction], [Fraction])
+type DivisionRule = ([Cofraction], [Fraction])
 
-getPossibleChainRules :: PrefixBAC -> Node -> Node -> Maybe ([[Cofraction]], [[Fraction]])
-getPossibleChainRules (PrefixBAC bac) (Node src_arr) (Node tgt_arr) =
-  Add.findValidCofractionsFractions (BAC.symbol src_arr) (BAC.symbol tgt_arr) bac
+getPossibleDivisionRules :: PrefixBAC -> Node -> Node -> Maybe ([[Cofraction]], [[Fraction]])
+getPossibleDivisionRules (PrefixBAC bac) (Node src_arr) (Node tgt_arr) =
+  Fraction.findValidCofractionsFractions (BAC.symbol src_arr) (BAC.symbol tgt_arr) bac
   |> fmap (both (fmap (fmap (both (fromSymbol2 bac .> fromJust)))))
   >>= guarded (uncurry (++) .> all notNull)
 
-compatibleChainRule :: PrefixBAC -> ChainRule -> Bool
-compatibleChainRule (PrefixBAC bac) rule =
-  Add.compatibleFractions bac (snd rule')
-  && Add.compatibleCofractions bac (fst rule')
-  && uncurry (Add.compatibleCofractionsFractions bac) rule'
+compatibleDivisionRule :: PrefixBAC -> DivisionRule -> Bool
+compatibleDivisionRule (PrefixBAC bac) rule =
+  Fraction.compatibleFractions bac (snd rule')
+  && Fraction.compatibleCofractions bac (fst rule')
+  && uncurry (Fraction.compatibleCofractionsFractions bac) rule'
   where
   rule' = rule |> both (fmap (both (getArrow2 .> BAC.symbol2)))
 
-addMorphism :: Node -> Node -> ChainRule -> String -> PrefixBAC -> Maybe (PrefixBAC, Chain -> Chain)
+addMorphism :: Node -> Node -> DivisionRule -> String -> PrefixBAC -> Maybe (PrefixBAC, Chain -> Chain)
 addMorphism (Node src_arr) (Node tgt_arr) rule str pbac@(PrefixBAC bac) = do
   guard $ null $ searchString pbac str
   guard $ BAC.symbol src_arr /= BAC.base

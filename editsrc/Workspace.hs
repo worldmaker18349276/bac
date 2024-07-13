@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# LANGUAGE TupleSections #-}
 
 module Workspace where
 
@@ -723,30 +724,65 @@ alterEdge workspace@(Workspace { bac }) =
             |> updateBufferBy (updater .> return)
     _ -> return $ Left ["should be an edge"]
 
+data AlternativePathOptionSlot = AlternativePathOptionSlot Chain Chain Chain
+
+instance Show AlternativePathOptionSlot where
+  show (AlternativePathOptionSlot chain1 chain2 chain3) =
+    concat (Prefix.getStrings chain1)
+    ++ " * " ++ concat (Prefix.getStrings chain2)
+    ++ " ~ " ++ concat (Prefix.getStrings chain3)
+
 removeMorphism :: Control m => Workspace -> m (Either [String] Workspace)
 removeMorphism workspace@(Workspace { bac }) =
   case getBuffers workspace of
     [Right chain] | Prefix.isNondecomposable chain -> do
-      strs <- inputTokens bac 2
-      let [str1, str2] = strs
-      case Prefix.removeMorphism chain (str1, str2) bac of
-        Nothing -> return $ Left ["fail to remove a morphism"]
-        Just (bac', updater) ->
-          return $ Right $
-            workspace { bac = bac' }
-            |> updateBufferBy updater
+      let (chains1, chains2) = Prefix.needAlternativePathsBeforeRemovingMorphism bac chain |> fromJust
+      if notNull chains1 || notNull chains2 then
+        return $ Left $
+          chains1 ++ chains2 |> fmap (Prefix.getStrings .> concat) |> ("need to add direct edges:" :)
+      else do
+        let str = head $ Prefix.getStrings chain
+        let (altss1, altss2) = Prefix.getAlternativeRules bac chain |> fromJust
+        let optionss1 = altss1 |> fmap \(chains, chain) -> chains |> fmap (, chain)
+        let optionss2 = altss2 |> fmap \(chains, chain) -> chains |> fmap (, chain)
+        alts1 <- optionss1 |> traverse (
+          fmap (\(chain3, chain1) -> AlternativePathOptionSlot chain1 chain chain3)
+          .> inputSelection "select an incoming alternative rule:"
+          .> fmap \(AlternativePathOptionSlot chain1 _ chain3) -> (chain3, chain1))
+        alts2 <- optionss2 |> traverse (
+          fmap (\(chain3, chain2) -> AlternativePathOptionSlot chain chain2 chain3)
+          .> inputSelection "select an outgoing alternative rule:"
+          .> fmap \(AlternativePathOptionSlot _ chain2 chain3) -> (chain3, chain2))
+        case Prefix.removeMorphism chain (alts1, alts2) bac of
+          Nothing -> return $ Left ["fail to remove a morphism"]
+          Just (bac', updater) ->
+            return $ Right $
+              workspace { bac = bac' }
+              |> updateBufferBy updater
     _ -> return $ Left ["should be a nondecomposable edge"]
 
 removeObject :: Control m => Workspace -> m (Either [String] Workspace)
 removeObject workspace@(Workspace { bac }) =
   case getBuffers workspace of
-    [Right chain] | isProperObject chain ->
-      case Prefix.removeObject (Prefix.source chain) bac of
-        Nothing -> return $ Left ["fail to remove an object"]
-        Just (bac', updater) ->
-          return $ Right $
-            workspace { bac = bac' }
-            |> updateBufferBy updater
+    [Right chain] | isProperObject chain -> do
+      let node = Prefix.source chain
+      let chains = Prefix.needAlternativePathsBeforeRemovingObject bac node
+      if notNull chains then
+        return $ Left $
+          chains |> fmap (Prefix.getStrings .> concat) |> ("need to add direct edges:" :)
+      else do
+        let altss = Prefix.getObjectAlternativeRules bac node
+        let optionss = altss |> fmap \(chains, chain2) -> chains |> fmap (, chain2)
+        alts <- optionss |> traverse (
+          fmap (\(chain3, (chain1, chain2)) -> AlternativePathOptionSlot chain1 chain2 chain3)
+          .> inputSelection "select an alternative rule:"
+          .> fmap \(AlternativePathOptionSlot chain1 chain2 chain3) -> (chain3, (chain1, chain2)))
+        case Prefix.removeObject (Prefix.source chain) alts bac of
+          Nothing -> return $ Left ["fail to remove an object"]
+          Just (bac', updater) ->
+            return $ Right $
+              workspace { bac = bac' }
+              |> updateBufferBy updater
     _ -> return $ Left ["should be a node"]
 
 addObject :: Control m => Workspace -> m (Either [String] Workspace)
@@ -983,12 +1019,12 @@ addMorphism workspace@(Workspace { bac }) =
     _ -> return $ Left ["should be two nodes or a chain"]
   where
   go node1 node2 =
-    case Prefix.getPossibleChainRules bac node1 node2 of
+    case Prefix.getPossibleDivisionRules bac node1 node2 of
       Nothing ->
         return $ Left ["cannot add a morphism"]
       Just (optionss1, optionss2) -> do
         str <- inputToken bac
-        -- TODO: shrink options by compatibleChainRule
+        -- TODO: shrink options by compatibleDivisionRule
         cofractions <- optionss1 |> traverse \options1 ->
           options1
           |> fmap (CofractionOptionSlot str)
@@ -999,7 +1035,7 @@ addMorphism workspace@(Workspace { bac }) =
           |> fmap (FractionOptionSlot str)
           |> inputSelection "select a fraction rule:"
           |> fmap \(FractionOptionSlot _ opt) -> opt
-        if not (Prefix.compatibleChainRule bac (cofractions, fractions)) then
+        if not (Prefix.compatibleDivisionRule bac (cofractions, fractions)) then
           return $ Left ["invalid rules"]
         else
           case Prefix.addMorphism node1 node2 (cofractions, fractions) str bac of

@@ -75,6 +75,7 @@ library
         BAC.Fundamental.Restructure,
         BAC.Fundamental.Remove,
         BAC.Fundamental.Add,
+        BAC.Fundamental.Fraction,
         BAC.Fundamental.Duplicate,
         BAC.Fundamental.Split,
         BAC.Fundamental.Merge,

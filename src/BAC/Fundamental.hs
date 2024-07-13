@@ -11,6 +11,10 @@ module BAC.Fundamental (
 
   module BAC.Fundamental.Add,
 
+  -- * Fraction #fraction#
+
+  module BAC.Fundamental.Fraction,
+
   -- * Duplicate #duplicate#
 
   module BAC.Fundamental.Duplicate,
@@ -31,6 +35,7 @@ module BAC.Fundamental (
 import BAC.Fundamental.Restructure
 import BAC.Fundamental.Remove
 import BAC.Fundamental.Add
+import BAC.Fundamental.Fraction
 import BAC.Fundamental.Duplicate
 import BAC.Fundamental.Split
 import BAC.Fundamental.Merge
