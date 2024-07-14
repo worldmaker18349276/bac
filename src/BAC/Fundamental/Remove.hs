@@ -31,10 +31,10 @@ import Utils.Utils ((|>), (.>))
 
 
 {- |
-Find all relative nondecomposable morphisms relative to a morphism which are outgoing
-morphism of the source of such morphism, where the second parameter @(src, tgt) ::
-(Symbol, Symbol)@ indicates the relative morphism.
-Relative nondecomposable morphism can only be decomposed into non-trivial 2-chain
+Find all morphism-relative nondecomposable morphisms which are outgoing morphism of the
+source of such morphism, where the second parameter @(src, tgt) :: (Symbol, Symbol)@
+indicates the relative morphism.
+Morphism-relative nondecomposable morphism can only be decomposed into non-trivial 2-chain
 containing the relative morphism, and will become nondecomposable after removing it.
 
 Examples:
@@ -66,9 +66,9 @@ relativeNondecomposablesOutgoing node (src_sym, tgt_sym) = do
   return (src_sym, alt_sym)
 
 {- |
-Find all relative nondecomposable morphisms relative to a morphism which are incoming
-morphism of the target of such morphism, where the second parameter @(src, tgt) ::
-(Symbol, Symbol)@ indicates the relative morphism.
+Find all morphism-relative nondecomposable morphisms which are incoming morphism of the
+target of such morphism, where the second parameter @(src, tgt) :: (Symbol, Symbol)@
+indicates the relative morphism.
 
 Examples:
 
@@ -193,9 +193,9 @@ removeNDSymbolOnRoot tgt = removeNDSymbol (base, tgt)
 
 
 {- |
-Find all relative nondecomposable morphisms relative to an object, where the second
-parameter @src :: Symbol@ indicates the relative object.
-Relative nondecomposable morphism can only be decomposed into non-trivial 2-chain
+Find all object-relative nondecomposable morphisms, where the second parameter @src ::
+Symbol@ indicates the relative object.
+Object-relative nondecomposable morphism can only be decomposed into non-trivial 2-chain
 containing the relative object, and will become nondecomposable after removing it.
 
 Examples:
@@ -241,18 +241,6 @@ Root node cannot be removed.  The direct edges for relative morphisms should be 
 before removing, which can be determined by 'relativeNondecomposables''.
 
 Examples:
-
-[1;2;]
-  [1;]
-    &0
-[3;4;2;6;4;]
-  [1;2;3;]
-    &1
-    [1;]
-      *0
-    [2;]
-  [4;2;3;]
-    *1
 
 >>> printBAC $ cone |> addEdge (0,4) () |> fromJust |> removeNode 3 |> fromJust
 [4;2;6;]

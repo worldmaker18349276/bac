@@ -1,5 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 module Utils where
+import Control.Monad.Except (MonadError (throwError))
 
 infixl 1 |>
 (|>) :: a -> (a -> b) -> b
@@ -29,7 +30,7 @@ splice :: Int -> Int -> [a] -> [a] -> [a]
 splice from to elems list = rangeTo from list ++ elems ++ rangeFrom to list
 
 foldl1M :: Monad m => (a -> a -> m a) -> [a] -> m a
-foldl1M f = fmap return .> foldl1 \a b -> do { a <- a; b <- b; f a b }
+foldl1M f = fmap pure .> foldl1 \a b -> do { a <- a; b <- b; f a b }
 
 allSameBy :: (a -> a -> Bool) -> [a] -> Bool
 allSameBy _ [] = True
@@ -43,3 +44,9 @@ untilRightM :: Monad m => (a -> Either (m a) b) -> a -> m b
 untilRightM next val = case next val of
   Right val -> return val
   Left val' -> val' >>= untilRightM next
+
+(??) :: MonadError e m => Maybe a -> e -> m a
+Nothing ?? e = throwError e
+Just a ?? _ = return a
+
+infixl 7 ??

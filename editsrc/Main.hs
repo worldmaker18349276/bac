@@ -29,8 +29,8 @@ safeReadFile path =
 newtype FileAccess a = FileAccess (IO a) deriving (Functor, Applicative, Monad)
 
 instance FileAccessControl FileAccess where
-  save filepath contents = safeWriteFile filepath contents |> FileAccess |> ExceptT
-  open filepath = safeReadFile filepath |> FileAccess |> ExceptT
+  writeString filepath contents = safeWriteFile filepath contents |> FileAccess |> ExceptT
+  readString filepath = safeReadFile filepath |> FileAccess |> ExceptT
 
 initialize :: Maybe String -> Maybe String -> IO Editor
 initialize bac_path bank_path = do

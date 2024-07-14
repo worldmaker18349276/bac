@@ -200,10 +200,10 @@ instance InputControl SeriesOperationState where
     ExceptT $ NextInput $ InputPartitionState hint return (fmap (: []) partition) 0
 
 instance FileAccessControl SeriesOperationState where
-  save :: FilePath -> String -> ExceptT [String] SeriesOperationState ()
-  save filepath contents = ExceptT $ NextFileAccess $ FileSaveState return contents filepath
-  open :: FilePath -> ExceptT [String] SeriesOperationState String
-  open filepath = ExceptT $ NextFileAccess $ FileOpenState return filepath
+  writeString :: FilePath -> String -> ExceptT [String] SeriesOperationState ()
+  writeString filepath contents = ExceptT $ NextFileAccess $ FileSaveState return contents filepath
+  readString :: FilePath -> ExceptT [String] SeriesOperationState String
+  readString filepath = ExceptT $ NextFileAccess $ FileOpenState return filepath
 
 extractInput :: InputState a -> a
 extractInput (InputStringState _ callback val _) = callback (Either.Right val)
@@ -278,9 +278,9 @@ updateFileAccessState ::
 updateFileAccessState state = do
   res <- case state of
     FileSaveState callback contents filepath ->
-      save filepath contents |> runExceptT |> fmap callback
+      writeString filepath contents |> runExceptT |> fmap callback
     FileOpenState callback filepath ->
-      open filepath |> runExceptT |> fmap callback
+      readString filepath |> runExceptT |> fmap callback
   case res of
     SeriesOperationFinish r -> return $ Either.Right r
     NextInput state -> return $ Either.Left state

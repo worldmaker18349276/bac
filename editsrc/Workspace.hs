@@ -6,7 +6,7 @@
 
 module Workspace where
 
-import Control.Monad (guard, when)
+import Control.Monad (guard, when, unless)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
 import Data.Bifunctor (first)
 import Data.Char (isPrint)
@@ -39,7 +39,7 @@ data Workspace = Workspace {
 }
 
 emptyWorkspace :: Workspace
-emptyWorkspace = 
+emptyWorkspace =
   Workspace {
     bac_filepath = Nothing,
     bank_filepath = Nothing,
@@ -54,8 +54,8 @@ class Monad m => InputControl m where
   inputPartition :: Show a => String -> [a] -> ExceptT [String] m [[a]]
 
 class Monad m => FileAccessControl m where
-  save :: FilePath -> String -> ExceptT [String] m ()
-  open :: FilePath -> ExceptT [String] m String
+  writeString :: FilePath -> String -> ExceptT [String] m ()
+  readString :: FilePath -> ExceptT [String] m String
 
 data WorkspaceAction =
     MoveUp
@@ -110,6 +110,8 @@ data WorkspaceAction =
   | OpenBACFrom
   | OpenBankFrom
   | AppendBankFrom
+  | ShowContents
+  | RefineContents
   deriving (Show, Enum, Bounded)
 
 
@@ -166,6 +168,8 @@ runWorkspaceAction SaveBankAs = saveBankAs
 runWorkspaceAction OpenBACFrom = openBACFrom
 runWorkspaceAction OpenBankFrom = openBankFrom
 runWorkspaceAction AppendBankFrom = appendBankFrom
+runWorkspaceAction ShowContents = showContents .> return
+runWorkspaceAction RefineContents = refineContents .> return
 
 
 cursorAt :: Int -> Int -> Cursor
@@ -612,8 +616,8 @@ swingRight workspace@(Workspace { bac, cursor, bank })
   split i chain = fromJust $ Prefix.split i chain
 
 
-updateBufferBy :: (Chain -> [Chain]) -> Workspace -> Workspace
-updateBufferBy updater workspace@(Workspace { bac, bank, cursor }) =
+updateBankBy :: (Chain -> [Chain]) -> Workspace -> Workspace
+updateBankBy updater workspace@(Workspace { bac, bank, cursor }) =
   workspace { bank = concat bank', cursor = cursorAt line' 0 }
   where
   bank' = bank |> fmap \case
@@ -643,52 +647,52 @@ inputToken :: InputControl m => PrefixBAC -> ExceptT [String] m String
 inputToken bac = do
   str <- inputString "input a token:"
   str |> untilRightM \str -> do
-      let tokens = split (== ' ') str |> filter notNull
-      if length tokens /= 1 then
-        Left $ inputString "input a token: (invalid token, try again)"
-      else
-        head tokens
-        |> Prefix.searchString bac
-        |> fmap (Prefix.recover (head tokens))
-        |> listToMaybe
-        |> maybe (return $ head tokens) \token ->
-          Left $ inputString $
-            "input a token: (conflict with " ++ token ++ ", try again)"
+    let tokens = split (== ' ') str |> filter notNull
+    if length tokens /= 1 then
+      Left $ inputString "input a token: (invalid token, try again)"
+    else
+      head tokens
+      |> Prefix.searchString bac
+      |> fmap (Prefix.recover (head tokens))
+      |> listToMaybe
+      |> maybe (return $ head tokens) \token ->
+        Left $ inputString $
+          "input a token: (conflict with " ++ token ++ ", try again)"
 
 inputTokenExcept :: InputControl m => PrefixBAC -> String -> ExceptT [String] m String
 inputTokenExcept bac str0 = do
   str <- inputString "input a token:"
   str |> untilRightM \strs -> do
-      let tokens = split (== ' ') strs |> filter notNull
-      if length tokens /= 1 then
-        Left $ inputString "input a token: (invalid token, try again)"
-      else
-        head tokens
-        |> Prefix.searchString bac
-        |> fmap (Prefix.recover (head tokens))
-        |> filter (/= str0)
-        |> listToMaybe
-        |> maybe (return $ head tokens) \token ->
-          Left $ inputString $
-            "input a token: (conflict with " ++ token ++ ", try again)"
+    let tokens = split (== ' ') strs |> filter notNull
+    if length tokens /= 1 then
+      Left $ inputString "input a token: (invalid token, try again)"
+    else
+      head tokens
+      |> Prefix.searchString bac
+      |> fmap (Prefix.recover (head tokens))
+      |> filter (/= str0)
+      |> listToMaybe
+      |> maybe (return $ head tokens) \token ->
+        Left $ inputString $
+          "input a token: (conflict with " ++ token ++ ", try again)"
 
 inputTokens :: InputControl m => PrefixBAC -> Int -> ExceptT [String] m [String]
 inputTokens bac n = do
   strs <- inputString $ "input " ++ show n ++ " tokens:"
   strs |> untilRightM \strs -> do
-      let tokens = split (== ' ') strs |> filter notNull
-      if length tokens /= n then
-        Left $ inputString $ "input " ++ show n ++ " tokens: (invalid tokens, try again)"
-      else
-        tokens
-        |> map (Prefix.searchString bac)
-        |> zip tokens
-        |> concatMap sequence
-        |> fmap (uncurry Prefix.recover)
-        |> listToMaybe
-        |> maybe (return tokens) \token ->
-          Left $ inputString $
-            "input " ++ show n ++ " tokens: (conflict with" ++ token ++ ", try again)"
+    let tokens = split (== ' ') strs |> filter notNull
+    if length tokens /= n then
+      Left $ inputString $ "input " ++ show n ++ " tokens: (invalid tokens, try again)"
+    else
+      tokens
+      |> map (Prefix.searchString bac)
+      |> zip tokens
+      |> concatMap sequence
+      |> fmap (uncurry Prefix.recover)
+      |> listToMaybe
+      |> maybe (return tokens) \token ->
+        Left $ inputString $
+          "input " ++ show n ++ " tokens: (conflict with " ++ token ++ ", try again)"
 
 
 divideLeft :: Workspace -> ([String], Workspace)
@@ -732,46 +736,40 @@ fallback workspace = runExceptT .> fmap \case
   Right res -> ([], res)
 
 addEdge :: InputControl m => Workspace -> m ([String], Workspace)
-addEdge workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | Prefix.length chain > 0 -> do
-        str <- inputToken bac
-        case Prefix.addEdge chain str bac of
-          Nothing -> throwE ["fail to add an edge"]
-          Just (bac', updater) ->
-            return $
-              workspace { bac = bac' }
-              |> updateBufferBy (updater .> return)
-              |> insertResult [Right $ fromJust $ Prefix.fromString bac' str]
-      _ -> throwE ["should be a chain"]
+addEdge workspace@(Workspace { bac }) = fallback workspace do
+  chain <- case getBankRange workspace of
+    [Right chain] | Prefix.length chain > 0 -> return chain
+    _ -> throwE ["should be a chain"]
+  str <- inputToken bac
+  (bac', updater) <- Prefix.addEdge chain str bac
+    ?? ["fail to add an edge"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy (updater .> return)
+    |> insertResult [Right $ fromJust $ Prefix.fromString bac' str]
 
 removeEdge :: InputControl m => Workspace -> m ([String], Workspace)
-removeEdge workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | Prefix.length chain == 1 ->
-        case Prefix.removeEdge chain bac of
-          Nothing -> throwE ["fail to remove an edge"]
-          Just (bac', updater) ->
-            return $
-              workspace { bac = bac' }
-              |> updateBufferBy (updater .> maybeToList)
-      _ -> throwE ["should be an edge"]
+removeEdge workspace@(Workspace { bac }) = fallback workspace do
+  chain <- case getBankRange workspace of
+    [Right chain] | Prefix.length chain == 1 -> return chain
+    _ -> throwE ["should be an edge"]
+  (bac', updater) <- Prefix.removeEdge chain bac
+    ?? ["fail to remove an edge"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy (updater .> maybeToList)
 
 alterEdge :: InputControl m => Workspace -> m ([String], Workspace)
-alterEdge workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | Prefix.length chain == 1 -> do
-        str <- inputTokenExcept bac (head $ Prefix.getStrings chain)
-        case Prefix.alterEdge chain str bac of
-          Nothing -> throwE ["fail to alter an edge"]
-          Just (bac', updater) ->
-            return $
-              workspace { bac = bac' }
-              |> updateBufferBy (updater .> return)
-      _ -> throwE ["should be an edge"]
+alterEdge workspace@(Workspace { bac }) = fallback workspace do
+  chain <- case getBankRange workspace of
+    [Right chain] | Prefix.length chain == 1 -> return chain
+    _ -> throwE ["should be an edge"]
+  str <- inputTokenExcept bac (head $ Prefix.getStrings chain)
+  (bac', updater) <- Prefix.alterEdge chain str bac
+    ?? ["fail to alter an edge"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy (updater .> return)
 
 data AlternativePathOptionSlot = AlternativePathOptionSlot Chain Chain Chain
 
@@ -782,90 +780,78 @@ instance Show AlternativePathOptionSlot where
     ++ " ~ " ++ concat (Prefix.getStrings chain3)
 
 removeMorphism :: InputControl m => Workspace -> m ([String], Workspace)
-removeMorphism workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | Prefix.isNondecomposable chain -> do
-        let (chains1, chains2) = Prefix.needAlternativePathsBeforeRemovingMorphism bac chain |> fromJust
-        if notNull chains1 || notNull chains2 then
-          throwE $
-            chains1 ++ chains2 |> fmap (Prefix.getStrings .> concat) |> ("need to add direct edges:" :)
-        else do
-          let str = head $ Prefix.getStrings chain
-          let (altss1, altss2) = Prefix.getAlternativeRules bac chain |> fromJust
-          let optionss1 = altss1 |> fmap \(chains, chain) -> chains |> fmap (, chain)
-          let optionss2 = altss2 |> fmap \(chains, chain) -> chains |> fmap (, chain)
-          alts1 <- optionss1 |> traverse (
-            fmap (\(chain3, chain1) -> AlternativePathOptionSlot chain1 chain chain3)
-            .> inputSelection "select an incoming alternative rule:"
-            .> fmap \(AlternativePathOptionSlot chain1 _ chain3) -> (chain3, chain1))
-          alts2 <- optionss2 |> traverse (
-            fmap (\(chain3, chain2) -> AlternativePathOptionSlot chain chain2 chain3)
-            .> inputSelection "select an outgoing alternative rule:"
-            .> fmap \(AlternativePathOptionSlot _ chain2 chain3) -> (chain3, chain2))
-          case Prefix.removeMorphism chain (alts1, alts2) bac of
-            Nothing -> throwE ["fail to remove a morphism"]
-            Just (bac', updater) ->
-              return $
-                workspace { bac = bac' }
-                |> updateBufferBy updater
-      _ -> throwE ["should be a nondecomposable edge"]
+removeMorphism workspace@(Workspace { bac }) = fallback workspace do
+  chain <- case getBankRange workspace of
+    [Right chain] | Prefix.isNondecomposable chain -> return chain
+    _ -> throwE ["should be a nondecomposable edge"]
+  let (chains1, chains2) = Prefix.needAlternativePathsBeforeRemovingMorphism bac chain |> fromJust
+  unless (null chains1 && null chains2) $
+    throwE $ chains1 ++ chains2 |> fmap (Prefix.getStrings .> concat) |> ("need direct edges:" :)
+  let str = head $ Prefix.getStrings chain
+  let (altss1, altss2) = Prefix.getAlternativeRules bac chain |> fromJust
+  let optionss1 = altss1 |> fmap \(chains, chain) -> chains |> fmap (, chain)
+  let optionss2 = altss2 |> fmap \(chains, chain) -> chains |> fmap (, chain)
+  alts1 <- optionss1 |> traverse (
+    fmap (\(chain3, chain1) -> AlternativePathOptionSlot chain1 chain chain3)
+    .> inputSelection "select an incoming alternative rule:"
+    .> fmap \(AlternativePathOptionSlot chain1 _ chain3) -> (chain3, chain1))
+  alts2 <- optionss2 |> traverse (
+    fmap (\(chain3, chain2) -> AlternativePathOptionSlot chain chain2 chain3)
+    .> inputSelection "select an outgoing alternative rule:"
+    .> fmap \(AlternativePathOptionSlot _ chain2 chain3) -> (chain3, chain2))
+  (bac', updater) <- Prefix.removeMorphism chain (alts1, alts2) bac
+    ?? ["fail to remove a morphism"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy updater
 
 removeObject :: InputControl m => Workspace -> m ([String], Workspace)
-removeObject workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | isProperObject chain -> do
-        let node = Prefix.source chain
-        let chains = Prefix.needAlternativePathsBeforeRemovingObject bac node
-        if notNull chains then
-          throwE $
-            chains |> fmap (Prefix.getStrings .> concat) |> ("need to add direct edges:" :)
-        else do
-          let altss = Prefix.getObjectAlternativeRules bac node
-          let optionss = altss |> fmap \(chains, chain2) -> chains |> fmap (, chain2)
-          alts <- optionss |> traverse (
-            fmap (\(chain3, (chain1, chain2)) -> AlternativePathOptionSlot chain1 chain2 chain3)
-            .> inputSelection "select an alternative rule:"
-            .> fmap \(AlternativePathOptionSlot chain1 chain2 chain3) -> (chain3, (chain1, chain2)))
-          case Prefix.removeObject (Prefix.source chain) alts bac of
-            Nothing -> throwE ["fail to remove an object"]
-            Just (bac', updater) ->
-              return $
-                workspace { bac = bac' }
-                |> updateBufferBy updater
-      _ -> throwE ["should be a node"]
+removeObject workspace@(Workspace { bac }) = fallback workspace do
+  chain <- case getBankRange workspace of
+    [Right chain] | isProperObject chain -> return chain
+    _ -> throwE ["should be a node"]
+  let node = Prefix.source chain
+  let chains = Prefix.needAlternativePathsBeforeRemovingObject bac node
+  unless (null chains) $
+    throwE $ chains |> fmap (Prefix.getStrings .> concat) |> ("need to add direct edges:" :)
+  let altss = Prefix.getObjectAlternativeRules bac node
+  let optionss = altss |> fmap \(chains, chain2) -> chains |> fmap (, chain2)
+  alts <- optionss |> traverse (
+    fmap (\(chain3, (chain1, chain2)) -> AlternativePathOptionSlot chain1 chain2 chain3)
+    .> inputSelection "select an alternative rule:"
+    .> fmap \(AlternativePathOptionSlot chain1 chain2 chain3) -> (chain3, (chain1, chain2)))
+  (bac', updater) <- Prefix.removeObject (Prefix.source chain) alts bac
+    ?? ["fail to remove an object"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy updater
 
 addObject :: InputControl m => Workspace -> m ([String], Workspace)
-addObject workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | Prefix.length chain == 0 -> do
-        str <- inputToken bac
-        case Prefix.addObject (Prefix.source chain) str bac of
-          Nothing -> throwE ["fail to add an object"]
-          Just (bac', updater) ->
-            return $
-              workspace { bac = bac' }
-              |> updateBufferBy (updater .> return)
-              |> insertResult [Right $ fromJust $ Prefix.fromString bac' str]
-      _ -> throwE ["should be a node"]
+addObject workspace@(Workspace { bac }) = fallback workspace do
+  chain <- case getBankRange workspace of
+    [Right chain] | Prefix.length chain == 0 -> return chain
+    _ -> throwE ["should be a node"]
+  str <- inputToken bac
+  (bac', updater) <- Prefix.addObject (Prefix.source chain) str bac
+    ?? ["fail to add an object"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy (updater .> return)
+    |> insertResult [Right $ fromJust $ Prefix.fromString bac' str]
 
 interpolateObject :: InputControl m => Workspace -> m ([String], Workspace)
-interpolateObject workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | Prefix.length chain > 0 -> do
-        strs <- inputTokens bac 2
-        let [str1, str2] = strs
-        case Prefix.interpolateObject chain (str1, str2) bac of
-          Nothing -> throwE ["fail to interpolate an object"]
-          Just (bac', updater) ->
-            return $
-              workspace { bac = bac' }
-              |> updateBufferBy (updater .> return)
-              |> insertResult [Right $ fromJust $ Prefix.fromString bac' (str1 ++ str2)]
-      _ -> throwE ["should be a chain"]
+interpolateObject workspace@(Workspace { bac }) = fallback workspace do
+  chain <- case getBankRange workspace of
+    [Right chain] | Prefix.length chain > 0 -> return chain
+    _ -> throwE ["should be a chain"]
+  strs <- inputTokens bac 2
+  let [str1, str2] = strs
+  (bac', updater) <- Prefix.interpolateObject chain (str1, str2) bac
+    ?? ["fail to interpolate an object"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy (updater .> return)
+    |> insertResult [Right $ fromJust $ Prefix.fromString bac' (str1 ++ str2)]
 
 newtype ChainOptionSlot = ChainOptionSlot Chain
 
@@ -876,107 +862,98 @@ instance Show ChainOptionSlot where
       tokens -> concat tokens
 
 splitMorphism :: InputControl m => Workspace -> m ([String], Workspace)
-splitMorphism workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | isProperMorphism chain -> do
-        let groups = Prefix.partitionPrefixesSuffixes chain
-        let options = groups |> fmap (fst .> head .> uncurry Prefix.join .> fromJust)
-        if length options < 2 then
-          throwE ["nothing can split"]
-        else do
-          partition <-
-            options
-            |> fmap ChainOptionSlot
-            |> inputPartition "partition chains to split:"
-            |> fmap (fmap (fmap \(ChainOptionSlot c) -> c))
-          if length partition == 1 then
-            throwE ["nothing to split"]
-          else
-            case Prefix.splitMorphism partition bac of
-              Nothing -> throwE ["fail to split the morphism"]
-              Just (bac', updater) ->
-                return $
-                  workspace { bac = bac' }
-                  |> updateBufferBy (updater .> return)
-      _ -> throwE ["should be a non-initial chain"]
+splitMorphism workspace@(Workspace { bac }) = fallback workspace do
+  chain <- case getBankRange workspace of
+    [Right chain] | isProperMorphism chain -> return chain
+    _ -> throwE ["should be a non-initial chain"]
+  let groups = Prefix.partitionPrefixesSuffixes chain
+  let options = groups |> fmap (fst .> head .> uncurry Prefix.join .> fromJust)
+  unless (length options > 1) $ throwE ["nothing can split"]
+  partition <-
+    options
+    |> fmap ChainOptionSlot
+    |> inputPartition "partition chains to split:"
+    |> fmap (fmap (fmap \(ChainOptionSlot c) -> c))
+  unless (length partition > 1) $ throwE ["nothing to split"]
+  (bac', updater) <- Prefix.splitMorphism partition bac
+    ?? ["fail to split the morphism"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy (updater .> return)
 
 splitObjectIncoming :: InputControl m => Workspace -> m ([String], Workspace)
-splitObjectIncoming workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | isProperObject chain -> do
-        let groups = Prefix.partitionIncoming bac (Prefix.source chain)
-        let options = fmap head groups
-        if length options < 2 then
-          throwE ["nothing can split"]
-        else do
-          partition <-
-            options
-            |> fmap ChainOptionSlot
-            |> inputPartition "partition chains to split:"
-            |> fmap (fmap (fmap \(ChainOptionSlot c) -> c))
-          if length partition == 1 then
-            throwE ["nothing to split"]
-          else do
-            strs <- inputTokens bac (length partition)
-            case Prefix.splitObjectIncoming (Prefix.source chain) (strs `zip` partition) bac of
-              Nothing -> throwE ["fail to split the morphism"]
-              Just (bac', updater) ->
-                return $
-                  workspace { bac = bac' }
-                  |> updateBufferBy updater
-      _ -> throwE ["should be a node"]
+splitObjectIncoming workspace@(Workspace { bac }) = fallback workspace do
+  chain <- case getBankRange workspace of
+    [Right chain] | isProperObject chain -> return chain
+    _ -> throwE ["should be a node"]
+  let groups = Prefix.partitionIncoming bac (Prefix.source chain)
+  let options = fmap head groups
+  unless (length options > 1) $ throwE ["nothing can split"]
+  partition <-
+    options
+    |> fmap ChainOptionSlot
+    |> inputPartition "partition chains to split:"
+    |> fmap (fmap (fmap \(ChainOptionSlot c) -> c))
+  unless (length partition > 1) $ throwE ["nothing to split"]
+  strs <- inputTokens bac (length partition)
+  (bac', updater) <- Prefix.splitObjectIncoming (Prefix.source chain) (strs `zip` partition) bac
+    ?? ["fail to split the morphism"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy updater
 
 splitObjectOutgoing :: InputControl m => Workspace -> m ([String], Workspace)
-splitObjectOutgoing workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | isProperObject chain -> do
-        let groups = Prefix.partitionOutgoing (Prefix.source chain)
-        let options = fmap head groups
-        if length options < 2 then
-          throwE ["nothing can split"]
-        else do
-          partition <-
-            options
-            |> fmap ChainOptionSlot
-            |> inputPartition "partition chains to split:"
-            |> fmap (fmap (fmap \(ChainOptionSlot c) -> c))
-          if length partition == 1 then
-            throwE ["nothing to split"]
-          else do
-            strs <- inputTokens bac (length partition)
-            case Prefix.splitObjectOutgoing (Prefix.source chain) (strs `zip` partition) bac of
-              Nothing -> throwE ["fail to split the morphism"]
-              Just (bac', updater) ->
-                return $
-                  workspace { bac = bac' }
-                  |> updateBufferBy updater
-      _ -> throwE ["should be a node"]
+splitObjectOutgoing workspace@(Workspace { bac }) = fallback workspace do
+  chain <- case getBankRange workspace of
+    [Right chain] | isProperObject chain -> return chain
+    _ -> throwE ["should be a node"]
+  let groups = Prefix.partitionOutgoing (Prefix.source chain)
+  let options = fmap head groups
+  unless (length options > 1) $ throwE ["nothing can split"]
+  partition <-
+    options
+    |> fmap ChainOptionSlot
+    |> inputPartition "partition chains to split:"
+    |> fmap (fmap (fmap \(ChainOptionSlot c) -> c))
+  unless (length partition > 1) $ throwE ["nothing to split"]
+  strs <- inputTokens bac (length partition)
+  (bac', updater) <- Prefix.splitObjectOutgoing (Prefix.source chain) (strs `zip` partition) bac
+    ?? ["fail to split the morphism"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy updater
 
 mergeMorphisms :: InputControl m => Workspace -> m ([String], Workspace)
-mergeMorphisms workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | isProperMorphism chain -> do
-        let groups = Prefix.findMergableChains bac chain
-        let options = groups |> filter ((==~ chain) .> not)
-        if null options then
-          throwE ["nothing can merge"]
-        else do
-          chain' <-
-            options
-            |> fmap ChainOptionSlot
-            |> inputSelection "select a chain to merge:"
-            |> fmap \(ChainOptionSlot c) -> c
-          case Prefix.mergeMorphsisms [chain, chain'] bac of
-            Nothing -> throwE ["fail to merge morphisms"]
-            Just (bac', updater) ->
-              return $
-                workspace { bac = bac' }
-                |> updateBufferBy (updater .> return)
-      _ -> throwE ["should be a non-initial chain"]
+mergeMorphisms workspace@(Workspace { bac }) = fallback workspace do
+  slots <- case getBankRange workspace of
+    slots | notNull slots && all (either (const False) isProperMorphism) slots -> return slots
+    _ -> throwE ["should be non-initial chains"]
+  let chains = slots |> fmap fromRight
+  let groups = Prefix.findMergableChains bac (head chains)
+
+  (chain1, chain2) <- case chains of
+    [chain] -> do
+      let options = groups |> filter ((==~ chain) .> not)
+      unless (notNull options) $ throwE ["nothing can merge"]
+      chain' <-
+        options
+        |> fmap ChainOptionSlot
+        |> inputSelection "select a chain to merge:"
+        |> fmap \(ChainOptionSlot c) -> c
+      return (chain, chain')
+    [chain1, chain2] -> do
+      when (chain1 ==~ chain2) $
+        throwE ["two chains are the same morphism"]
+      unless (groups |> any (==~ chain2)) $
+        throwE ["cannot merge those morphisms"]
+      return (chain1, chain2)
+    _ -> throwE ["too many morphisms to merge"]
+
+  (bac', updater) <- Prefix.mergeMorphsisms [chain1, chain2] bac
+    ?? ["fail to merge morphisms"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy (updater .> return)
 
 newtype ZipOptionSlot = ZipOptionSlot [(Chain, Chain)]
 
@@ -988,140 +965,151 @@ instance Show ZipOptionSlot where
     |> concatMap \(s1, s2) -> s1 ++ " ~ " ++ s2 ++ "; "
 
 mergeObjectsOutgoing :: InputControl m => Workspace -> m ([String], Workspace)
-mergeObjectsOutgoing workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | isProperObject chain -> do
-        let node = Prefix.source chain
-        let groups = Prefix.findIncomingZippableObjects bac node
-        let options = groups |> fmap fst |> filter ((==- node) .> not)
-        if null options then
-          throwE ["nothing can merge"]
-        else do
-          node' <-
-            options
-            |> fmap (Prefix.id .> ChainOptionSlot)
-            |> inputSelection "select a node to merge:"
-            |> fmap \(ChainOptionSlot c) -> Prefix.source c
-          let incomings = groups |> find (fst .> (==- node)) |> fromJust |> snd |> head
-          let options = groups |> find (fst .> (==- node')) |> fromJust |> snd
-          incomings' <-
-            options
-            |> fmap (zip incomings .> ZipOptionSlot)
-            |> inputSelection "select a zip strategy:"
-            |> fmap \(ZipOptionSlot opt) -> fmap snd opt
-          case Prefix.mergeObjectsOutgoing [(node, incomings), (node', incomings')] bac of
-            Nothing -> throwE ["fail to merge objects"]
-            Just (bac', updater) ->
-              return $
-                workspace { bac = bac' }
-                |> updateBufferBy (updater .> return)
-      _ -> throwE ["should be a node"]
+mergeObjectsOutgoing workspace@(Workspace { bac }) = fallback workspace do
+  slots <- case getBankRange workspace of
+    slots | notNull slots && all (either (const False) isProperObject) slots -> return slots
+    _ -> throwE ["should be nodes"]
+  let nodes = slots |> fmap (fromRight .> Prefix.source)
+  let groups = Prefix.findIncomingZippableObjects bac (head nodes)
+
+  (node1, node2) <- case nodes of
+    [node] -> do
+      let options = groups |> fmap fst |> filter ((==- node) .> not)
+      unless (notNull options) $ throwE ["nothing can merge"]
+      node' <-
+        options
+        |> fmap (Prefix.id .> ChainOptionSlot)
+        |> inputSelection "select a node to merge:"
+        |> fmap \(ChainOptionSlot c) -> Prefix.source c
+      return (node, node')
+    [node1, node2] -> do
+      when (node1 ==- node2) $
+        throwE ["two nodes are the same object"]
+      unless (groups |> fmap fst |> any (==- node2)) $
+        throwE ["cannot merge those objects"]
+      return (node1, node2)
+    _ -> throwE ["too many nodes to merge"]
+
+  let incomings1 = groups |> find (fst .> (==- node1)) |> fromJust |> snd |> head
+  let options = groups |> find (fst .> (==- node2)) |> fromJust |> snd
+  incomings2 <-
+    options
+    |> fmap (zip incomings1 .> ZipOptionSlot)
+    |> inputSelection "select a zip strategy:"
+    |> fmap \(ZipOptionSlot opt) -> fmap snd opt
+
+  (bac', updater) <- Prefix.mergeObjectsOutgoing [(node1, incomings1), (node2, incomings2)] bac
+    ?? ["fail to merge objects"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy (updater .> return)
 
 mergeObjectsIncoming :: InputControl m => Workspace -> m ([String], Workspace)
-mergeObjectsIncoming workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | isProperObject chain -> do
-        let node = Prefix.source chain
-        let groups = Prefix.findOutgoingZippableObjects bac node
-        let options = groups |> fmap fst |> filter ((==- node) .> not)
-        if null options then
-          throwE ["nothing can merge"]
-        else do
-          node' <-
-            options
-            |> fmap (Prefix.id .> ChainOptionSlot)
-            |> inputSelection "select a node to merge:"
-            |> fmap \(ChainOptionSlot c) -> Prefix.source c
-          let outgoings = groups |> find (fst .> (==- node)) |> fromJust |> snd |> head
-          let options = groups |> find (fst .> (==- node')) |> fromJust |> snd
-          outgoings' <-
-            options
-            |> fmap (zip outgoings .> ZipOptionSlot)
-            |> inputSelection "select a zip strategy:"
-            |> fmap \(ZipOptionSlot opt) -> fmap snd opt
-          case Prefix.mergeObjectsIncoming [(node, outgoings), (node', outgoings')] bac of
-            Nothing -> throwE ["fail to merge objects"]
-            Just (bac', updater) ->
-              return $
-                workspace { bac = bac' }
-                |> updateBufferBy (updater .> return)
-      _ -> throwE ["should be a node"]
+mergeObjectsIncoming workspace@(Workspace { bac }) = fallback workspace do
+  slots <- case getBankRange workspace of
+    slots | notNull slots && all (either (const False) isProperObject) slots -> return slots
+    _ -> throwE ["should be nodes"]
+  let nodes = slots |> fmap (fromRight .> Prefix.source)
+  let groups = Prefix.findOutgoingZippableObjects bac (head nodes)
 
-data CofractionOptionSlot = CofractionOptionSlot String (Chain, Chain)
+  (node1, node2) <- case nodes of
+    [node] -> do
+      let options = groups |> fmap fst |> filter ((==- node) .> not)
+      unless (notNull options) $ throwE ["nothing can merge"]
+      node' <-
+        options
+        |> fmap (Prefix.id .> ChainOptionSlot)
+        |> inputSelection "select a node to merge:"
+        |> fmap \(ChainOptionSlot c) -> Prefix.source c
+      return (node, node')
+    [node1, node2] -> do
+      when (node1 ==- node2) $
+        throwE ["two nodes are the same object"]
+      unless (groups |> fmap fst |> any (==- node2)) $
+        throwE ["cannot merge those objects"]
+      return (node1, node2)
+    _ -> throwE ["too many nodes to merge"]
+
+  let outgoings1 = groups |> find (fst .> (==- node1)) |> fromJust |> snd |> head
+  let options = groups |> find (fst .> (==- node2)) |> fromJust |> snd
+  outgoings2 <-
+    options
+    |> fmap (zip outgoings1 .> ZipOptionSlot)
+    |> inputSelection "select a zip strategy:"
+    |> fmap \(ZipOptionSlot opt) -> fmap snd opt
+
+  (bac', updater) <- Prefix.mergeObjectsIncoming [(node1, outgoings1), (node2, outgoings2)] bac
+    ?? ["fail to merge objects"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy (updater .> return)
+
+data CofractionOptionSlot = CofractionOptionSlot String Prefix.Cofraction
 
 instance Show CofractionOptionSlot where
   show (CofractionOptionSlot str (chain1, chain2)) =
     concat (Prefix.getStrings chain2) ++ " * " ++ str ++ " ~ " ++ concat (Prefix.getStrings chain1)
 
-data FractionOptionSlot = FractionOptionSlot String (Chain, Chain)
+data FractionOptionSlot = FractionOptionSlot String Prefix.Fraction
 
 instance Show FractionOptionSlot where
   show (FractionOptionSlot str (chain1, chain2)) =
     str ++ " * " ++ concat (Prefix.getStrings chain2) ++ " ~ " ++ concat (Prefix.getStrings chain1)
 
 addMorphism :: InputControl m => Workspace -> m ([String], Workspace)
-addMorphism workspace@(Workspace { bac }) =
-  fallback workspace $
-    case getBankRange workspace of
-      [Right chain] | isProperMorphism chain -> do
-        go (Prefix.source chain) (Prefix.target chain)
-      [Right chain1, Right chain2] | isProperObject chain1 && isProperObject chain2 ->
-        let
-          node1 = Prefix.source chain1
-          node2 = Prefix.source chain2
-        in
-          if notNull $ fromJust $ Prefix.init bac node2 `Prefix.dividel` Prefix.init bac node1 then
-            throwE ["invalid node order to add morphism"]
-          else
-            go node1 node2
-      _ -> throwE ["should be two nodes or a chain"]
-    where
-    go node1 node2 =
-      case Prefix.getPossibleDivisionRules bac node1 node2 of
-        Nothing ->
-          throwE ["cannot add a morphism"]
-        Just (optionss1, optionss2) -> do
-          str <- inputToken bac
-          -- TODO: shrink options by compatibleDivisionRule
-          cofractions <- optionss1 |> traverse \options1 ->
-            options1
-            |> fmap (CofractionOptionSlot str)
-            |> inputSelection "select a cofraction rule:"
-            |> fmap \(CofractionOptionSlot _ opt) -> opt
-          fractions <- optionss2 |> traverse \options2 ->
-            options2
-            |> fmap (FractionOptionSlot str)
-            |> inputSelection "select a fraction rule:"
-            |> fmap \(FractionOptionSlot _ opt) -> opt
-          if not (Prefix.compatibleDivisionRule bac (cofractions, fractions)) then
-            throwE ["invalid rules"]
-          else
-            case Prefix.addMorphism node1 node2 (cofractions, fractions) str bac of
-              Nothing -> throwE ["fail to add a morphism"]
-              Just (bac', updater) ->
-                return $
-                  workspace { bac = bac' }
-                  |> updateBufferBy (updater .> return)
-                  |> insertResult [Right $ fromJust $ Prefix.fromString bac' str]
+addMorphism workspace@(Workspace { bac }) = fallback workspace do
+  (node1, node2) <- case getBankRange workspace of
+    [Right chain] | isProperMorphism chain ->
+      return (Prefix.source chain, Prefix.target chain)
+    [Right chain1, Right chain2] | isProperObject chain1 && isProperObject chain2 -> do
+      let node1 = Prefix.source chain1
+      let node2 = Prefix.source chain2
+      unless (null $ fromJust $ Prefix.init bac node2 `Prefix.dividel` Prefix.init bac node1) $
+        throwE ["invalid node order to add morphism"]
+      return (node1, node2)
+    _ -> throwE ["should be two nodes or a chain"]
+
+  (optionss1, optionss2) <- Prefix.getPossibleDivisionRules bac node1 node2
+    ?? ["cannot add a morphism"]
+
+  str <- inputToken bac
+
+  -- TODO: shrink options by compatibleDivisionRule
+  cofractions <- optionss1 |> traverse \options1 ->
+    options1
+    |> fmap (CofractionOptionSlot str)
+    |> inputSelection "select a cofraction rule:"
+    |> fmap \(CofractionOptionSlot _ opt) -> opt
+  fractions <- optionss2 |> traverse \options2 ->
+    options2
+    |> fmap (FractionOptionSlot str)
+    |> inputSelection "select a fraction rule:"
+    |> fmap \(FractionOptionSlot _ opt) -> opt
+  unless (Prefix.compatibleDivisionRule bac (cofractions, fractions)) $
+    throwE ["invalid rules"]
+  (bac', updater) <- Prefix.addMorphism node1 node2 (cofractions, fractions) str bac
+    ?? ["fail to add a morphism"]
+  return $
+    workspace { bac = bac' }
+    |> updateBankBy (updater .> return)
+    |> insertResult [Right $ fromJust $ Prefix.fromString bac' str]
 
 
 writeBAC :: FileAccessControl m => FilePath -> Workspace -> ExceptT [String] m Workspace
 writeBAC filepath workspace@(Workspace { bac }) = do
   let contents = BAC.serializeWithValue id (Prefix.getBAC bac)
-  _ <- save filepath contents
+  _ <- writeString filepath contents
   return workspace { bac_filepath = Just filepath }
 
 writeBank :: FileAccessControl m => FilePath -> Workspace -> ExceptT [String] m Workspace
 writeBank filepath workspace@(Workspace { bank }) = do
   let contents = bank |> fmap slotToString |> intercalate "\n"
-  _ <- save filepath contents
+  _ <- writeString filepath contents
   return workspace { bank_filepath = Just filepath }
 
 readBAC :: FileAccessControl m => FilePath -> Workspace -> ExceptT [String] m Workspace
 readBAC filepath workspace = do
-  contents <- open filepath
+  contents <- readString filepath
   case BAC.deserializeWithValue Just contents of
     Left err -> throwE ["fail to parse bac: " ++ show err]
     Right bac -> case Prefix.fromBAC bac of
@@ -1130,13 +1118,13 @@ readBAC filepath workspace = do
 
 readBank :: FileAccessControl m => FilePath -> Workspace -> ExceptT [String] m Workspace
 readBank filepath workspace@(Workspace { bac }) = do
-  contents <- open filepath
+  contents <- readString filepath
   let bank = contents |> split (== '\n') |> fmap (slotFromString bac)
   return workspace { bank = bank, bank_filepath = Just filepath }
 
 readBankAppend :: FileAccessControl m => FilePath -> Workspace -> ExceptT [String] m Workspace
 readBankAppend filepath workspace@(Workspace { bac, bank }) = do
-  contents <- open filepath
+  contents <- readString filepath
   let bank' = contents |> split (== '\n') |> fmap (slotFromString bac)
   return workspace { bank = bank ++ bank' }
 
@@ -1192,35 +1180,47 @@ askSaveAll workspace@(Workspace { bac_filepath, bank_filepath }) = do
 
 saveBACAs :: (FileAccessControl m, InputControl m) => Workspace -> m ([String], Workspace)
 saveBACAs workspace = do
-  res <- runExceptT $ inputString "file path:"
+  res <- runExceptT $ inputString "save BAC as:"
   case res of
     Left messages -> return (messages, workspace)
     Right filepath -> saveBAC filepath workspace
 
 saveBankAs :: (FileAccessControl m, InputControl m) => Workspace -> m ([String], Workspace)
 saveBankAs workspace = do
-  res <- runExceptT $ inputString "file path:"
+  res <- runExceptT $ inputString "save bank as:"
   case res of
     Left messages -> return (messages, workspace)
     Right filepath -> saveBank filepath workspace
 
 openBACFrom :: (FileAccessControl m, InputControl m) => Workspace -> m ([String], Workspace)
 openBACFrom workspace = do
-  res <- runExceptT $ inputString "file path:"
+  res <- runExceptT $ inputString "open BAC from:"
   case res of
     Left messages -> return (messages, workspace)
     Right filepath -> openBAC filepath workspace
 
 openBankFrom :: (FileAccessControl m, InputControl m) => Workspace -> m ([String], Workspace)
 openBankFrom workspace = do
-  res <- runExceptT $ inputString "file path:"
+  res <- runExceptT $ inputString "open bank from:"
   case res of
     Left messages -> return (messages, workspace)
     Right filepath -> openBank filepath workspace
 
 appendBankFrom :: (FileAccessControl m, InputControl m) => Workspace -> m ([String], Workspace)
 appendBankFrom workspace = do
-  res <- runExceptT $ inputString "file path:"
+  res <- runExceptT $ inputString "append bank from:"
   case res of
     Left messages -> return (messages, workspace)
     Right filepath -> appendBank filepath workspace
+
+
+showContents :: Workspace -> ([String], Workspace)
+showContents workspace@(Workspace { bac }) = (contents, workspace)
+  where
+  contents = BAC.serializeWithValue id (Prefix.getBAC bac) |> split (== '\n')
+
+refineContents :: Workspace -> ([String], Workspace)
+refineContents workspace@(Workspace { bac }) =
+  return $ workspace { bac = bac' } |> updateBankBy (updater .> return)
+  where
+  (bac', updater) = Prefix.refine bac

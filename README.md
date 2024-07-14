@@ -21,7 +21,52 @@ This package is for educational purposes, not for practical use, therefore we us
 
 ## How To Build
 
+To build this project, run:
+
 ```
 cabal configure
 cabal build && cabal haddock --haddock-hyperlink-source
 ```
+
+To test, run:
+
+```
+cabal repl --with-ghc=doctest
+```
+
+## CLI Editor
+
+Due to the complexity of this data structure, an interactive interface is needed to provide more convenient way to operate on it.
+
+To use, run:
+
+```
+cabal run edit -- <bac_filepath> <bank_filepath>
+```
+
+Shortcuts:
+
+- `Esc`: cancel, toggle command mode
+- `Tab`: search tokens, auto complete
+- `Alt-Left/Right`: swing a chain
+- `Alt-Enter`: change the slot type (string <-> chain)
+- `Alt-d`: duplicate a slot
+- `Alt-j`: join chains/strings
+- `Alt-i`: find an initial chain
+- `Alt-s`: save BAC and bank
+- `Alt-S`: save bank as another file
+- `Alt-o`: open a bank
+- `Alt-O`: append a bank
+
+Operations:
+
+- **Add/Remove/Alter an edge**
+- **Remove a morphism/object**: will hint you which edges should be added, and ask you to select a set of equations, so that the chains in the bank can be converted.
+- **Add a morphism**: will ask you to select a set of equations, which may still fail.
+- **Add a object**
+- **Interpolate an object**
+- **Split a morphism**: will ask you to partition a set of morphisms which can be splitted.
+- **Merge morphisms**: will ask you select a morphism to be merged.
+- **Split an object on outgoing/incoming parts**: will ask you to partition a set of outgoing/incoming morphisms which can be splitted.  It will duplicate incoming/outgoing edges, whose tokens will be modified.
+- **Merge objects on outgoing/incoming parts**: will ask you select an object to be merged, and select a set of equations to zip incoming/outgoing morphisms.
+

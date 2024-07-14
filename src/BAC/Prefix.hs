@@ -13,6 +13,7 @@ module BAC.Prefix (
   toOrdering,
   comparePrefix,
   strip,
+  recover,
   PrefixBAC,
   Chain,
   Node,
@@ -21,7 +22,6 @@ module BAC.Prefix (
   getBAC,
   validate,
   searchString,
-  recover,
   fromString,
   fromStrings,
   getStrings,
@@ -41,6 +41,7 @@ module BAC.Prefix (
   (==-),
   (===),
   (==~),
+  refine,
   addEdge,
   removeEdge,
   alterEdge,
@@ -135,6 +136,11 @@ strip str [] = Just str
 strip [] _ = Nothing
 strip (h:t) (h':t') = if h == h' then strip t t' else Nothing
 
+recover :: String -> PrefixOrdering -> String
+recover str Equal = str
+recover str (GreaterBy suff) = take (List.length str - List.length suff) str
+recover str (LessBy suff) = str ++ suff
+
 newtype PrefixBAC = PrefixBAC (BAC String)
 
 data Chain = Chain (Arrow String) [Arrow String]
@@ -169,11 +175,6 @@ searchString (PrefixBAC bac) str =
   BAC.arrows bac
   |> concatMap (BAC.target .> BAC.edges)
   |> mapMaybe (BAC.value .> comparePrefix str)
-
-recover :: String -> PrefixOrdering -> String
-recover str Equal = str
-recover str (GreaterBy suff) = take (List.length str - List.length suff) str
-recover str (LessBy suff) = str ++ suff
 
 followString :: BAC String -> String -> Maybe [Arrow String]
 followString = go []
@@ -337,6 +338,19 @@ updateChain_ bac chain =
     let arr0 = foldl BAC.join (BAC.root bac) arrs0
     chain <- followStrings (BAC.target arr0) strs
     return $ Chain arr0 chain
+
+refine :: PrefixBAC -> (PrefixBAC, Chain -> Chain)
+refine (PrefixBAC bac) = (PrefixBAC bac', updateChain_ bac')
+  where
+  syms_mapping = BAC.arrows bac |> fmap \arr ->
+    BAC.target arr
+    |> BAC.arrows
+    |> fmap BAC.symbol
+    |> reverse
+    |> (`zip` [0 :: Symbol ..])
+    |> Map.fromList
+    |> (BAC.symbol arr,)
+  bac' = syms_mapping |> foldl (\bac (sym, mapping) -> fromJust $ Restructure.relabel sym mapping bac) bac
 
 addEdge :: Chain -> String -> PrefixBAC -> Maybe (PrefixBAC, Chain -> Chain)
 addEdge chain str pbac@(PrefixBAC bac) = do
