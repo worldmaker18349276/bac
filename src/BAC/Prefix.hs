@@ -16,7 +16,9 @@ module BAC.Prefix (
   PrefixBAC,
   Chain,
   Node,
+  empty,
   fromBAC,
+  getBAC,
   validate,
   searchString,
   recover,
@@ -143,6 +145,9 @@ allComb :: (a -> a -> Bool) -> [a] -> Bool
 allComb _ [] = True
 allComb f (h:t) = all (f h) t && allComb f t
 
+empty :: PrefixBAC
+empty = PrefixBAC BAC.empty
+
 fromBAC :: BAC String -> Maybe PrefixBAC
 fromBAC bac = do
   let values = BAC.arrows bac
@@ -152,6 +157,9 @@ fromBAC bac = do
   guard $ values |> any (elem ' ') |> not
   guard $ values |> allComb \a b -> isNothing (a `comparePrefix` b)
   return $ PrefixBAC bac
+
+getBAC :: PrefixBAC -> BAC String
+getBAC (PrefixBAC bac) = bac
 
 validate :: PrefixBAC -> Bool
 validate (PrefixBAC bac) = BAC.validateAll bac

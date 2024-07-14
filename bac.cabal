@@ -109,6 +109,7 @@ executable edit
     other-modules:
         Interactive,
         Workspace,
+        Render,
         Editor,
         Utils
     
