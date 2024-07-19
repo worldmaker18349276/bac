@@ -14,9 +14,10 @@ module BAC.Fundamental.Split (
   splitRootNode,
 ) where
 
+import Control.Arrow (first)
 import Control.Monad (guard)
 import Data.Foldable.Extra (notNull)
-import Data.List (sort, sortOn, find)
+import Data.List (find, sort, sortOn)
 import Data.List.Extra (anySame, disjoint, nubSortOn, replace)
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
@@ -27,7 +28,6 @@ import Data.Tuple.Extra (both)
 import BAC.Base
 import Utils.DisjointSet (bipartiteEqclass, bipartiteEqclassOn)
 import Utils.Utils (zipIf, (.>), (|>))
-import Control.Arrow (first)
 
 -- $setup
 -- >>> import BAC.Serialize
@@ -61,16 +61,12 @@ Examples:
 >>> partitionPrefixes (target $ fromJust $ arrow cone 3) 2
 [[(1,1)],[(4,1)]]
 -}
+
 partitionPrefixes :: Monoid e => BAC e -> Symbol -> [[(Symbol, Symbol)]]
 partitionPrefixes node tgt = partitionPrefixesSuffixes node tgt |> fmap (fst .> fmap symbol2)
 
 partitionSuffixes :: Monoid e => BAC e -> Symbol -> [[(Symbol, Symbol)]]
 partitionSuffixes node tgt = partitionPrefixesSuffixes node tgt |> fmap (snd .> fmap symbol2)
-
-prefix2 :: Monoid e => BAC e -> (Arrow e, Arrow e) -> (Arrow e, Arrow e)
-prefix2 node =
-    first (symbol .> prefix node .> head)
-    .> \((arr1, arr2), arr3) -> (arr1, arr2 `join` arr3)
 
 unsplittable :: Monoid e => BAC e -> (Arrow e, Arrow e) -> (Arrow e, Arrow e) -> Bool
 unsplittable node arr_arr1 arr_arr2 =
@@ -78,6 +74,9 @@ unsplittable node arr_arr1 arr_arr2 =
   && (symbol2 arr_arr2 |> \(s1, s2) -> s1 /= base && s2 /= base)
   && sym1 == sym2 && sameGroup
   where
+  prefix2 node' =
+    first (symbol .> prefix node' .> head)
+    .> \((arr1, arr2), arr3) -> (arr1, arr2 `join` arr3)
   sym1 = symbol (uncurry join arr_arr1)
   sym2 = symbol (uncurry join arr_arr2)
   sym_sym1 = prefix2 node arr_arr1 |> symbol2
